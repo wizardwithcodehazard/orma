@@ -11,7 +11,10 @@ from smruti.framework import Smruti, SmrutiInhibitionError, smruti, smrutiInhibi
 from smruti.models import ActionStatus, AntiMemory, CorticalRule, Episode, InhibitionResult
 from smruti.storage.db import DatabaseManager, get_db
 
-__version__ = "0.1.0"
+# Developer ergonomic alias
+SmrutiMemory = Smruti
+
+__version__ = "0.2.0"
 __all__ = [
     "ActionStatus",
     "AntiMemory",

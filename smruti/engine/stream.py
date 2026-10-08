@@ -7,6 +7,7 @@ and autonomic background sleep cycles triggered by turn thresholds.
 
 import json
 import logging
+import re
 import threading
 import time
 from typing import Any
@@ -16,6 +17,31 @@ from smruti.models import ActionStatus, Episode
 from smruti.storage.db import DatabaseManager, get_db
 
 logger = logging.getLogger(__name__)
+
+_SECRET_PATTERNS = [
+    # Generic API Keys (OpenAI, Anthropic, Stripe, etc.)
+    (re.compile(r"sk-[a-zA-Z0-9_\-]{20,}"), "[REDACTED_API_KEY]"),
+    # GitHub Tokens
+    (re.compile(r"(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36}"), "[REDACTED_GITHUB_TOKEN]"),
+    (re.compile(r"github_pat_[a-zA-Z0-9_]{50,}"), "[REDACTED_GITHUB_TOKEN]"),
+    # Bearer Tokens
+    (re.compile(r"(?i)(bearer\s+)[a-zA-Z0-9_\-\.]{20,}"), r"\1[REDACTED_BEARER_TOKEN]"),
+    # AWS Access Key ID
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]"),
+    # Passwords in URLs / connection strings
+    (re.compile(r"(://[^:]+:)[^@]+(@)"), r"\1[REDACTED_PASSWORD]\2"),
+    # Private Keys
+    (re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]"),
+]
+
+def mask_sensitive_data(text: str) -> str:
+    """Masks secrets, credentials, and authentication tokens before persisting to disk."""
+    if not text:
+        return text
+    masked = text
+    for pattern, replacement in _SECRET_PATTERNS:
+        masked = pattern.sub(replacement, masked)
+    return masked
 
 class StreamBuffer:
     def __init__(
@@ -43,14 +69,19 @@ class StreamBuffer:
         """
         Appends an action trajectory into the episodic buffer in sub-millisecond time.
         Zero LLM latency, zero graph blocking.
+        Automatically sanitizes secrets, tokens, and credentials.
         Autonomously fires a non-blocking background consolidation cycle if the
         unconsolidated turn threshold is reached.
         """
+        clean_action = mask_sensitive_data(action)
+        clean_result = mask_sensitive_data(result)
+        clean_context = mask_sensitive_data(context)
+
         episode = Episode(
             session_id=session_id,
-            context=context,
-            action=action,
-            result=result,
+            context=clean_context,
+            action=clean_action,
+            result=clean_result,
             status=status,
             latency_ms=latency_ms,
             metadata=metadata or {},

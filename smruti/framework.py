@@ -108,6 +108,10 @@ class smruti:
             latency_ms=latency_ms
         )
 
+    # Developer aliases
+    check_action = preflight
+    record_episode = record
+
     def recall(
         self,
         query: str = "",

@@ -370,5 +370,34 @@ def test_in_flight_observe_neural_extractor():
             mem.close()
 
 
+def test_stream_buffer_secret_masking(test_env):
+    from smruti.engine.stream import StreamBuffer, mask_sensitive_data
+    from smruti.models import ActionStatus
+
+    # Test masking helper directly
+    raw_api_key = "curl -H 'Authorization: Bearer sk-1234567890abcdef1234567890' https://api.openai.com"
+    masked = mask_sensitive_data(raw_api_key)
+    assert "sk-1234567890" not in masked
+    assert "[REDACTED_API_KEY]" in masked or "[REDACTED_BEARER_TOKEN]" in masked
+
+    raw_gh_token = "git clone https://ghp_1234567890abcdef1234567890abcdef1234@github.com/repo"
+    masked_gh = mask_sensitive_data(raw_gh_token)
+    assert "ghp_1234567890" not in masked_gh
+    assert "[REDACTED_GITHUB_TOKEN]" in masked_gh
+
+    # Test through StreamBuffer.append()
+    stream = StreamBuffer(db=test_env["db"], auto_consolidate=False)
+    ep = stream.append(
+        action="export OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456",
+        result="Connecting to postgres://user:super_secret_pw@db.prod:5432/main",
+        status=ActionStatus.SUCCESS
+    )
+    assert "sk-abcdefgh" not in ep.action
+    assert "[REDACTED_API_KEY]" in ep.action
+    assert "super_secret_pw" not in ep.result
+    assert "[REDACTED_PASSWORD]" in ep.result
+
+
+
 
 

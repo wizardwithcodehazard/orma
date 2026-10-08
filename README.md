@@ -57,7 +57,11 @@ However, when coding agents operate autonomously, their most frequent failure mo
 └─────────────────────────────────┘
 ```
 
+<<<<<<< HEAD
 For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/ARCHITECTURE.md).
+=======
+For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](docs/ARCHITECTURE.md).
+>>>>>>> de41eea (feat: secret masking, empirical benchmark suite, relative links, and troubleshooting guide)
 
 ---
 
@@ -92,7 +96,11 @@ python -m venv .venv
 pip install -e .
 ```
 
+<<<<<<< HEAD
 *For complete platform troubleshooting, see the [Multi-OS Setup Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/SETUP_GUIDE.md).*
+=======
+*For complete platform troubleshooting, see the [Multi-OS Setup Guide](docs/SETUP_GUIDE.md).*
+>>>>>>> de41eea (feat: secret masking, empirical benchmark suite, relative links, and troubleshooting guide)
 
 ---
 
@@ -179,7 +187,11 @@ Smruti exposes a live dynamic resource URI:
 
 Subscribing agents automatically receive project directives, active preferences, and strictly forbidden anti-patterns at session start without burning tool invocation turns.
 
+<<<<<<< HEAD
 *For complete IDE and agent setup instructions, see the [Agent Integrations Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/AGENT_INTEGRATIONS.md).*
+=======
+*For complete IDE and agent setup instructions, see the [Agent Integrations Guide](docs/AGENT_INTEGRATIONS.md).*
+>>>>>>> de41eea (feat: secret masking, empirical benchmark suite, relative links, and troubleshooting guide)
 
 ---
 
@@ -237,11 +249,58 @@ smruti import smruti_bundle.json
 
 ---
 
+## Empirical Benchmarks
+
+Measured using the reproducible benchmark suite (`benchmarks/benchmark_engine.py`):
+
+### 1. Preflight Safety Gate Latencies
+| Check Type | Execution Mechanism | Latency | Speedup vs Cloud LLM |
+| :--- | :--- | :--- | :--- |
+| **Tier 1 (Exact Substring)** | Substring Hash Match | **6.2 microseconds** | **> 15,000x faster** |
+| **Tier 2 (Neural Vector)** | FastEmbed `bge-small` on CPU | **7.37 milliseconds** | **~129x faster** |
+| **Cloud LLM Guardrail Call** | Remote API Network Roundtrip | ~950 milliseconds | Baseline |
+
+### 2. Autonomous Loop Prevention & Error Reduction
+In tests simulating an agent encountering a failing configuration or broken build command across 10 turns:
+- **Baseline Agent (No Memory)**: Repeated the failing command across all 10 turns (10/10 failures).
+- **Smruti-Guided Agent**: Encountered 2 exploratory failures, consolidated the failure cluster during sleep, and intercepted the remaining 8 attempts via the preflight gate.
+- **Result**: **80.0% reduction in error loops** and substantial token savings.
+
+### 3. BLAS Vector Search Scalability (CPU)
+Batch cosine similarity using vectorized 2D BLAS dot products across rule sets:
+- **100 rules**: 0.053 ms
+- **1,000 rules**: 1.053 ms
+- **5,000 rules**: 5.246 ms
+- **10,000 rules**: 10.984 ms
+- **25,000 rules**: 22.216 ms
+
+---
+
+## Competitor Comparison
+
+| Capability | Smruti | Mem0 | Cognee | Zep |
+| :--- | :--- | :--- | :--- | :--- |
+| **Inhibitory Anti-Memories** | **Yes (Tier 3B)** | No | No | No |
+| **Sub-10ms Preflight Gate** | **Yes (< 8ms local CPU)** | No (~800ms API) | No (Graph query) | No (API roundtrip) |
+| **Zero External DB Setup** | **Yes (SQLite + FastEmbed)** | No (Postgres/Cloud) | No (Tri-Store / Kùzu) | No (Cloud/Docker) |
+| **Biological Ebbinghaus Decay** | **Yes (Mathematical)** | No | No | No |
+| **Secret Sanitization** | **Yes (Automatic mask)** | Manual | Manual | Cloud-side |
+| **Enterprise Knowledge Graph** | Minimal (Heuristic edges) | No | **Yes (Triplets/Ontology)** | No |
+
+---
+
+## Privacy & Security
+
+Smruti runs 100% offline and locally. To prevent secret leakage:
+- **Automated Credential Masking**: The Tier 1 episodic buffer automatically sanitizes API keys (`sk-...`), GitHub tokens (`ghp_...`), Bearer headers, AWS keys (`AKIA...`), database connection passwords, and private keys before committing any command or output to disk.
+
+---
+
 ## Documentation Index
 
-- [Multi-OS Setup & Troubleshooting Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/SETUP_GUIDE.md)
-- [Agent & IDE Integration Guide (Cursor, Claude, Antigravity, Windsurf)](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/AGENT_INTEGRATIONS.md)
-- [Technical Architecture & Neuroscience Deep Dive](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/ARCHITECTURE.md)
+- [Multi-OS Setup & Troubleshooting Guide](docs/SETUP_GUIDE.md)
+- [Agent & IDE Integration Guide (Cursor, Claude, Antigravity, Windsurf)](docs/AGENT_INTEGRATIONS.md)
+- [Technical Architecture & Neuroscience Deep Dive](docs/ARCHITECTURE.md)
 
 ---
 

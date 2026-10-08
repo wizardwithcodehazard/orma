@@ -130,3 +130,47 @@ smruti recall "test verification"
 ```
 
 If the heuristic is returned with a strength score > 1.0, your local embeddings and storage pipeline are fully operational.
+
+---
+
+## 5. Troubleshooting & FAQs
+
+### How do I unblock a false positive anti-memory?
+If an anti-memory is overly aggressive and blocks a legitimate action:
+1. List active anti-memories:
+   ```bash
+   smruti status
+   ```
+2. Deactivate the specific pattern using the Python SDK or MCP `smruti_forget`:
+   ```python
+   from smruti import SmrutiMemory
+   mem = SmrutiMemory()
+   mem.inhibitory.deactivate_anti_memory("the_signature_name")
+   mem.close()
+   ```
+
+### How do I reset or wipe the local project memory?
+Simply remove the local `.smruti` directory:
+- **macOS / Linux**: `rm -rf .smruti`
+- **Windows**: `Remove-Item -Recurse -Force .smruti`
+Running `smruti init` will re-provision a clean, empty database.
+
+### What if I see "database is locked" errors during heavy parallel runs?
+Smruti sets `PRAGMA busy_timeout = 5000` by default, giving processes 5 seconds to wait for WAL transactions. If you are running dozens of concurrent subagents, either increase `busy_timeout` or switch to the PostgreSQL backend via `SMRUTI_DATABASE_URL`.
+
+### Migrating from Cognee or Mem0
+If you are moving from Cognee or Mem0:
+1. Export your existing facts to a JSON file with `rule_text` and `category` fields.
+2. Ingest them directly using the Smruti SDK:
+   ```python
+   import json
+   from smruti import SmrutiMemory
+
+   mem = SmrutiMemory()
+   with open("exported_facts.json") as f:
+       facts = json.load(f)
+   for item in facts:
+       mem.remember(item["rule_text"], category=item.get("category", "general"))
+   mem.close()
+   ```
+
