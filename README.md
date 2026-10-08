@@ -57,7 +57,7 @@ However, when coding agents operate autonomously, their most frequent failure mo
 └─────────────────────────────────┘
 ```
 
-For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](file:///c:/Users/Sahil/Desktop/cognee/smriti/docs/ARCHITECTURE.md).
+For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/ARCHITECTURE.md).
 
 ---
 
@@ -70,8 +70,8 @@ Smruti runs 100% locally with zero external API keys required. It uses in-proces
 #### macOS & Linux
 ```bash
 # Clone the repository
-git clone https://github.com/wizardwithcodehazard/smriti.git
-cd smriti
+git clone https://github.com/wizardwithcodehazard/smruti.git
+cd smruti
 
 # Create and activate environment
 python3 -m venv .venv
@@ -83,8 +83,8 @@ pip install -e .
 
 #### Windows (PowerShell)
 ```powershell
-git clone https://github.com/wizardwithcodehazard/smriti.git
-cd smriti
+git clone https://github.com/wizardwithcodehazard/smruti.git
+cd smruti
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -92,7 +92,7 @@ python -m venv .venv
 pip install -e .
 ```
 
-*For complete platform troubleshooting, see the [Multi-OS Setup Guide](file:///c:/Users/Sahil/Desktop/cognee/smriti/docs/SETUP_GUIDE.md).*
+*For complete platform troubleshooting, see the [Multi-OS Setup Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/SETUP_GUIDE.md).*
 
 ---
 
@@ -179,7 +179,7 @@ Smruti exposes a live dynamic resource URI:
 
 Subscribing agents automatically receive project directives, active preferences, and strictly forbidden anti-patterns at session start without burning tool invocation turns.
 
-*For complete IDE and agent setup instructions, see the [Agent Integrations Guide](file:///c:/Users/Sahil/Desktop/cognee/smriti/docs/AGENT_INTEGRATIONS.md).*
+*For complete IDE and agent setup instructions, see the [Agent Integrations Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/AGENT_INTEGRATIONS.md).*
 
 ---
 
@@ -239,9 +239,9 @@ smruti import smruti_bundle.json
 
 ## Documentation Index
 
-- [Multi-OS Setup & Troubleshooting Guide](file:///c:/Users/Sahil/Desktop/cognee/smriti/docs/SETUP_GUIDE.md)
-- [Agent & IDE Integration Guide (Cursor, Claude, Antigravity, Windsurf)](file:///c:/Users/Sahil/Desktop/cognee/smriti/docs/AGENT_INTEGRATIONS.md)
-- [Technical Architecture & Neuroscience Deep Dive](file:///c:/Users/Sahil/Desktop/cognee/smriti/docs/ARCHITECTURE.md)
+- [Multi-OS Setup & Troubleshooting Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/SETUP_GUIDE.md)
+- [Agent & IDE Integration Guide (Cursor, Claude, Antigravity, Windsurf)](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/AGENT_INTEGRATIONS.md)
+- [Technical Architecture & Neuroscience Deep Dive](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/ARCHITECTURE.md)
 
 ---
 
