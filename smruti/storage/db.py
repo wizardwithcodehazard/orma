@@ -8,7 +8,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-from smruti.config import smrutiConfig, get_config
+from smruti.config import get_config, smrutiConfig
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,28 @@ MIGRATIONS = [
             "CREATE INDEX IF NOT EXISTS idx_forgotten_time ON forgotten_audit(forgotten_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_forgotten_type ON forgotten_audit(item_type);",
         ]
+    ),
+    (
+        6,
+        "Native sqlite-vec virtual tables and sync triggers for binary vector search",
+        [
+            """CREATE VIRTUAL TABLE IF NOT EXISTS vec_cortical_rules USING vec0(
+                rule_id TEXT PRIMARY KEY,
+                embedding float[384] distance_metric=cosine
+            );""",
+            """CREATE VIRTUAL TABLE IF NOT EXISTS vec_anti_memories USING vec0(
+                anti_memory_id TEXT PRIMARY KEY,
+                embedding float[384] distance_metric=cosine
+            );""",
+            """CREATE TRIGGER IF NOT EXISTS trg_cortical_rules_vec_del AFTER DELETE ON cortical_rules
+            BEGIN
+                DELETE FROM vec_cortical_rules WHERE rule_id = old.id;
+            END;""",
+            """CREATE TRIGGER IF NOT EXISTS trg_anti_memories_vec_del AFTER DELETE ON anti_memories
+            BEGIN
+                DELETE FROM vec_anti_memories WHERE anti_memory_id = old.id;
+            END;""",
+        ]
     )
 ]
 
@@ -140,6 +162,7 @@ class DatabaseManager:
         self._local = threading.local()
         self._lock = threading.Lock()
         self._all_conns = []
+        self.vec_available: bool = False
         self._ensure_storage()
 
     def _ensure_storage(self) -> None:
@@ -171,16 +194,51 @@ class DatabaseManager:
 
         for version, desc, stmts in MIGRATIONS:
             if version not in existing_versions:
+                if version == 6 and not self.vec_available:
+                    # Skip vec0 virtual table creation if sqlite-vec is unavailable in current environment
+                    logger.warning("sqlite-vec is not available; skipping migration v6 virtual tables.")
+                    continue
+
                 logger.info("Applying database migration v%d: %s", version, desc)
                 for stmt in stmts:
                     try:
                         conn.execute(stmt)
                     except sqlite3.OperationalError as e:
-                        # Handle idempotent re-runs if column already exists
-                        if "duplicate column name" in str(e).lower():
-                            logger.debug("Column already exists in migration v%d: %s", version, e)
+                        # Handle idempotent re-runs if column or table already exists
+                        err_msg = str(e).lower()
+                        if "duplicate column name" in err_msg or "already exists" in err_msg:
+                            logger.debug("Table/column already exists in migration v%d: %s", version, e)
                         else:
                             raise
+
+                # Migration v6 data backfill: Populate vec0 tables and convert legacy JSON embeddings to BLOBs
+                if version == 6 and self.vec_available:
+                    try:
+                        from smruti.storage.embeddings import EmbeddingEngine
+                        c_rows = conn.execute("SELECT id, embedding FROM cortical_rules WHERE embedding IS NOT NULL").fetchall()
+                        for r in c_rows:
+                            emb = r["embedding"]
+                            if emb:
+                                vec_float = EmbeddingEngine.blob_to_vec(emb)
+                                if vec_float:
+                                    blob = EmbeddingEngine.vec_to_blob(vec_float)
+                                    conn.execute("UPDATE cortical_rules SET embedding = ? WHERE id = ?", (blob, r["id"]))
+                                    conn.execute("DELETE FROM vec_cortical_rules WHERE rule_id = ?", (r["id"],))
+                                    conn.execute("INSERT INTO vec_cortical_rules (rule_id, embedding) VALUES (?, ?)", (r["id"], blob))
+
+                        a_rows = conn.execute("SELECT id, embedding FROM anti_memories WHERE embedding IS NOT NULL").fetchall()
+                        for r in a_rows:
+                            emb = r["embedding"]
+                            if emb:
+                                vec_float = EmbeddingEngine.blob_to_vec(emb)
+                                if vec_float:
+                                    blob = EmbeddingEngine.vec_to_blob(vec_float)
+                                    conn.execute("UPDATE anti_memories SET embedding = ? WHERE id = ?", (blob, r["id"]))
+                                    conn.execute("DELETE FROM vec_anti_memories WHERE anti_memory_id = ?", (r["id"],))
+                                    conn.execute("INSERT INTO vec_anti_memories (anti_memory_id, embedding) VALUES (?, ?)", (r["id"], blob))
+                    except Exception as e:
+                        logger.warning("Error migrating legacy embeddings to vec0 tables: %s", e)
+
                 conn.execute(
                     "INSERT INTO schema_version (version, applied_at, description) VALUES (?, ?, ?)",
                     (version, datetime.now(timezone.utc).timestamp(), desc)
@@ -202,6 +260,18 @@ class DatabaseManager:
             conn.execute("PRAGMA busy_timeout = 5000;")
             # Increase page cache to 8 MB (default is 2 MB)
             conn.execute("PRAGMA cache_size = -8000;")
+
+            # Load sqlite-vec extension if available
+            try:
+                import sqlite_vec
+                conn.enable_load_extension(True)
+                sqlite_vec.load(conn)
+                conn.enable_load_extension(False)
+                self.vec_available = True
+            except Exception as e:
+                logger.warning("sqlite-vec extension could not be loaded: %s. Using NumPy fallback.", e)
+                self.vec_available = False
+
             self._local.conn = conn
             with self._lock:
                 self._all_conns.append(conn)

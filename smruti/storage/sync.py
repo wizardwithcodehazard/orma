@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from smruti.storage.db import DatabaseManager
+from smruti.storage.embeddings import EmbeddingEngine
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ class TeamMemoryBundle:
         # 1. Fetch cortical rules
         rules_rows = conn.execute("SELECT * FROM cortical_rules").fetchall()
         rules = [dict(r) for r in rules_rows]
+        for r_dict in rules:
+            raw_emb = r_dict.get("embedding")
+            if raw_emb is not None:
+                r_dict["embedding"] = EmbeddingEngine.blob_to_vec(raw_emb)
 
         # 2. Fetch active anti-memories
         if project_root:
@@ -39,6 +44,10 @@ class TeamMemoryBundle:
         else:
             anti_rows = conn.execute("SELECT * FROM anti_memories WHERE is_active = 1").fetchall()
         anti_memories = [dict(r) for r in anti_rows]
+        for a_dict in anti_memories:
+            raw_emb = a_dict.get("embedding")
+            if raw_emb is not None:
+                a_dict["embedding"] = EmbeddingEngine.blob_to_vec(raw_emb)
 
         # 3. Fetch associative graph edges
         edge_rows = conn.execute("SELECT * FROM rule_edges").fetchall()
@@ -82,6 +91,8 @@ class TeamMemoryBundle:
         rules = bundle.get("cortical_rules", [])
         with conn:
             for r in rules:
+                emb_val = r.get("embedding")
+                emb_blob = EmbeddingEngine.vec_to_blob(EmbeddingEngine.blob_to_vec(emb_val)) if emb_val is not None else None
                 existing = conn.execute("SELECT id FROM cortical_rules WHERE id = ?", (r["id"],)).fetchone()
                 if existing:
                     if overwrite:
@@ -94,10 +105,13 @@ class TeamMemoryBundle:
                             """,
                             (
                                 r["rule_text"], r["category"], r["confidence"], r["base_strength"],
-                                r.get("valence", "positive"), r.get("embedding"),
+                                r.get("valence", "positive"), emb_blob,
                                 r.get("source_episode_ids"), r["id"]
                             )
                         )
+                        if db.vec_available and emb_blob:
+                            conn.execute("DELETE FROM vec_cortical_rules WHERE rule_id = ?", (r["id"],))
+                            conn.execute("INSERT INTO vec_cortical_rules (rule_id, embedding) VALUES (?, ?)", (r["id"], emb_blob))
                         imported_rules += 1
                 else:
                     conn.execute(
@@ -112,15 +126,20 @@ class TeamMemoryBundle:
                             r["id"], r["rule_text"], r["category"], r["confidence"],
                             r.get("access_count", 0), r.get("created_at", 0.0),
                             r.get("last_accessed_at", 0.0), r.get("base_strength", 1.0),
-                            r.get("valence", "positive"), r.get("embedding"),
+                            r.get("valence", "positive"), emb_blob,
                             r.get("source_episode_ids")
                         )
                     )
+                    if db.vec_available and emb_blob:
+                        conn.execute("DELETE FROM vec_cortical_rules WHERE rule_id = ?", (r["id"],))
+                        conn.execute("INSERT INTO vec_cortical_rules (rule_id, embedding) VALUES (?, ?)", (r["id"], emb_blob))
                     imported_rules += 1
 
             # Import anti-memories
             anti_memories = bundle.get("anti_memories", [])
             for a in anti_memories:
+                a_emb_val = a.get("embedding")
+                a_emb_blob = EmbeddingEngine.vec_to_blob(EmbeddingEngine.blob_to_vec(a_emb_val)) if a_emb_val is not None else None
                 conn.execute(
                     """
                     INSERT INTO anti_memories (
@@ -146,9 +165,12 @@ class TeamMemoryBundle:
                         a.get("created_at", 0.0), a.get("last_seen", 0.0),
                         a.get("valence", "inhibitory"), a.get("project_root"),
                         1 if a.get("is_active", True) else 0,
-                        a.get("embedding"), a.get("expires_at")
+                        a_emb_blob, a.get("expires_at")
                     )
                 )
+                if db.vec_available and a_emb_blob:
+                    conn.execute("DELETE FROM vec_anti_memories WHERE anti_memory_id = ?", (a["id"],))
+                    conn.execute("INSERT INTO vec_anti_memories (anti_memory_id, embedding) VALUES (?, ?)", (a["id"], a_emb_blob))
                 imported_anti += 1
 
             # Import rule edges

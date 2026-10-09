@@ -135,6 +135,32 @@ class EmbeddingEngine:
         sims = dots / m_norms
         return np.clip(sims, -1.0, 1.0)
 
+    @staticmethod
+    def vec_to_blob(vec: list[float] | None) -> bytes | None:
+        """Converts a float list to native IEEE 754 float32 byte string (1536 bytes for 384d)."""
+        if vec is None:
+            return None
+        return np.asarray(vec, dtype=np.float32).tobytes()
+
+    @staticmethod
+    def blob_to_vec(blob: bytes | str | list[float] | None) -> list[float] | None:
+        """Converts binary BLOB (or fallback JSON string / list) back to list of floats."""
+        if blob is None:
+            return None
+        if isinstance(blob, bytes):
+            return np.frombuffer(blob, dtype=np.float32).tolist()
+        if isinstance(blob, str):
+            try:
+                import json
+                parsed = json.loads(blob)
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                return None
+        if isinstance(blob, list):
+            return blob
+        return None
+
 
 _global_embedding_engine: EmbeddingEngine | None = None
 

@@ -96,7 +96,7 @@ class InhibitoryGate:
         # Compute neural embedding over signature, pattern, and reason
         embed_payload = f"{clean_sig} {clean_pat} {clean_reason}"
         vec = self.embeddings.embed_text(embed_payload)
-        vec_json = json.dumps(vec)
+        vec_blob = EmbeddingEngine.vec_to_blob(vec)
 
         anti_memory = AntiMemory(
             signature=clean_sig,
@@ -147,10 +147,18 @@ class InhibitoryGate:
                     anti_memory.valence.value,
                     anti_memory.project_root,
                     1 if anti_memory.is_active else 0,
-                    vec_json,
+                    vec_blob,
                     anti_memory.expires_at
                 )
             )
+
+            # Insert or update into vec_anti_memories virtual table
+            if self.db.vec_available and vec_blob:
+                conn.execute("DELETE FROM vec_anti_memories WHERE anti_memory_id = ?", (anti_memory.id,))
+                conn.execute(
+                    "INSERT INTO vec_anti_memories (anti_memory_id, embedding) VALUES (?, ?)",
+                    (anti_memory.id, vec_blob)
+                )
 
         logger.info("Recorded anti-memory '%s' (project: %s, expires_at: %s)", clean_sig, project_root, expires_at)
         return anti_memory
@@ -196,35 +204,25 @@ class InhibitoryGate:
 
         # Compute candidate action embedding for neural semantic matching
         action_vec = self.embeddings.embed_text(normalized_action)
+        action_blob = EmbeddingEngine.vec_to_blob(action_vec) if action_vec else None
 
+        matched_anti_mem: AntiMemory | None = None
+        match_source = "exact"
+        matched_sources: list[str] = []
+        confidence: float = 0.0
+
+        # Tier 1: Fast Substring Containment & Regex on candidate rows
         for r in rows:
             anti_mem = self._row_to_anti_memory(r)
             pattern = anti_mem.pattern
-            is_match = False
-            matched_sources: list[str] = []
-            confidence: float = 0.0
 
-            # Tier 1: Fast Substring Containment
             pat_lower = pattern.lower()
             if pat_lower in combined_text or pat_lower in normalized_action.lower():
-                is_match = True
+                matched_anti_mem = anti_mem
+                match_source = "literal_substring"
                 matched_sources.append("literal_substring")
                 confidence = max(confidence, 1.0)
-
-            # Tier 2: Neural Dense Vector Semantic Matching (eliminates regex brittleness)
-            if anti_mem.embedding and action_vec:
-                sim = EmbeddingEngine.cosine_similarity(action_vec, anti_mem.embedding)
-                # Read-only operations require much higher similarity to trigger a block,
-                # preventing false positives on diagnostic commands like SELECT, ls, cat, grep.
-                effective_threshold = (
-                    _READ_ONLY_THRESHOLD
-                    if _is_read_only_intent(normalized_action)
-                    else self.semantic_threshold
-                )
-                if sim >= effective_threshold:
-                    is_match = True
-                    matched_sources.append(f"semantic_similarity ({sim:.2f})")
-                    confidence = max(confidence, round(float(sim), 4))
+                break
 
             # Fallback legacy regex check for explicit pattern expressions
             if any(c in REGEX_CHARS for c in pattern):
@@ -232,49 +230,100 @@ class InhibitoryGate:
                 if compiled is not None:
                     try:
                         if compiled.search(normalized_action):
-                            is_match = True
+                            matched_anti_mem = anti_mem
+                            match_source = "regex"
                             matched_sources.append("regex")
                             confidence = max(confidence, 1.0)
+                            break
                     except Exception:
                         pass
 
+        # Tier 2: Neural Dense Vector Semantic Matching
+        if matched_anti_mem is None:
+            if self.db.vec_available and action_blob:
+                knn_query = """
+                    SELECT v.anti_memory_id, v.distance, a.*
+                    FROM vec_anti_memories v
+                    JOIN anti_memories a ON a.id = v.anti_memory_id
+                    WHERE v.embedding MATCH ? AND v.k = 5
+                    ORDER BY v.distance
+                """
+                knn_rows = conn.execute(knn_query, (action_blob,)).fetchall()
+                for kr in knn_rows:
+                    anti_mem = self._row_to_anti_memory(kr)
+                    if not anti_mem.is_active:
+                        continue
+                    if anti_mem.expires_at is not None and anti_mem.expires_at <= now:
+                        continue
+                    if project_root and anti_mem.project_root and anti_mem.project_root != project_root.strip():
+                        continue
+
+                    sim = 1.0 - float(kr["distance"])
+                    effective_threshold = (
+                        _READ_ONLY_THRESHOLD
+                        if _is_read_only_intent(normalized_action)
+                        else self.semantic_threshold
+                    )
+                    if sim >= effective_threshold:
+                        matched_anti_mem = anti_mem
+                        match_source = f"semantic_similarity ({sim:.2f})"
+                        matched_sources.append(match_source)
+                        confidence = max(confidence, round(float(sim), 4))
+                        break
+            elif action_vec:
+                # In-memory fallback
+                for r in rows:
+                    anti_mem = self._row_to_anti_memory(r)
+                    if anti_mem.embedding:
+                        sim = EmbeddingEngine.cosine_similarity(action_vec, anti_mem.embedding)
+                        effective_threshold = (
+                            _READ_ONLY_THRESHOLD
+                            if _is_read_only_intent(normalized_action)
+                            else self.semantic_threshold
+                        )
+                        if sim >= effective_threshold:
+                            matched_anti_mem = anti_mem
+                            match_source = f"semantic_similarity ({sim:.2f})"
+                            matched_sources.append(match_source)
+                            confidence = max(confidence, round(float(sim), 4))
+                            break
+
+        if matched_anti_mem is not None:
+            anti_mem = matched_anti_mem
             # Tier 3: Optional LLM Arbiter
-            if is_match and self.llm_evaluator is not None:
-                # Ask LLM's brain to confirm or veto the block
+            if self.llm_evaluator is not None:
                 should_block, llm_reason = self.llm_evaluator(normalized_action, anti_mem)
                 if not should_block:
                     logger.info("LLM Arbiter overrode block for '%s' against action '%s'", anti_mem.signature, normalized_action)
-                    continue
+                    return InhibitionResult(passed=True)
                 if llm_reason:
                     anti_mem.reason = llm_reason
 
-            if is_match:
-                now = datetime.now(timezone.utc).timestamp()
-                with conn:
-                    conn.execute(
-                        """
-                        UPDATE anti_memories
-                        SET times_triggered = times_triggered + 1,
-                            last_seen = ?
-                        WHERE id = ?
-                        """,
-                        (now, anti_mem.id)
-                    )
+            now = datetime.now(timezone.utc).timestamp()
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE anti_memories
+                    SET times_triggered = times_triggered + 1,
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (now, anti_mem.id)
+                )
 
-                sources_str = ", ".join(matched_sources)
-                logger.warning(
-                    "Action '%s' blocked by anti-memory '%s' via %s (confidence: %.2f)",
-                    normalized_action, anti_mem.signature, sources_str, confidence
-                )
-                return InhibitionResult(
-                    passed=False,
-                    matched_signature=anti_mem.signature,
-                    reason=anti_mem.reason,
-                    suggested_fix=anti_mem.suggested_fix,
-                    severity=anti_mem.severity,
-                    confidence=confidence,
-                    matched_sources=matched_sources
-                )
+            logger.warning(
+                "Action '%s' blocked by anti-memory '%s' via %s",
+                normalized_action, anti_mem.signature, match_source
+            )
+            return InhibitionResult(
+                passed=False,
+                matched_signature=anti_mem.signature,
+                reason=f"[{match_source.upper()}] {anti_mem.reason}",
+                suggested_fix=anti_mem.suggested_fix,
+                severity=anti_mem.severity,
+                confidence=confidence,
+                matched_sources=matched_sources
+            )
 
         return InhibitionResult(passed=True)
 
@@ -351,12 +400,13 @@ class InhibitoryGate:
 
     @staticmethod
     def _row_to_anti_memory(r) -> AntiMemory:
-        context_tags = json.loads(r["context_tags"]) if r["context_tags"] else []
-        project_root = r["project_root"] if "project_root" in r.keys() else None
-        is_active = bool(r["is_active"]) if "is_active" in r.keys() else True
-        valence = ValenceType(r["valence"]) if ("valence" in r.keys() and r["valence"]) else ValenceType.INHIBITORY
-        embedding = json.loads(r["embedding"]) if ("embedding" in r.keys() and r["embedding"]) else None
-        expires_at = float(r["expires_at"]) if ("expires_at" in r.keys() and r["expires_at"] is not None) else None
+        r_keys = r.keys() if hasattr(r, "keys") else []
+        context_tags = json.loads(r["context_tags"]) if ("context_tags" in r_keys and r["context_tags"]) else []
+        project_root = r["project_root"] if "project_root" in r_keys else None
+        is_active = bool(r["is_active"]) if "is_active" in r_keys else True
+        valence = ValenceType(r["valence"]) if ("valence" in r_keys and r["valence"]) else ValenceType.INHIBITORY
+        embedding = EmbeddingEngine.blob_to_vec(r["embedding"]) if ("embedding" in r_keys and r["embedding"]) else None
+        expires_at = float(r["expires_at"]) if ("expires_at" in r_keys and r["expires_at"] is not None) else None
 
         return AntiMemory(
             id=r["id"],

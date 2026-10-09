@@ -40,8 +40,19 @@ class smrutiConfig:
 
     @property
     def smruti_dir(self) -> Path:
-        """Finds .smruti in current working directory or ancestors, else creates in cwd."""
+        """Finds .smruti in current working directory or ancestors, else creates in cwd or home directory."""
+        import os
+        env_dir = os.environ.get("SMRUTI_DIR")
+        if env_dir:
+            return Path(env_dir).resolve()
         current = self.project_dir.resolve()
+        if current == Path("/"):
+            return Path.home() / self.smruti_dir_name
+        nearest = current
+        while not nearest.exists() and nearest != nearest.parent:
+            nearest = nearest.parent
+        if nearest == Path("/") or not os.access(nearest, os.W_OK):
+            return Path.home() / self.smruti_dir_name
         for parent in [current, *current.parents]:
             candidate = parent / self.smruti_dir_name
             if candidate.is_dir():

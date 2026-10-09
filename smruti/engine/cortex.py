@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from smruti.config import smrutiConfig, get_config
+from smruti.config import get_config, smrutiConfig
 from smruti.models import CorticalRule, RuleEdge, ValenceType
 from smruti.storage.db import DatabaseManager, get_db
 from smruti.storage.embeddings import EmbeddingEngine, get_embedding_engine
@@ -49,63 +49,89 @@ class Cortex:
         
         # 1. Compute embedding vector for semantic evaluation
         vec = self.embeddings.embed_text(clean_text)
-        vec_json = json.dumps(vec)
+        vec_blob = EmbeddingEngine.vec_to_blob(vec)
 
         conn = self.db.get_connection()
 
         # 2. Semantic Deduplication Check
-        existing_rows = conn.execute("SELECT * FROM cortical_rules").fetchall()
-        for r in existing_rows:
-            # Check exact text match or embedding similarity
-            if r["rule_text"].strip().lower() == clean_text.lower():
-                is_duplicate = True
-                sim = 1.0
+        duplicate_row = None
+        sim = 0.0
+
+        # Exact text match first (O(1))
+        exact_row = conn.execute(
+            "SELECT * FROM cortical_rules WHERE LOWER(TRIM(rule_text)) = LOWER(TRIM(?)) LIMIT 1",
+            (clean_text,)
+        ).fetchone()
+        if exact_row:
+            duplicate_row = exact_row
+            sim = 1.0
+        elif self.db.vec_available and vec_blob:
+            # Native in-SQLite KNN search for nearest semantic neighbor
+            knn_match = conn.execute(
+                """
+                SELECT v.rule_id, v.distance, r.*
+                FROM vec_cortical_rules v
+                JOIN cortical_rules r ON r.id = v.rule_id
+                WHERE v.embedding MATCH ? AND v.k = 1
+                """,
+                (vec_blob,)
+            ).fetchone()
+            if knn_match:
+                dist = float(knn_match["distance"])
+                match_sim = 1.0 - dist
+                if match_sim >= self.config.dedup_similarity_threshold:
+                    duplicate_row = knn_match
+                    sim = match_sim
+        else:
+            # Fallback in-memory scan
+            existing_rows = conn.execute("SELECT * FROM cortical_rules").fetchall()
+            for r in existing_rows:
+                r_vec = EmbeddingEngine.blob_to_vec(r["embedding"]) if r["embedding"] else None
+                if r_vec:
+                    s = EmbeddingEngine.cosine_similarity(vec, r_vec)
+                    if s >= self.config.dedup_similarity_threshold:
+                        duplicate_row = r
+                        sim = s
+                        break
+
+        if duplicate_row is not None:
+            # Reinforce existing rule instead of duplicating
+            existing_rule = self._row_to_rule(duplicate_row)
+            new_strength = min(1.0, existing_rule.base_strength + self.config.reinforcement_boost)
+            new_confidence = max(existing_rule.confidence, confidence)
+            new_count = existing_rule.access_count + 1
+
+            # Merge source episode ids
+            prev_sources = existing_rule.source_episode_ids or []
+            if source_episode_ids:
+                merged_sources = list(set(prev_sources + source_episode_ids))
             else:
-                existing_vec = json.loads(r["embedding"]) if r["embedding"] else None
-                if existing_vec:
-                    sim = EmbeddingEngine.cosine_similarity(vec, existing_vec)
-                else:
-                    sim = 0.0
-                is_duplicate = (sim >= self.config.dedup_similarity_threshold)
+                merged_sources = prev_sources
 
-            if is_duplicate:
-                # Reinforce existing rule instead of duplicating
-                existing_rule = self._row_to_rule(r)
-                new_strength = min(1.0, existing_rule.base_strength + self.config.reinforcement_boost)
-                new_confidence = max(existing_rule.confidence, confidence)
-                new_count = existing_rule.access_count + 1
-
-                # Merge source episode ids
-                prev_sources = existing_rule.source_episode_ids or []
-                if source_episode_ids:
-                    merged_sources = list(set(prev_sources + source_episode_ids))
-                else:
-                    merged_sources = prev_sources
-
-                with conn:
-                    conn.execute(
-                        """
-                        UPDATE cortical_rules
-                        SET access_count = ?,
-                            last_accessed_at = ?,
-                            base_strength = ?,
-                            confidence = ?,
-                            source_episode_ids = ?
-                        WHERE id = ?
-                        """,
-                        (new_count, now, new_strength, new_confidence, json.dumps(merged_sources), existing_rule.id)
-                    )
-
-                existing_rule.access_count = new_count
-                existing_rule.last_accessed_at = now
-                existing_rule.base_strength = new_strength
-                existing_rule.confidence = new_confidence
-                existing_rule.source_episode_ids = merged_sources
-                logger.info(
-                    "Reinforced existing cortical rule '%s' (similarity: %.3f)",
-                    existing_rule.id, sim
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE cortical_rules
+                    SET access_count = ?,
+                        last_accessed_at = ?,
+                        base_strength = ?,
+                        confidence = ?,
+                        source_episode_ids = ?
+                    WHERE id = ?
+                    """,
+                    (new_count, now, new_strength, new_confidence, json.dumps(merged_sources), existing_rule.id)
                 )
-                return existing_rule
+
+            existing_rule.access_count = new_count
+            existing_rule.last_accessed_at = now
+            existing_rule.base_strength = new_strength
+            existing_rule.confidence = new_confidence
+            existing_rule.source_episode_ids = merged_sources
+            logger.info(
+                "Reinforced existing cortical rule '%s' (similarity: %.3f)",
+                existing_rule.id, sim
+            )
+            return existing_rule
 
         # 3. Create and insert new rule
         rule = CorticalRule(
@@ -137,21 +163,46 @@ class Cortex:
                     rule.last_accessed_at,
                     rule.base_strength,
                     rule.valence.value,
-                    vec_json,
+                    vec_blob,
                     json.dumps(rule.source_episode_ids)
                 )
             )
 
+            # Insert into sqlite-vec virtual table if available
+            if self.db.vec_available and vec_blob:
+                conn.execute("DELETE FROM vec_cortical_rules WHERE rule_id = ?", (rule.id,))
+                conn.execute(
+                    "INSERT INTO vec_cortical_rules (rule_id, embedding) VALUES (?, ?)",
+                    (rule.id, vec_blob)
+                )
+
         # 4. Connect associative edges to other semantically related rules
-        for r in existing_rows:
-            other_id = r["id"]
-            if other_id == rule.id:
-                continue
-            other_vec = json.loads(r["embedding"]) if r["embedding"] else None
-            if other_vec:
-                sim = EmbeddingEngine.cosine_similarity(vec, other_vec)
-                if sim >= self.config.associative_edge_threshold:
-                    self._create_edge(rule.id, other_id, sim, now)
+        if self.db.vec_available and vec_blob:
+            max_dist = 1.0 - self.config.associative_edge_threshold
+            knn_edges = conn.execute(
+                """
+                SELECT rule_id, distance
+                FROM vec_cortical_rules
+                WHERE embedding MATCH ? AND k = 20
+                """,
+                (vec_blob,)
+            ).fetchall()
+            for n in knn_edges:
+                other_id = n["rule_id"]
+                if other_id != rule.id:
+                    dist = float(n["distance"])
+                    if dist <= max_dist:
+                        edge_sim = 1.0 - dist
+                        self._create_edge(rule.id, other_id, edge_sim, now)
+        else:
+            existing_rows = conn.execute("SELECT id, embedding FROM cortical_rules WHERE id != ?", (rule.id,)).fetchall()
+            for r in existing_rows:
+                other_id = r["id"]
+                other_vec = EmbeddingEngine.blob_to_vec(r["embedding"]) if r["embedding"] else None
+                if other_vec:
+                    edge_sim = EmbeddingEngine.cosine_similarity(vec, other_vec)
+                    if edge_sim >= self.config.associative_edge_threshold:
+                        self._create_edge(rule.id, other_id, edge_sim, now)
 
         return rule
 
@@ -171,48 +222,98 @@ class Cortex:
         now = current_time or datetime.now(timezone.utc).timestamp()
         conn = self.db.get_connection()
 
-        sql = "SELECT * FROM cortical_rules"
-        params = []
-        if category:
-            sql += " WHERE category = ?"
-            params.append(category)
-
-        rows = conn.execute(sql, params).fetchall()
-        if not rows:
-            return []
-
-        # 1. Compute query vector if query provided
         has_query = bool(query and query.strip())
         query_vec = self.embeddings.embed_text(query) if has_query else None
+        query_blob = EmbeddingEngine.vec_to_blob(query_vec) if query_vec else None
         query_terms = [t.lower() for t in query.split() if len(t) > 2] if has_query else []
 
         rules_by_id: dict[str, CorticalRule] = {}
         base_scores: dict[str, float] = {}
-
-        # Vectorized batch similarity calculation
         sims_by_id: dict[str, float] = {}
-        if has_query and query_vec:
-            vec_list: list[list[float]] = []
-            id_list: list[str] = []
-            for r in rows:
-                rid = r["id"]
-                if rid in self._vec_cache:
-                    v = self._vec_cache[rid]
-                elif r["embedding"]:
-                    v = json.loads(r["embedding"])
-                    self._vec_cache[rid] = v
-                else:
-                    v = None
 
-                if v:
-                    vec_list.append(v)
-                    id_list.append(rid)
+        if self.db.vec_available and has_query and query_blob:
+            # 1. Native KNN candidate search via sqlite-vec
+            candidate_k = max(50, limit * 10)
+            knn_rows = conn.execute(
+                """
+                SELECT rule_id, distance
+                FROM vec_cortical_rules
+                WHERE embedding MATCH ? AND k = ?
+                ORDER BY distance
+                """,
+                (query_blob, candidate_k)
+            ).fetchall()
 
-            if vec_list:
-                matrix = np.asarray(vec_list, dtype=np.float32)
-                sims = EmbeddingEngine.batch_cosine_similarity(query_vec, matrix)
-                for rid, sim in zip(id_list, sims):
-                    sims_by_id[rid] = float(sim)
+            candidate_ids = set()
+            for kr in knn_rows:
+                rid = kr["rule_id"]
+                candidate_ids.add(rid)
+                sims_by_id[rid] = max(0.0, 1.0 - float(kr["distance"]))
+
+            # Also fetch top rules by base strength to guarantee high-strength invariants are included
+            top_strength_rows = conn.execute(
+                "SELECT id FROM cortical_rules ORDER BY (base_strength * confidence) DESC LIMIT 20"
+            ).fetchall()
+            for ts in top_strength_rows:
+                candidate_ids.add(ts["id"])
+
+            # Also pull candidate IDs with exact lexical keyword matches
+            for term in query_terms:
+                lex_rows = conn.execute(
+                    "SELECT id FROM cortical_rules WHERE LOWER(rule_text) LIKE ? LIMIT 10",
+                    (f"%{term}%",)
+                ).fetchall()
+                for lr in lex_rows:
+                    candidate_ids.add(lr["id"])
+
+            if not candidate_ids:
+                return []
+
+            placeholders = ",".join("?" * len(candidate_ids))
+            sql = f"SELECT * FROM cortical_rules WHERE id IN ({placeholders})"
+            params = list(candidate_ids)
+            if category:
+                sql += " AND category = ?"
+                params.append(category)
+
+            rows = conn.execute(sql, params).fetchall()
+        elif not has_query:
+            # No query: fetch top candidates by strength and recency
+            sql = "SELECT * FROM cortical_rules"
+            params = []
+            if category:
+                sql += " WHERE category = ?"
+                params.append(category)
+            sql += " ORDER BY (base_strength * confidence) DESC LIMIT ?"
+            params.append(max(50, limit * 5))
+            rows = conn.execute(sql, params).fetchall()
+        else:
+            # Fallback: full table scan with in-memory NumPy batch similarity
+            sql = "SELECT * FROM cortical_rules"
+            params = []
+            if category:
+                sql += " WHERE category = ?"
+                params.append(category)
+            rows = conn.execute(sql, params).fetchall()
+
+            if rows and has_query and query_vec:
+                vec_list: list[list[float]] = []
+                id_list: list[str] = []
+                for r in rows:
+                    rid = r["id"]
+                    v = EmbeddingEngine.blob_to_vec(r["embedding"]) if r["embedding"] else None
+                    if v:
+                        vec_list.append(v)
+                        id_list.append(rid)
+
+                if vec_list:
+                    matrix = np.asarray(vec_list, dtype=np.float32)
+                    sims = EmbeddingEngine.batch_cosine_similarity(query_vec, matrix)
+                    for rid, sim in zip(id_list, sims):
+                        sims_by_id[rid] = float(sim)
+
+        if not rows:
+            return []
 
         for r in rows:
             rule = self._row_to_rule(r)
@@ -244,7 +345,6 @@ class Cortex:
         for er in edge_rows:
             id_a, id_b, weight = er["rule_id_a"], er["rule_id_b"], float(er["weight"])
             if id_a in base_scores and id_b in final_scores:
-                # Activation spreads from id_a to id_b
                 spread_from_a = base_scores[id_a] * weight * self.config.spreading_activation_factor
                 final_scores[id_b] += spread_from_a
 
@@ -252,6 +352,7 @@ class Cortex:
         ranked = [
             (rules_by_id[rule_id], score)
             for rule_id, score in final_scores.items()
+            if rule_id in rules_by_id
         ]
         ranked.sort(key=lambda x: x[1], reverse=True)
         top_rules = ranked[:limit]
@@ -390,9 +491,10 @@ class Cortex:
 
     @staticmethod
     def _row_to_rule(r) -> CorticalRule:
-        embedding = json.loads(r["embedding"]) if ("embedding" in r and r["embedding"]) else None
-        source_ids = json.loads(r["source_episode_ids"]) if ("source_episode_ids" in r and r["source_episode_ids"]) else []
-        valence = ValenceType(r["valence"]) if ("valence" in r and r["valence"]) else ValenceType.POSITIVE
+        r_keys = r.keys() if hasattr(r, "keys") else []
+        embedding = EmbeddingEngine.blob_to_vec(r["embedding"]) if ("embedding" in r_keys and r["embedding"]) else None
+        source_ids = json.loads(r["source_episode_ids"]) if ("source_episode_ids" in r_keys and r["source_episode_ids"]) else []
+        valence = ValenceType(r["valence"]) if ("valence" in r_keys and r["valence"]) else ValenceType.POSITIVE
 
         return CorticalRule(
             id=r["id"],
