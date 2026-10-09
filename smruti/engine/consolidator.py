@@ -225,7 +225,7 @@ class Consolidator:
         """Deletes anti-memories whose expires_at timestamp has passed, logging an audit trail."""
         import uuid
         conn = self.db.get_connection()
-        with conn:
+        with self.db.write_transaction(conn):
             expired_rows = conn.execute(
                 "SELECT * FROM anti_memories WHERE expires_at IS NOT NULL AND expires_at < ?",
                 (now,)

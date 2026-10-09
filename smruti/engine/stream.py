@@ -5,9 +5,12 @@ Supports unconsolidated queries, batch consolidation marking, retention sweeps,
 and autonomic background sleep cycles triggered by turn thresholds.
 """
 
+import atexit
 import json
 import logging
+import queue
 import re
+import sqlite3
 import threading
 import time
 from typing import Any
@@ -48,13 +51,136 @@ class StreamBuffer:
         self,
         db: DatabaseManager | None = None,
         config: smrutiConfig | None = None,
-        auto_consolidate: bool = True
+        auto_consolidate: bool = True,
+        use_queue: bool | None = None
     ):
         self.config = config or get_config()
         self.db = db or get_db(self.config)
         self.auto_consolidate = auto_consolidate and self.config.auto_consolidate
+        self.use_queue = use_queue if use_queue is not None else getattr(self.config, "use_queue_worker", True)
         self._consolidating = False
         self._consolidate_lock = threading.Lock()
+
+        self._queue: queue.Queue = queue.Queue()
+        self._stop_event = threading.Event()
+        self._closed = False
+        self._worker_thread: threading.Thread | None = None
+
+        if self.use_queue:
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                name="smruti-stream-writer",
+                daemon=True
+            )
+            self._worker_thread.start()
+            if hasattr(self.db, "register_stream"):
+                self.db.register_stream(self)
+
+    def _worker_loop(self) -> None:
+        """Dedicated background writer thread that consumes queued episodes and writes in batches."""
+        batch_size = getattr(self.config, "queue_batch_size", 100)
+        while not self._stop_event.is_set():
+            try:
+                item = self._queue.get(timeout=0.02)
+            except queue.Empty:
+                continue
+
+            batch = [item]
+            while len(batch) < batch_size:
+                try:
+                    batch.append(self._queue.get_nowait())
+                except queue.Empty:
+                    break
+
+            try:
+                self._write_batch(batch)
+            except Exception as e:
+                logger.error("Error writing episode batch in queue worker: %s", e)
+            finally:
+                for _ in batch:
+                    self._queue.task_done()
+
+        # Drain any remaining items after stop_event
+        remaining = []
+        while True:
+            try:
+                remaining.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+        if remaining:
+            try:
+                self._write_batch(remaining)
+            except Exception as e:
+                logger.error("Error writing remaining episode batch in queue worker: %s", e)
+            finally:
+                for _ in remaining:
+                    self._queue.task_done()
+
+    def _write_batch(self, batch: list[tuple[Episode, threading.Event | None, list]]) -> None:
+        if not batch:
+            return
+
+        def _insert_all(conn: sqlite3.Connection):
+            conn.executemany(
+                """
+                INSERT INTO episodes (
+                    id, timestamp, session_id, context, action, result, status,
+                    latency_ms, metadata_json, consolidated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        ep.id,
+                        ep.timestamp,
+                        ep.session_id,
+                        ep.context,
+                        ep.action,
+                        ep.result,
+                        ep.status.value,
+                        ep.latency_ms,
+                        json.dumps(ep.metadata),
+                        None
+                    )
+                    for ep, _, _ in batch
+                ]
+            )
+
+        err = None
+        try:
+            self.db.execute_write(_insert_all)
+        except Exception as e:
+            err = e
+            raise
+        finally:
+            for _, event, err_container in batch:
+                if event is not None:
+                    if err is not None:
+                        err_container.append(err)
+                    event.set()
+
+        # Trigger autonomic background consolidation if threshold reached
+        if self.auto_consolidate:
+            sessions = {ep.session_id for ep, _, _ in batch}
+            for sid in sessions:
+                self._check_and_trigger_auto_consolidation(sid)
+
+    def flush(self, timeout: float | None = 5.0) -> None:
+        """Blocks until all queued episodes have been persisted to SQLite."""
+        if not self.use_queue:
+            return
+        if self._queue.unfinished_tasks > 0:
+            self._queue.join()
+
+    def close(self, timeout: float = 1.0) -> None:
+        """Flushes pending writes and stops the queue worker thread."""
+        if self._closed:
+            return
+        self._closed = True
+        self.flush()
+        self._stop_event.set()
+        if self._worker_thread and self._worker_thread.is_alive():
+            if threading.current_thread() != self._worker_thread:
+                self._worker_thread.join(timeout=timeout)
 
     def append(
         self,
@@ -64,7 +190,8 @@ class StreamBuffer:
         context: str = "",
         latency_ms: float = 0.0,
         session_id: str = "default_session",
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
+        sync: bool = True
     ) -> Episode:
         """
         Appends an action trajectory into the episodic buffer in sub-millisecond time.
@@ -88,8 +215,20 @@ class StreamBuffer:
             consolidated_at=None
         )
 
-        conn = self.db.get_connection()
-        with conn:
+        if self.use_queue and not self._closed:
+            if sync:
+                event = threading.Event()
+                err_container = []
+                self._queue.put((episode, event, err_container))
+                event.wait()
+                if err_container:
+                    raise err_container[0]
+            else:
+                self._queue.put((episode, None, []))
+            return episode
+
+        # Direct write path (when queue disabled or stream closed)
+        def _insert(conn: sqlite3.Connection):
             conn.execute(
                 """
                 INSERT INTO episodes (
@@ -110,6 +249,8 @@ class StreamBuffer:
                     None
                 )
             )
+
+        self.db.execute_write(_insert)
 
         # Autonomic background sleep threshold check
         if self.auto_consolidate:
@@ -163,6 +304,7 @@ class StreamBuffer:
 
     def get_recent(self, limit: int = 50, session_id: str | None = None) -> list[Episode]:
         """Retrieves recent episodes ordered chronologically descending."""
+        self.flush()
         query = "SELECT * FROM episodes"
         params = []
         if session_id:
@@ -178,6 +320,7 @@ class StreamBuffer:
 
     def get_unconsolidated(self, limit: int = 200, session_id: str | None = None) -> list[Episode]:
         """Retrieves raw episodes that have not yet been processed by a sleep consolidation cycle."""
+        self.flush()
         query = "SELECT * FROM episodes WHERE consolidated_at IS NULL"
         params = []
         if session_id:
@@ -194,8 +337,9 @@ class StreamBuffer:
         """Marks a batch of episodes as consolidated."""
         if not episode_ids:
             return 0
+        self.flush()
         conn = self.db.get_connection()
-        with conn:
+        with self.db.write_transaction(conn):
             placeholders = ",".join(["?"] * len(episode_ids))
             cur = conn.execute(
                 f"UPDATE episodes SET consolidated_at = ? WHERE id IN ({placeholders})",
@@ -206,8 +350,9 @@ class StreamBuffer:
     def prune_older_than(self, retention_seconds: float, only_consolidated: bool = True) -> int:
         """Prunes historical episodes older than retention threshold to prevent disk bloat."""
         cutoff_time = time.time() - retention_seconds
+        self.flush()
         conn = self.db.get_connection()
-        with conn:
+        with self.db.write_transaction(conn):
             if only_consolidated:
                 cur = conn.execute(
                     "DELETE FROM episodes WHERE timestamp < ? AND consolidated_at IS NOT NULL",
@@ -219,6 +364,7 @@ class StreamBuffer:
 
     def count(self, session_id: str | None = None) -> int:
         """Returns total episode count."""
+        self.flush()
         query = "SELECT COUNT(*) FROM episodes"
         params = []
         if session_id:

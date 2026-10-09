@@ -37,6 +37,14 @@ class smrutiConfig:
     backend_type: str = "sqlite"
     postgres_url: str | None = None
 
+    # SQLite concurrency & write retry settings
+    busy_timeout_ms: int = 5000
+    write_max_retries: int = 5
+    write_base_delay: float = 0.02
+    write_max_delay: float = 0.5
+    use_queue_worker: bool = True
+    queue_batch_size: int = 100
+
 
     @property
     def smruti_dir(self) -> Path:
@@ -46,9 +54,19 @@ class smrutiConfig:
         Prevents polluting application installation directories.
         """
         import os
+        import tempfile
         env_dir = os.environ.get("SMRUTI_DIR")
         if env_dir:
             return Path(env_dir).resolve()
+
+        def _safe_fallback() -> Path:
+            try:
+                home = Path.home()
+                if home != Path("/") and os.access(home, os.W_OK):
+                    return home / self.smruti_dir_name
+            except Exception:
+                pass
+            return Path(tempfile.gettempdir()) / self.smruti_dir_name
 
         current = self.project_dir.resolve()
 
@@ -108,11 +126,14 @@ class smrutiConfig:
                 pass
 
             # Safe global fallback for agent daemons
-            return Path.home() / self.smruti_dir_name
+            return _safe_fallback()
 
-        # 4. Standard fallback in writable project directory
-        if not os.access(current, os.W_OK) or current == Path("/"):
-            return Path.home() / self.smruti_dir_name
+        # 4. Standard fallback in writable project directory (nearest existing ancestor must be writable)
+        nearest = current
+        while not nearest.exists() and nearest != nearest.parent:
+            nearest = nearest.parent
+        if current == Path("/") or nearest == Path("/") or not os.access(nearest, os.W_OK):
+            return _safe_fallback()
 
         return current / self.smruti_dir_name
 

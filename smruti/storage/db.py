@@ -4,13 +4,37 @@ automatic schema migrations, and safe connection lifecycle management.
 """
 
 import logging
+import random
 import sqlite3
 import threading
+import time
+import weakref
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Any, Callable, TypeVar
 
 from smruti.config import get_config, smrutiConfig
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+def is_db_locked_error(exc: Exception) -> bool:
+    """Checks if an exception is an SQLite lock contention error."""
+    if isinstance(exc, sqlite3.OperationalError):
+        msg = str(exc).lower()
+        if "locked" in msg or "busy" in msg:
+            return True
+        if hasattr(exc, "sqlite_errorcode"):
+            if exc.sqlite_errorcode in (5, 6):  # SQLITE_BUSY = 5, SQLITE_LOCKED = 6
+                return True
+    return False
+
+def calculate_backoff(attempt: int, base_delay: float = 0.02, max_delay: float = 0.5) -> float:
+    """Calculates exponential backoff with jitter for lock retry."""
+    delay = min(max_delay, base_delay * (2 ** attempt))
+    jitter = random.uniform(0.5, 1.0)
+    return delay * jitter
 
 # Base schema (Version 1)
 SCHEMA_V1_SQL = """
@@ -162,8 +186,14 @@ class DatabaseManager:
         self._local = threading.local()
         self._lock = threading.Lock()
         self._all_conns = []
+        self._streams = []
         self.vec_available: bool = False
         self._ensure_storage()
+
+    def register_stream(self, stream: Any) -> None:
+        """Registers a StreamBuffer instance to be cleanly flushed and closed when db closes."""
+        with self._lock:
+            self._streams.append(weakref.ref(stream))
 
     def _ensure_storage(self) -> None:
         """Ensures .smruti directory, WAL mode, and migrations are applied."""
@@ -257,7 +287,8 @@ class DatabaseManager:
 
             conn.row_factory = sqlite3.Row
             # Retry writes internally for up to 5s before raising OperationalError
-            conn.execute("PRAGMA busy_timeout = 5000;")
+            busy_timeout = getattr(self.config, "busy_timeout_ms", 5000)
+            conn.execute(f"PRAGMA busy_timeout = {busy_timeout};")
             # Increase page cache to 8 MB (default is 2 MB)
             conn.execute("PRAGMA cache_size = -8000;")
 
@@ -277,9 +308,118 @@ class DatabaseManager:
                 self._all_conns.append(conn)
         return self._local.conn
 
+    @contextmanager
+    def write_transaction(
+        self,
+        conn: sqlite3.Connection | None = None,
+        max_retries: int | None = None,
+        base_delay: float | None = None,
+        max_delay: float | None = None
+    ):
+        """
+        Context manager for write transactions with exponential backoff and jitter.
+        Uses BEGIN IMMEDIATE to prevent multi-writer deadlocks.
+        """
+        c = conn or self.get_connection()
+        if c.in_transaction:
+            yield c
+            return
+
+        retries = max_retries if max_retries is not None else getattr(self.config, "write_max_retries", 5)
+        b_delay = base_delay if base_delay is not None else getattr(self.config, "write_base_delay", 0.02)
+        m_delay = max_delay if max_delay is not None else getattr(self.config, "write_max_delay", 0.5)
+
+        for attempt in range(retries):
+            try:
+                c.execute("BEGIN IMMEDIATE;")
+                break
+            except Exception as e:
+                try:
+                    c.rollback()
+                except Exception:
+                    pass
+                if is_db_locked_error(e) and attempt < retries - 1:
+                    sleep_s = calculate_backoff(attempt, b_delay, m_delay)
+                    logger.warning(
+                        "SQLite lock contention acquiring transaction (attempt %d/%d): %s. Retrying in %.3fs...",
+                        attempt + 1, retries, e, sleep_s
+                    )
+                    time.sleep(sleep_s)
+                    continue
+                raise
+
+        try:
+            yield c
+            c.commit()
+        except Exception:
+            try:
+                c.rollback()
+            except Exception:
+                pass
+            raise
+
+    def execute_write(
+        self,
+        target: Any,
+        params: Any = (),
+        conn: sqlite3.Connection | None = None,
+        max_retries: int | None = None,
+        base_delay: float | None = None,
+        max_delay: float | None = None
+    ) -> Any:
+        """
+        Executes a callable or SQL statement inside an immediate write transaction
+        with exponential backoff and jitter retry on database lock contention.
+        """
+        c = conn or self.get_connection()
+        retries = max_retries if max_retries is not None else getattr(self.config, "write_max_retries", 5)
+        b_delay = base_delay if base_delay is not None else getattr(self.config, "write_base_delay", 0.02)
+        m_delay = max_delay if max_delay is not None else getattr(self.config, "write_max_delay", 0.5)
+
+        last_error = None
+        for attempt in range(retries):
+            try:
+                if not c.in_transaction:
+                    c.execute("BEGIN IMMEDIATE;")
+
+                if callable(target):
+                    result = target(c)
+                else:
+                    result = c.execute(target, params)
+
+                c.commit()
+                return result
+            except Exception as e:
+                last_error = e
+                try:
+                    c.rollback()
+                except Exception:
+                    pass
+
+                if is_db_locked_error(e) and attempt < retries - 1:
+                    sleep_s = calculate_backoff(attempt, b_delay, m_delay)
+                    logger.warning(
+                        "SQLite lock contention during write (attempt %d/%d): %s. Retrying in %.3fs...",
+                        attempt + 1, retries, e, sleep_s
+                    )
+                    time.sleep(sleep_s)
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+
     def close(self) -> None:
-        """Closes all open connections for this manager."""
+        """Closes all open connections and registered streams for this manager."""
         with self._lock:
+            for ref in list(self._streams):
+                s = ref()
+                if s is not None:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+            self._streams.clear()
             for conn in self._all_conns:
                 try:
                     conn.close()

@@ -113,7 +113,7 @@ class InhibitoryGate:
         )
 
         conn = self.db.get_connection()
-        with conn:
+        with self.db.write_transaction(conn):
             conn.execute(
                 """
                 INSERT INTO anti_memories (
@@ -300,7 +300,7 @@ class InhibitoryGate:
                     anti_mem.reason = llm_reason
 
             now = datetime.now(timezone.utc).timestamp()
-            with conn:
+            with self.db.write_transaction(conn):
                 conn.execute(
                     """
                     UPDATE anti_memories
@@ -332,7 +332,7 @@ class InhibitoryGate:
         import uuid
         conn = self.db.get_connection()
         key = signature_or_id.strip()
-        with conn:
+        with self.db.write_transaction(conn):
             row = conn.execute("SELECT * FROM anti_memories WHERE signature = ? OR id = ?", (key, key)).fetchone()
             if row:
                 audit_id = str(uuid.uuid4())

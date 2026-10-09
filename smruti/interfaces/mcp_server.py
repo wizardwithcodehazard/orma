@@ -128,7 +128,7 @@ def smruti_record_anti_memory(
     # Persist expires_at if provided (record_anti_memory doesn't expose it yet)
     if expires_at is not None:
         conn = inhibitory.db.get_connection()
-        with conn:
+        with inhibitory.db.write_transaction(conn):
             conn.execute(
                 "UPDATE anti_memories SET expires_at = ? WHERE id = ?",
                 (expires_at, anti.id)

@@ -89,7 +89,7 @@ class TeamMemoryBundle:
 
         # Import cortical rules
         rules = bundle.get("cortical_rules", [])
-        with conn:
+        with db.write_transaction(conn):
             for r in rules:
                 emb_val = r.get("embedding")
                 emb_blob = EmbeddingEngine.vec_to_blob(EmbeddingEngine.blob_to_vec(emb_val)) if emb_val is not None else None
