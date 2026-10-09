@@ -98,7 +98,8 @@ class Cortex:
             # Reinforce existing rule instead of duplicating
             existing_rule = self._row_to_rule(duplicate_row)
             new_strength = min(1.0, existing_rule.base_strength + self.config.reinforcement_boost)
-            new_confidence = max(existing_rule.confidence, confidence)
+            # Each independent re-observation is evidence: raise confidence a step
+            new_confidence = min(1.0, max(existing_rule.confidence, confidence) + 0.1)
             new_count = existing_rule.access_count + 1
 
             # Merge source episode ids

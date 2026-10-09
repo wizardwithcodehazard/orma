@@ -15,13 +15,30 @@ from typing import Any
 
 from smruti.config import smrutiConfig, get_config
 from smruti.engine.cortex import Cortex
-from smruti.engine.inhibitory import ADVISORY_SEVERITY, LEARNED_SIGNATURE_PREFIX, InhibitoryGate
+from smruti.engine.inhibitory import (
+    ADVISORY_SEVERITY,
+    LEARNED_SIGNATURE_PREFIX,
+    InhibitoryGate,
+    _is_read_only_intent,
+)
 from smruti.engine.llm import LLMClient
 from smruti.engine.stream import StreamBuffer
 from smruti.models import ActionStatus, Episode
 from smruti.storage.db import DatabaseManager, get_db
 
 logger = logging.getLogger(__name__)
+
+# Category of rules distilled automatically by the sleep cycle (subject to decay)
+LEARNED_RULE_CATEGORY = "problem_resolution"
+
+_STOP_TOKENS = frozenset({
+    "the", "and", "for", "not", "with", "from", "error", "failed", "file", "line",
+    "found", "command", "sudo", "run", "exit", "code", "true", "false",
+})
+
+
+def _meaningful_tokens(text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9_.\-]{3,}", text.lower()) if t not in _STOP_TOKENS}
 
 class Consolidator:
     def __init__(
@@ -161,7 +178,11 @@ class Consolidator:
             lookahead_limit = min(len(episodes), i + 5)
             for j in range(i + 1, lookahead_limit):
                 succ_ep = episodes[j]
-                if succ_ep.status == ActionStatus.SUCCESS and succ_ep.session_id == curr_ep.session_id:
+                if (
+                    succ_ep.status == ActionStatus.SUCCESS
+                    and succ_ep.session_id == curr_ep.session_id
+                    and self._is_plausible_fix(curr_ep, succ_ep)
+                ):
                     pair_key = (curr_ep.action.strip(), succ_ep.action.strip())
                     if pair_key in processed_pairs:
                         break
@@ -173,17 +194,18 @@ class Consolidator:
                         try:
                             rule_text = self.llm_summarizer("causal_resolution", transitions)
                         except Exception:
-                            rule_text = f"When '{curr_ep.action}' fails, use '{succ_ep.action}' instead."
+                            rule_text = f"When '{curr_ep.action}' fails, '{succ_ep.action}' resolved it."
                     elif self.llm_client.is_configured():
                         rule_text = self.llm_client.distill_resolution_heuristic(transitions)
                     else:
-                        rule_text = f"When '{curr_ep.action}' fails, use '{succ_ep.action}' instead."
+                        rule_text = f"When '{curr_ep.action}' fails, '{succ_ep.action}' resolved it."
 
                     self.cortex.add_rule(
                         rule_text=rule_text,
-                        category="problem_resolution",
-                        confidence=0.9,
-                        base_strength=0.9,
+                        category=LEARNED_RULE_CATEGORY,
+                        # Start tentative; re-observing the same fix raises confidence via add_rule dedup
+                        confidence=0.5,
+                        base_strength=0.5,
                         source_episode_ids=[curr_ep.id, succ_ep.id]
                     )
                     promoted_rules += 1
@@ -231,6 +253,20 @@ class Consolidator:
         """Last non-empty output line with numbers masked, e.g. "ModuleNotFoundError: No module named 'torch'"."""
         lines = [ln.strip() for ln in (result or "").splitlines() if ln.strip()]
         return re.sub(r"\d+", "N", lines[-1])[:120] if lines else "non-zero exit"
+
+    @staticmethod
+    def _is_plausible_fix(failed: Episode, fix: Episode) -> bool:
+        """
+        A later success counts as the fix only if it changes something related to the failure:
+        not a read-only inspection, not a blind retry, and sharing a meaningful token with the
+        failed command or its error (e.g. 'pip install torch' after "No module named 'torch'").
+        """
+        if _is_read_only_intent(fix.action):
+            return False
+        if Consolidator._normalize_command(fix.action) == Consolidator._normalize_command(failed.action):
+            return False
+        fix_tokens = _meaningful_tokens(fix.action)
+        return bool(fix_tokens & _meaningful_tokens(f"{failed.action} {failed.result}"))
 
     @staticmethod
     def _slugify(text: str) -> str:

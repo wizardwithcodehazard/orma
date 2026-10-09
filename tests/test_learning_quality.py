@@ -111,3 +111,44 @@ def test_learned_failures_expire(mem):
     consolidator.sleep()
     (anti,) = [a for a in gate.list_all() if a.pattern == "make deploy"]
     assert anti.expires_at is not None
+
+
+def test_unrelated_success_is_not_learned_as_fix(mem):
+    stream, _, cortex, consolidator = mem
+    stream.append("python train.py", result="ModuleNotFoundError: No module named 'torch'", status=FAIL)
+    stream.append("cat README.md", result="# Project", status=OK)          # read-only, not a fix
+    stream.append("git commit -m wip", result="1 file changed", status=OK)  # unrelated
+    report = consolidator.sleep()
+
+    assert report["promoted_positive_rules"] == 0
+    assert cortex.count() == 0
+
+
+def test_related_fix_is_learned_tentatively_then_strengthened(mem):
+    stream, _, cortex, consolidator = mem
+    stream.append("python train.py", result="ModuleNotFoundError: No module named 'torch'", status=FAIL)
+    stream.append("cat README.md", result="# Project", status=OK)
+    stream.append("pip install torch", result="Successfully installed torch", status=OK)
+    consolidator.sleep()
+
+    (rule,) = [r for r, _ in cortex.recall_rules("torch")]
+    assert "pip install torch" in rule.rule_text
+    assert rule.confidence == 0.5
+
+    stream.append("python train.py", result="ModuleNotFoundError: No module named 'torch'", status=FAIL)
+    stream.append("pip install torch", result="Successfully installed torch", status=OK)
+    consolidator.sleep()
+
+    (rule,) = [r for r, _ in cortex.recall_rules("torch")]
+    assert rule.confidence > 0.5
+
+
+def test_distinct_learned_rules_are_not_merged(mem):
+    stream, _, cortex, consolidator = mem
+    stream.append("npm run build", result="Cannot find module 'vite'", status=FAIL)
+    stream.append("npm install vite", result="added 1 package", status=OK)
+    stream.append("pytest tests/", result="No module named 'requests'", status=FAIL)
+    stream.append("pip install requests", result="Successfully installed requests", status=OK)
+    consolidator.sleep()
+
+    assert cortex.count() == 2

@@ -71,4 +71,4 @@ class LLMClient:
 
         # Baseline zero-cost heuristic
         t = transitions[0]
-        return f"When '{t.get('failed_action')}' fails, use '{t.get('fix_action')}' instead."
+        return f"When '{t.get('failed_action')}' fails, '{t.get('fix_action')}' resolved it."

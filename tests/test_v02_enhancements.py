@@ -449,7 +449,7 @@ def test_llm_providers_and_distillation(test_env):
         {"failed_action": "npm run build", "fix_action": "npm install && npm run build"}
     ]
     heuristic_rule = default_client.distill_resolution_heuristic(transitions)
-    assert "When 'npm run build' fails, use 'npm install && npm run build' instead." in heuristic_rule
+    assert "When 'npm run build' fails, 'npm install && npm run build' resolved it." in heuristic_rule
 
     # 2. Test host agent in-memory summarizer hook injection
     def mock_agent_brain(task_type: str, payload: list) -> str:
