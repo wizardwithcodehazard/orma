@@ -429,40 +429,47 @@ def test_inhibition_result_confidence_and_diagnostics(test_env):
 
 
 def test_llm_providers_and_distillation(test_env):
-    from smruti.engine.llm import LLMClient, BaseLLMProvider, HeuristicFallbackProvider
+    from smruti.engine.llm import LLMClient
     from smruti.engine.consolidator import Consolidator
     from smruti.models import ActionStatus
 
-    # 1. Test fallback provider when unconfigured
+    # 1. Test fallback when unconfigured (Occam's razor: zero API keys needed)
     default_client = LLMClient()
     assert default_client.is_configured() is False
-    assert default_client.get_provider_name() == "HeuristicFallbackProvider"
 
-    # 2. Test custom mock LLM provider injection
-    class MockNeuralProvider(BaseLLMProvider):
-        def is_available(self) -> bool:
-            return True
+    # Heuristic fallback for failure cluster
+    cluster = [
+        {"action": "npm run build", "result": "RollupError: Could not resolve ./missing"}
+    ]
+    heuristic_reason = default_client.summarize_failure_cluster(cluster)
+    assert "Repeated failures in 'npm run build'" in heuristic_reason
 
-        def evaluate_preflight(self, action, anti_memory):
-            return (True, "Mock blocked")
+    # Heuristic fallback for causal transition
+    transitions = [
+        {"failed_action": "npm run build", "fix_action": "npm install && npm run build"}
+    ]
+    heuristic_rule = default_client.distill_resolution_heuristic(transitions)
+    assert "When 'npm run build' fails, use 'npm install && npm run build' instead." in heuristic_rule
 
-        def summarize_failure(self, cluster_data):
-            return "Neural Distillation: Port 8080 collision caused by zombie process"
+    # 2. Test host agent in-memory summarizer hook injection
+    def mock_agent_brain(task_type: str, payload: list) -> str:
+        if task_type == "failure_summary":
+            return "Agent Brain Distillation: Port 8080 collision caused by zombie process"
+        if task_type == "causal_resolution":
+            return "Agent Brain Distillation: When port 8080 is blocked, kill PID with lsof before restart"
+        return "default"
 
-        def distill_resolution(self, transitions):
-            return "Neural Distillation: When port 8080 is blocked, kill PID with lsof before restart"
+    agent_client = LLMClient(summarizer=mock_agent_brain)
+    assert agent_client.is_configured() is True
+    assert agent_client.summarize_failure_cluster(cluster) == "Agent Brain Distillation: Port 8080 collision caused by zombie process"
 
-    mock_client = LLMClient(provider=MockNeuralProvider())
-    assert mock_client.is_configured() is True
-    assert mock_client.get_provider_name() == "MockNeuralProvider"
-
-    # 3. Test sleep consolidation with mock neural provider
+    # 3. Test sleep consolidation with host agent brain hook
     consolidator = Consolidator(
         db=test_env["db"],
         stream=test_env["stream"],
         inhibitory=test_env["inhibitory"],
         cortex=test_env["cortex"],
-        llm_client=mock_client
+        llm_client=agent_client
     )
 
     # Record 2 failures
@@ -480,9 +487,9 @@ def test_llm_providers_and_distillation(test_env):
     report = consolidator.sleep()
     assert report["promoted_anti_memories"] == 1
 
-    # Verify anti-memory has the distilled neural reason
+    # Verify anti-memory has the distilled agent brain reason
     anti = test_env["inhibitory"].list_all(active_only=True)
-    assert any("Neural Distillation: Port 8080 collision" in m.reason for m in anti)
+    assert any("Agent Brain Distillation: Port 8080 collision" in m.reason for m in anti)
 
 
 def test_forgotten_audit_trail(test_env):
