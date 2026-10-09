@@ -14,7 +14,7 @@ from typing import Any
 
 from smruti.config import smrutiConfig, get_config
 from smruti.engine.cortex import Cortex
-from smruti.engine.inhibitory import InhibitoryGate
+from smruti.engine.inhibitory import ADVISORY_SEVERITY, InhibitoryGate
 from smruti.engine.llm import LLMClient
 from smruti.engine.stream import StreamBuffer
 from smruti.models import ActionStatus, Episode
@@ -122,7 +122,7 @@ class Consolidator:
                     pattern=cluster_key,
                     reason=reason,
                     suggested_fix="Check prerequisites and inspect command arguments.",
-                    severity="high",
+                    severity=ADVISORY_SEVERITY,
                     project_root=ep_proj
                 )
                 promoted_anti_memories += 1

@@ -66,6 +66,13 @@ def smruti_preflight_check(action: str, context: str = "", project_root: str | N
             f"Reason: {res.reason}\n"
             f"Suggested Fix: {res.suggested_fix or 'Change parameters to avoid known dead end.'}"
         )
+    if res.matched_signature:
+        return (
+            f"[WARNING] This action matches a known past failure (not blocked).\n"
+            f"Signature: {res.matched_signature}\n"
+            f"Reason: {res.reason}\n"
+            f"Suggested Fix: {res.suggested_fix or 'Check whether the cause has been fixed before retrying.'}"
+        )
     return "[PASSED] No known failure signatures detected."
 
 @mcp.tool()

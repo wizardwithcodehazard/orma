@@ -46,6 +46,9 @@ _READ_ONLY_VERBS: frozenset[str] = frozenset({
 
 _READ_ONLY_THRESHOLD = 0.95  # Much stricter semantic threshold for read-only actions
 
+# Anti-memories with this severity warn the agent but never block execution
+ADVISORY_SEVERITY = "warning"
+
 
 def _is_read_only_intent(action: str) -> bool:
     """Returns True if the action's first verb strongly signals a non-mutating read operation."""
@@ -311,12 +314,14 @@ class InhibitoryGate:
                     (now, anti_mem.id)
                 )
 
+            # Advisory ("warning") anti-memories inform the agent instead of blocking it
+            advisory = anti_mem.severity == ADVISORY_SEVERITY
             logger.warning(
-                "Action '%s' blocked by anti-memory '%s' via %s",
-                normalized_action, anti_mem.signature, match_source
+                "Action '%s' %s by anti-memory '%s' via %s",
+                normalized_action, "flagged" if advisory else "blocked", anti_mem.signature, match_source
             )
             return InhibitionResult(
-                passed=False,
+                passed=advisory,
                 matched_signature=anti_mem.signature,
                 reason=f"[{match_source.upper()}] {anti_mem.reason}",
                 suggested_fix=anti_mem.suggested_fix,

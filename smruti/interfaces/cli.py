@@ -139,6 +139,10 @@ def preflight(
         if res.suggested_fix:
             _safe_echo(f"  * Suggested Fix: {res.suggested_fix}")
         sys.exit(1)
+    elif res.matched_signature:
+        _safe_echo("[WARNING] Matches a known past failure (not blocked)")
+        _safe_echo(f"  * Signature: {res.matched_signature}")
+        _safe_echo(f"  * Reason: {res.reason}")
     else:
         _safe_echo("[PASSED] No known failure signatures detected.")
 
