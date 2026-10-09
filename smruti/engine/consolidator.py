@@ -76,12 +76,14 @@ class Consolidator:
                 "pruned_decayed_rules": pruned_rules,
                 "pruned_raw_episodes": pruned_raw,
                 "pruned_expired_anti_memories": pruned_anti,
+                "synthesis_tasks": [],
                 "timestamp": now
             }
 
         episodes = sorted(unconsolidated, key=lambda e: e.timestamp)
         promoted_anti_memories = 0
         promoted_rules = 0
+        synthesis_tasks: list[dict[str, Any]] = []
 
         # 2. Analyze failure repetitions with normalized command & error clustering
         failure_clusters: dict[str, list[Episode]] = defaultdict(list)
@@ -124,6 +126,13 @@ class Consolidator:
                     project_root=ep_proj
                 )
                 promoted_anti_memories += 1
+                synthesis_tasks.append({
+                    "type": "failure_cluster",
+                    "pattern": cluster_key,
+                    "signature": sig,
+                    "count": len(cluster),
+                    "sample_error": first_ep.result.strip().split("\n")[-1][:120] if first_ep.result else "Non-zero exit"
+                })
 
         # 3. Multi-Step Causal Discovery (Window of up to 4 episodes)
         # Finds a failure followed by a subsequent resolution in the same session
@@ -163,6 +172,12 @@ class Consolidator:
                         source_episode_ids=[curr_ep.id, succ_ep.id]
                     )
                     promoted_rules += 1
+                    synthesis_tasks.append({
+                        "type": "causal_resolution",
+                        "failed_action": curr_ep.action,
+                        "fix_action": succ_ep.action,
+                        "error": curr_ep.result[:120]
+                    })
                     break  # Found the resolution for curr_ep
 
         # 4. Mark all processed episodes as consolidated
@@ -186,6 +201,7 @@ class Consolidator:
             "pruned_decayed_rules": pruned_rules,
             "pruned_raw_episodes": pruned_raw,
             "pruned_expired_anti_memories": pruned_anti,
+            "synthesis_tasks": synthesis_tasks,
             "timestamp": now
         }
 

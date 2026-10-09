@@ -168,17 +168,38 @@ def smruti_trigger_sleep(project_root: str | None = None) -> str:
     Triggers Tier 2 Memory Consolidation ("The Sleep Cycle"):
     Replays unconsolidated episodes, promotes recurring failures into anti-memories,
     distills verified successes into positive rules, sweeps historical buffers, and decays dormant facts.
+    Surfaces synthesis opportunities directly to the host agent brain without requiring external LLM API keys.
     """
     _, _, _, consolidator = _get_engine()
     report = consolidator.sleep(project_root=project_root)
-    return (
-        f"[CONSOLIDATION CYCLE COMPLETE]\n"
-        f"- Episodes Analyzed: {report['processed_episodes']}\n"
-        f"- New Anti-Memories Promoted: {report['promoted_anti_memories']}\n"
-        f"- Positive Rules Promoted: {report['promoted_positive_rules']}\n"
-        f"- Decayed Rules Pruned: {report['pruned_decayed_rules']}\n"
+    lines = [
+        "[CONSOLIDATION CYCLE COMPLETE]",
+        f"- Episodes Analyzed: {report['processed_episodes']}",
+        f"- New Anti-Memories Promoted: {report['promoted_anti_memories']}",
+        f"- Positive Rules Promoted: {report['promoted_positive_rules']}",
+        f"- Decayed Rules Pruned: {report['pruned_decayed_rules']}",
         f"- Historical Episodes Cleared: {report['pruned_raw_episodes']}"
-    )
+    ]
+
+    synthesis_tasks = report.get("synthesis_tasks", [])
+    if synthesis_tasks:
+        lines.append("\n[AGENT BRAIN SYNTHESIS PROMPT]")
+        lines.append("The sleep cycle identified recurring patterns. Use your reasoning to refine them:")
+        for idx, task in enumerate(synthesis_tasks, 1):
+            if task.get("type") == "failure_cluster":
+                lines.append(
+                    f"{idx}. [Recurring Failure] Command pattern '{task.get('pattern')}' failed {task.get('count')}x. "
+                    f"Sample error: '{task.get('sample_error')}'. "
+                    f"Suggested action: Use smruti_remember or refine anti-memory '{task.get('signature')}'."
+                )
+            elif task.get("type") == "causal_resolution":
+                lines.append(
+                    f"{idx}. [Causal Breakthrough] When '{task.get('failed_action')}' failed, "
+                    f"'{task.get('fix_action')}' resolved it. "
+                    f"Suggested action: Refine this heuristic with smruti_remember if domain-specific."
+                )
+
+    return "\n".join(lines)
 
 @mcp.tool()
 def smruti_forget(target: str, target_type: str = "anti_memory") -> str:
