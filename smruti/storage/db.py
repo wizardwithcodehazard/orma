@@ -411,15 +411,20 @@ class DatabaseManager:
 
     def close(self) -> None:
         """Closes all open connections and registered streams for this manager."""
+        # Close streams outside self._lock: their flush waits on the writer thread,
+        # which may need self._lock in get_connection() to open its connection.
         with self._lock:
-            for ref in list(self._streams):
-                s = ref()
-                if s is not None:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
+            streams = list(self._streams)
             self._streams.clear()
+        for ref in streams:
+            s = ref()
+            if s is not None:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+        with self._lock:
             for conn in self._all_conns:
                 try:
                     conn.close()
