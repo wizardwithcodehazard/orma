@@ -76,3 +76,38 @@ def test_failure_key_is_command_plus_error(mem):
     assert gate.check_action("python --version").matched_signature is None
     # Context text mentioning the command must not trigger a match
     assert gate.check_action("ls", context="earlier python train.py failed").matched_signature is None
+
+
+def test_learned_failure_retired_when_command_later_succeeds(mem):
+    stream, gate, _, consolidator = mem
+    for _ in range(2):
+        stream.append("python train.py", result="ModuleNotFoundError: No module named 'torch'", status=FAIL)
+    consolidator.sleep()
+    assert gate.check_action("python train.py").matched_signature is not None
+
+    stream.append("pip install torch", result="Successfully installed torch", status=OK)
+    stream.append("python train.py", result="epoch 1 done", status=OK)
+    report = consolidator.sleep()
+
+    assert report["retired_anti_memories"] == 1
+    assert gate.check_action("python train.py").matched_signature is None
+
+
+def test_cluster_resolved_in_same_batch_is_not_promoted(mem):
+    stream, gate, _, consolidator = mem
+    for _ in range(2):
+        stream.append("npm run build", result="ERR: ELIFECYCLE", status=FAIL)
+    stream.append("npm run build", result="built in 2s", status=OK)
+    report = consolidator.sleep()
+
+    assert report["promoted_anti_memories"] == 0
+    assert gate.check_action("npm run build").matched_signature is None
+
+
+def test_learned_failures_expire(mem):
+    stream, gate, _, consolidator = mem
+    for _ in range(2):
+        stream.append("make deploy", result="permission denied", status=FAIL)
+    consolidator.sleep()
+    (anti,) = [a for a in gate.list_all() if a.pattern == "make deploy"]
+    assert anti.expires_at is not None

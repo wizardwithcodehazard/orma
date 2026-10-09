@@ -15,7 +15,7 @@ from typing import Any
 
 from smruti.config import smrutiConfig, get_config
 from smruti.engine.cortex import Cortex
-from smruti.engine.inhibitory import ADVISORY_SEVERITY, InhibitoryGate
+from smruti.engine.inhibitory import ADVISORY_SEVERITY, LEARNED_SIGNATURE_PREFIX, InhibitoryGate
 from smruti.engine.llm import LLMClient
 from smruti.engine.stream import StreamBuffer
 from smruti.models import ActionStatus, Episode
@@ -73,6 +73,7 @@ class Consolidator:
             return {
                 "processed_episodes": 0,
                 "promoted_anti_memories": 0,
+                "retired_anti_memories": 0,
                 "promoted_positive_rules": 0,
                 "pruned_decayed_rules": pruned_rules,
                 "pruned_raw_episodes": pruned_raw,
@@ -86,6 +87,16 @@ class Consolidator:
         promoted_rules = 0
         synthesis_tasks: list[dict[str, Any]] = []
 
+        # 1b. Retire learned anti-memories whose command has since succeeded
+        successes = [e for e in episodes if e.status == ActionStatus.SUCCESS]
+        succeeded_commands = {self._normalize_command(e.action) for e in successes}
+        retired_anti_memories = 0
+        if successes:
+            for anti in self.inhibitory.list_all(active_only=True):
+                if anti.signature.startswith(LEARNED_SIGNATURE_PREFIX) and anti.pattern in succeeded_commands:
+                    if self.inhibitory.forget_anti_memory(anti.signature, reason="resolved: command later succeeded"):
+                        retired_anti_memories += 1
+
         # 2. Cluster failures by (exact command, error signature) so unrelated failures never merge
         failure_clusters: dict[tuple[str, str], list[Episode]] = defaultdict(list)
         for ep in episodes:
@@ -93,7 +104,11 @@ class Consolidator:
                 failure_clusters[(self._normalize_command(ep.action), self._error_signature(ep.result))].append(ep)
 
         for (cluster_key, err_sig), cluster in failure_clusters.items():
-            if len(cluster) >= 2:
+            last_failure = cluster[-1].timestamp
+            resolved_later = any(
+                e.timestamp > last_failure and self._normalize_command(e.action) == cluster_key for e in successes
+            )
+            if len(cluster) >= 2 and not resolved_later:
                 # Recurring failure pattern detected -> promote to anti-memory
                 first_ep = cluster[0]
                 sig = f"recurring_failure_{self._slugify(cluster_key)[:60]}_{hashlib.sha1(err_sig.encode()).hexdigest()[:6]}"
@@ -122,7 +137,8 @@ class Consolidator:
                     reason=reason,
                     suggested_fix="Check prerequisites and inspect command arguments.",
                     severity=ADVISORY_SEVERITY,
-                    project_root=ep_proj
+                    project_root=ep_proj,
+                    expires_in_days=self.config.learned_failure_ttl_days
                 )
                 promoted_anti_memories += 1
                 synthesis_tasks.append({
@@ -196,6 +212,7 @@ class Consolidator:
         return {
             "processed_episodes": len(episodes),
             "promoted_anti_memories": promoted_anti_memories,
+            "retired_anti_memories": retired_anti_memories,
             "promoted_positive_rules": promoted_rules,
             "pruned_decayed_rules": pruned_rules,
             "pruned_raw_episodes": pruned_raw,

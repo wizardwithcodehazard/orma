@@ -21,6 +21,8 @@ class smrutiConfig:
     prune_threshold: float = 0.15
     # reinforcement_boost: strength added per successful recall
     reinforcement_boost: float = 0.15
+    # learned_failure_ttl_days: auto-learned anti-memories expire after this many days
+    learned_failure_ttl_days: float = 7.0
     
     # Semantic & Associative Graph parameters
     dedup_similarity_threshold: float = 0.85
