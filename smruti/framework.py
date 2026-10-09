@@ -419,6 +419,10 @@ class smruti:
         from smruti.storage.sync import TeamMemoryBundle
         return TeamMemoryBundle.import_file(self.db, file_path, overwrite=overwrite)
 
+    def get_forgotten_audit(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Retrieves audit trail of forgotten or pruned rules and anti-memories."""
+        return self.cortex.get_forgotten_audit(limit=limit)
+
     def close(self) -> None:
         """Closes underlying database connections."""
         self.db.close()

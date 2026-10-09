@@ -485,6 +485,34 @@ def test_llm_providers_and_distillation(test_env):
     assert any("Neural Distillation: Port 8080 collision" in m.reason for m in anti)
 
 
+def test_forgotten_audit_trail(test_env):
+    cortex = test_env["cortex"]
+    inhibitory = test_env["inhibitory"]
+
+    # 1. Forget rule manually
+    rule = cortex.add_rule("Test rule to be forgotten", category="temp")
+    forgotten = cortex.forget_rule(rule.id, reason="superseded by newer RFC")
+    assert forgotten is True
+
+    # 2. Deactivate anti-memory manually
+    anti = inhibitory.record_anti_memory("temp_sig", "temp_pat", "Temporary issue")
+    deactivated = inhibitory.forget_anti_memory("temp_sig", reason="fixed upstream in v2.4")
+    assert deactivated is True
+
+    # 3. Verify audit trail logs both events
+    audit = cortex.get_forgotten_audit(limit=10)
+    assert len(audit) >= 2
+
+    rule_audits = [a for a in audit if a["item_type"] == "rule"]
+    assert any("superseded by newer RFC" in a["reason"] for a in rule_audits)
+    assert any("Test rule to be forgotten" in a["signature_or_text"] for a in rule_audits)
+
+    anti_audits = [a for a in audit if a["item_type"] == "anti_memory"]
+    assert any("fixed upstream in v2.4" in a["reason"] for a in anti_audits)
+    assert any("temp_sig" in a["signature_or_text"] for a in anti_audits)
+
+
+
 
 
 

@@ -240,6 +240,25 @@ def smruti_list_anti_memories(project_root: str | None = None) -> str:
     return "\n".join(lines)
 
 @mcp.tool()
+def smruti_get_forgotten_audit(limit: int = 15) -> str:
+    """
+    Retrieves the audit trail of why rules or anti-memories were forgotten or pruned.
+    Answers: 'Why did we stop blocking this?' or 'Why was this rule pruned?'.
+    """
+    _, _, cortex, _ = _get_engine()
+    audit_rows = cortex.get_forgotten_audit(limit=limit)
+    if not audit_rows:
+        return "No forgotten memory audit records found."
+
+    lines = [f"[smruti FORGOTTEN AUDIT TRAIL] ({len(audit_rows)} recent entries)"]
+    for r in audit_rows:
+        lines.append(
+            f"- [{r['item_type'].upper()}] '{r['signature_or_text'][:60]}' | "
+            f"Reason: {r['reason']} | Category: {r['category'] or 'none'}"
+        )
+    return "\n".join(lines)
+
+@mcp.tool()
 def smruti_remember(
     fact: str,
     category: str = "general",

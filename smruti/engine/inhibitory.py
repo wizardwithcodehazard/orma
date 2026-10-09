@@ -278,11 +278,24 @@ class InhibitoryGate:
 
         return InhibitionResult(passed=True)
 
-    def forget_anti_memory(self, signature_or_id: str) -> bool:
-        """Deactivates an anti-memory so it no longer intercepts actions."""
+    def forget_anti_memory(self, signature_or_id: str, reason: str = "manual") -> bool:
+        """Deactivates an anti-memory so it no longer intercepts actions, logging an audit trail."""
+        import uuid
         conn = self.db.get_connection()
         key = signature_or_id.strip()
         with conn:
+            row = conn.execute("SELECT * FROM anti_memories WHERE signature = ? OR id = ?", (key, key)).fetchone()
+            if row:
+                audit_id = str(uuid.uuid4())
+                now = datetime.now(timezone.utc).timestamp()
+                conn.execute(
+                    """
+                    INSERT INTO forgotten_audit (
+                        id, item_type, original_id, signature_or_text, reason, category, metadata_json, forgotten_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (audit_id, "anti_memory", row["id"], row["signature"], reason, row["severity"], None, now)
+                )
             cur = conn.execute(
                 """
                 UPDATE anti_memories
@@ -295,6 +308,8 @@ class InhibitoryGate:
 
         self._compiled_patterns.pop(key, None)
         return matched
+
+    deactivate_anti_memory = forget_anti_memory
 
     def list_all(self, active_only: bool = True, project_root: str | None = None) -> list[AntiMemory]:
         """Lists recorded anti-memories, optionally filtered by active status and project."""

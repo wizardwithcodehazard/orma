@@ -113,6 +113,24 @@ MIGRATIONS = [
             "ALTER TABLE anti_memories ADD COLUMN expires_at REAL;",
             "CREATE INDEX IF NOT EXISTS idx_anti_memories_expires ON anti_memories(expires_at);",
         ]
+    ),
+    (
+        5,
+        "Add forgotten_audit table to track why rules or anti-memories were forgotten",
+        [
+            """CREATE TABLE IF NOT EXISTS forgotten_audit (
+                id TEXT PRIMARY KEY,
+                item_type TEXT NOT NULL,
+                original_id TEXT,
+                signature_or_text TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                category TEXT,
+                metadata_json TEXT,
+                forgotten_at REAL NOT NULL
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_forgotten_time ON forgotten_audit(forgotten_at DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_forgotten_type ON forgotten_audit(item_type);",
+        ]
     )
 ]
 

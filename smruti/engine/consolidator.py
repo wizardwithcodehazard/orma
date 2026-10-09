@@ -222,14 +222,29 @@ class Consolidator:
         return re.sub(r"[^a-zA-Z0-9_]+", "_", text).strip("_").lower()
 
     def _prune_expired_anti_memories(self, now: float) -> int:
-        """Deletes anti-memories whose expires_at timestamp has passed. O(1) single SQL DELETE."""
+        """Deletes anti-memories whose expires_at timestamp has passed, logging an audit trail."""
+        import uuid
         conn = self.db.get_connection()
         with conn:
+            expired_rows = conn.execute(
+                "SELECT * FROM anti_memories WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (now,)
+            ).fetchall()
+            for r in expired_rows:
+                audit_id = str(uuid.uuid4())
+                conn.execute(
+                    """
+                    INSERT INTO forgotten_audit (
+                        id, item_type, original_id, signature_or_text, reason, category, metadata_json, forgotten_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (audit_id, "anti_memory", r["id"], r["signature"], f"ttl_expired (expires_at={r['expires_at']})", r["severity"], None, now)
+                )
             cur = conn.execute(
                 "DELETE FROM anti_memories WHERE expires_at IS NOT NULL AND expires_at < ?",
                 (now,)
             )
         pruned = cur.rowcount
         if pruned:
-            logger.info("Pruned %d TTL-expired anti-memories.", pruned)
+            logger.info("Pruned %d TTL-expired anti-memories (logged to forgotten_audit).", pruned)
         return pruned

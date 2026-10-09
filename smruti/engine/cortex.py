@@ -6,6 +6,7 @@ Neural Vector Embeddings, Semantic Deduplication, and Associative Spreading Acti
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 import numpy as np
 
@@ -277,7 +278,8 @@ class Cortex:
         return top_rules
 
     def prune_decayed_rules(self, current_time: float | None = None) -> int:
-        """Prunes rules whose decayed effective strength has fallen below prune_threshold."""
+        """Prunes rules whose decayed effective strength has fallen below prune_threshold and logs audit."""
+        import uuid
         now = current_time or datetime.now(timezone.utc).timestamp()
         conn = self.db.get_connection()
         rows = conn.execute("SELECT * FROM cortical_rules").fetchall()
@@ -291,19 +293,54 @@ class Cortex:
                     current_time=now
                 )
                 if strength < self.config.prune_threshold:
+                    audit_id = str(uuid.uuid4())
+                    conn.execute(
+                        """
+                        INSERT INTO forgotten_audit (
+                            id, item_type, original_id, signature_or_text, reason, category, metadata_json, forgotten_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (audit_id, "rule", rule.id, rule.rule_text, f"decay_pruned (strength={strength:.3f})", rule.category, None, now)
+                    )
                     conn.execute("DELETE FROM cortical_rules WHERE id = ?", (rule.id,))
                     conn.execute("DELETE FROM rule_edges WHERE rule_id_a = ? OR rule_id_b = ?", (rule.id, rule.id))
+                    if rule.id in self._vec_cache:
+                        del self._vec_cache[rule.id]
                     pruned_count += 1
 
         return pruned_count
 
-    def forget_rule(self, rule_id: str) -> bool:
-        """Explicitly forgets / deletes a cortical rule by ID."""
+    def forget_rule(self, rule_id: str, reason: str = "manual") -> bool:
+        """Explicitly forgets / deletes a cortical rule by ID and logs the audit trail."""
+        import uuid
+        now = datetime.now(timezone.utc).timestamp()
         conn = self.db.get_connection()
         with conn:
+            r = conn.execute("SELECT * FROM cortical_rules WHERE id = ?", (rule_id,)).fetchone()
+            if r:
+                audit_id = str(uuid.uuid4())
+                conn.execute(
+                    """
+                    INSERT INTO forgotten_audit (
+                        id, item_type, original_id, signature_or_text, reason, category, metadata_json, forgotten_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (audit_id, "rule", rule_id, r["rule_text"], reason, r["category"], None, now)
+                )
             cur = conn.execute("DELETE FROM cortical_rules WHERE id = ?", (rule_id,))
             conn.execute("DELETE FROM rule_edges WHERE rule_id_a = ? OR rule_id_b = ?", (rule_id, rule_id))
+            if rule_id in self._vec_cache:
+                del self._vec_cache[rule_id]
             return cur.rowcount > 0
+
+    def get_forgotten_audit(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Retrieves audit trail of forgotten or pruned rules and anti-memories."""
+        conn = self.db.get_connection()
+        rows = conn.execute(
+            "SELECT * FROM forgotten_audit ORDER BY forgotten_at DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def list_edges(self, rule_id: str | None = None) -> list[RuleEdge]:
         """Returns associative edges for a given rule or for the whole graph."""
