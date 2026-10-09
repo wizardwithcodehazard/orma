@@ -56,10 +56,13 @@ def smruti_preflight_check(action: str, context: str = "", project_root: str | N
     _, inhibitory, _, _ = _get_engine()
     res = inhibitory.check_action(action, context, project_root=project_root)
     if not res.passed:
+        sources = ", ".join(res.matched_sources) if res.matched_sources else "unknown"
         return (
             f"[BLOCKED BY smruti INHIBITORY GATE]\n"
             f"Signature: {res.matched_signature}\n"
             f"Severity: {res.severity.upper()}\n"
+            f"Confidence: {res.confidence * 100:.1f}%\n"
+            f"Matched via: {sources}\n"
             f"Reason: {res.reason}\n"
             f"Suggested Fix: {res.suggested_fix or 'Change parameters to avoid known dead end.'}"
         )

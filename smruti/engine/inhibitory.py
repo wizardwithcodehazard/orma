@@ -201,16 +201,18 @@ class InhibitoryGate:
             anti_mem = self._row_to_anti_memory(r)
             pattern = anti_mem.pattern
             is_match = False
-            match_source = "exact"
+            matched_sources: list[str] = []
+            confidence: float = 0.0
 
             # Tier 1: Fast Substring Containment
             pat_lower = pattern.lower()
             if pat_lower in combined_text or pat_lower in normalized_action.lower():
                 is_match = True
-                match_source = "literal_substring"
+                matched_sources.append("literal_substring")
+                confidence = max(confidence, 1.0)
 
             # Tier 2: Neural Dense Vector Semantic Matching (eliminates regex brittleness)
-            if not is_match and anti_mem.embedding and action_vec:
+            if anti_mem.embedding and action_vec:
                 sim = EmbeddingEngine.cosine_similarity(action_vec, anti_mem.embedding)
                 # Read-only operations require much higher similarity to trigger a block,
                 # preventing false positives on diagnostic commands like SELECT, ls, cat, grep.
@@ -221,17 +223,18 @@ class InhibitoryGate:
                 )
                 if sim >= effective_threshold:
                     is_match = True
-                    match_source = f"semantic_similarity ({sim:.2f})"
-
+                    matched_sources.append(f"semantic_similarity ({sim:.2f})")
+                    confidence = max(confidence, round(float(sim), 4))
 
             # Fallback legacy regex check for explicit pattern expressions
-            if not is_match and any(c in REGEX_CHARS for c in pattern):
+            if any(c in REGEX_CHARS for c in pattern):
                 compiled = self._get_or_compile_regex(pattern)
                 if compiled is not None:
                     try:
                         if compiled.search(normalized_action):
                             is_match = True
-                            match_source = "regex"
+                            matched_sources.append("regex")
+                            confidence = max(confidence, 1.0)
                     except Exception:
                         pass
 
@@ -258,16 +261,19 @@ class InhibitoryGate:
                         (now, anti_mem.id)
                     )
 
+                sources_str = ", ".join(matched_sources)
                 logger.warning(
-                    "Action '%s' blocked by anti-memory '%s' via %s",
-                    normalized_action, anti_mem.signature, match_source
+                    "Action '%s' blocked by anti-memory '%s' via %s (confidence: %.2f)",
+                    normalized_action, anti_mem.signature, sources_str, confidence
                 )
                 return InhibitionResult(
                     passed=False,
                     matched_signature=anti_mem.signature,
                     reason=anti_mem.reason,
                     suggested_fix=anti_mem.suggested_fix,
-                    severity=anti_mem.severity
+                    severity=anti_mem.severity,
+                    confidence=confidence,
+                    matched_sources=matched_sources
                 )
 
         return InhibitionResult(passed=True)

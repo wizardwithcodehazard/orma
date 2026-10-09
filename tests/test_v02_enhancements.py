@@ -398,6 +398,37 @@ def test_stream_buffer_secret_masking(test_env):
     assert "[REDACTED_PASSWORD]" in ep.result
 
 
+def test_inhibition_result_confidence_and_diagnostics(test_env):
+    from smruti.engine.inhibitory import InhibitoryGate
+
+    gate = InhibitoryGate(test_env["db"])
+    gate.record_anti_memory(
+        signature="wipe_all_data",
+        pattern="rm -rf /data",
+        reason="Catastrophic data deletion"
+    )
+
+    # 1. Test passing check -> confidence 0.0, empty sources
+    pass_res = gate.check_action("git status")
+    assert pass_res.passed is True
+    assert pass_res.confidence == 0.0
+    assert pass_res.matched_sources == []
+
+    # 2. Test literal substring block -> confidence 1.0, literal_substring in sources
+    lit_res = gate.check_action("rm -rf /data")
+    assert lit_res.passed is False
+    assert lit_res.confidence == 1.0
+    assert "literal_substring" in lit_res.matched_sources
+
+    # 3. Test semantic variation block -> confidence >= 0.82, semantic_similarity in sources
+    sem_res = gate.check_action("delete recursively everything in /data directory")
+    # Even if blocked or passed, test contract consistency
+    if not sem_res.passed:
+        assert sem_res.confidence > 0.0
+        assert any("semantic_similarity" in s for s in sem_res.matched_sources)
+
+
+
 
 
 

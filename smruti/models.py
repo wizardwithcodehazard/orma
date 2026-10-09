@@ -40,6 +40,8 @@ class InhibitionResult(BaseModel):
     reason: str | None = None
     suggested_fix: str | None = None
     severity: str = "warning"
+    confidence: float = 0.0
+    matched_sources: list[str] = Field(default_factory=list)
 
 class AntiMemory(BaseModel):
     """Tier 3B: Inhibitory anti-memory representing a known dead end."""
