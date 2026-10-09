@@ -428,6 +428,64 @@ def test_inhibition_result_confidence_and_diagnostics(test_env):
         assert any("semantic_similarity" in s for s in sem_res.matched_sources)
 
 
+def test_llm_providers_and_distillation(test_env):
+    from smruti.engine.llm import LLMClient, BaseLLMProvider, HeuristicFallbackProvider
+    from smruti.engine.consolidator import Consolidator
+    from smruti.models import ActionStatus
+
+    # 1. Test fallback provider when unconfigured
+    default_client = LLMClient()
+    assert default_client.is_configured() is False
+    assert default_client.get_provider_name() == "HeuristicFallbackProvider"
+
+    # 2. Test custom mock LLM provider injection
+    class MockNeuralProvider(BaseLLMProvider):
+        def is_available(self) -> bool:
+            return True
+
+        def evaluate_preflight(self, action, anti_memory):
+            return (True, "Mock blocked")
+
+        def summarize_failure(self, cluster_data):
+            return "Neural Distillation: Port 8080 collision caused by zombie process"
+
+        def distill_resolution(self, transitions):
+            return "Neural Distillation: When port 8080 is blocked, kill PID with lsof before restart"
+
+    mock_client = LLMClient(provider=MockNeuralProvider())
+    assert mock_client.is_configured() is True
+    assert mock_client.get_provider_name() == "MockNeuralProvider"
+
+    # 3. Test sleep consolidation with mock neural provider
+    consolidator = Consolidator(
+        db=test_env["db"],
+        stream=test_env["stream"],
+        inhibitory=test_env["inhibitory"],
+        cortex=test_env["cortex"],
+        llm_client=mock_client
+    )
+
+    # Record 2 failures
+    test_env["stream"].append(
+        action="python server.py --port 8080",
+        result="OSError: [Errno 98] Address already in use",
+        status=ActionStatus.FAILURE
+    )
+    test_env["stream"].append(
+        action="python server.py --port 8080",
+        result="OSError: [Errno 98] Address already in use",
+        status=ActionStatus.FAILURE
+    )
+
+    report = consolidator.sleep()
+    assert report["promoted_anti_memories"] == 1
+
+    # Verify anti-memory has the distilled neural reason
+    anti = test_env["inhibitory"].list_all(active_only=True)
+    assert any("Neural Distillation: Port 8080 collision" in m.reason for m in anti)
+
+
+
 
 
 
