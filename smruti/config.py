@@ -40,23 +40,80 @@ class smrutiConfig:
 
     @property
     def smruti_dir(self) -> Path:
-        """Finds .smruti in current working directory or ancestors, else creates in cwd or home directory."""
+        """
+        Dynamically finds .smruti in current working directory, parent git repositories,
+        active editor/IDE workspaces, or falls back to user home directory (~/.smruti).
+        Prevents polluting application installation directories.
+        """
         import os
         env_dir = os.environ.get("SMRUTI_DIR")
         if env_dir:
             return Path(env_dir).resolve()
+
         current = self.project_dir.resolve()
-        if current == Path("/"):
-            return Path.home() / self.smruti_dir_name
-        nearest = current
-        while not nearest.exists() and nearest != nearest.parent:
-            nearest = nearest.parent
-        if nearest == Path("/") or not os.access(nearest, os.W_OK):
-            return Path.home() / self.smruti_dir_name
+
+        # 1. Search upwards from current directory for an existing .smruti
         for parent in [current, *current.parents]:
             candidate = parent / self.smruti_dir_name
             if candidate.is_dir():
                 return candidate
+
+        # 2. Search upwards for a git repository or project anchor
+        for parent in [current, *current.parents]:
+            if (parent / ".git").exists() or (parent / "pyproject.toml").exists() or (parent / "package.json").exists():
+                return parent / self.smruti_dir_name
+
+        # 3. Detect if process was launched inside an editor/IDE binary folder
+        # e.g., AppData\Local\Programs, Program Files, site-packages, /usr/bin
+        current_str = str(current).lower()
+        is_app_dir = any(
+            bad in current_str for bad in [
+                "appdata\\local\\programs",
+                "program files",
+                "site-packages",
+                "/usr/bin",
+                "/usr/lib",
+                "/applications"
+            ]
+        )
+
+        if is_app_dir:
+            # Check for active workspace folders from common editor storage state
+            try:
+                import json
+                from urllib.parse import unquote, urlparse
+                for storage_path in [
+                    Path.home() / "AppData" / "Roaming" / "Antigravity IDE" / "User" / "globalStorage" / "storage.json",
+                    Path.home() / "AppData" / "Roaming" / "Code" / "User" / "globalStorage" / "storage.json",
+                    Path.home() / "AppData" / "Roaming" / "Cursor" / "User" / "globalStorage" / "storage.json",
+                ]:
+                    if storage_path.exists():
+                        data = json.loads(storage_path.read_text(encoding="utf-8"))
+                        backup = data.get("backupWorkspaces", {})
+                        folders = backup.get("folders", [])
+                        for f in folders:
+                            uri = f.get("folderUri", "")
+                            parsed = urlparse(uri)
+                            raw_path = unquote(parsed.path)
+                            if raw_path.startswith("/") and len(raw_path) > 2 and raw_path[2] == ":":
+                                raw_path = raw_path[1:]
+                            ws_path = Path(raw_path)
+                            if ws_path.exists():
+                                if (ws_path / self.smruti_dir_name).is_dir():
+                                    return ws_path / self.smruti_dir_name
+                                for sub in ws_path.iterdir():
+                                    if sub.is_dir() and (sub / self.smruti_dir_name).is_dir():
+                                        return sub / self.smruti_dir_name
+            except Exception:
+                pass
+
+            # Safe global fallback for agent daemons
+            return Path.home() / self.smruti_dir_name
+
+        # 4. Standard fallback in writable project directory
+        if not os.access(current, os.W_OK) or current == Path("/"):
+            return Path.home() / self.smruti_dir_name
+
         return current / self.smruti_dir_name
 
     @property
