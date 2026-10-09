@@ -10,6 +10,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# Category of rules distilled automatically by the sleep cycle. Only these decay;
+# rules a user states explicitly persist until forgotten.
+LEARNED_RULE_CATEGORY = "problem_resolution"
+
 class ActionStatus(str, Enum):
     SUCCESS = "success"
     FAILURE = "failure"
@@ -77,8 +81,10 @@ class CorticalRule(BaseModel):
     source_episode_ids: list[str] = Field(default_factory=list)
     
     def calculate_effective_strength(self, decay_rate: float, current_time: float | None = None) -> float:
-        """Computes exponential retention based on elapsed time since last access."""
+        """Computes exponential retention since last access. Only learned rules decay."""
         import math
+        if self.category != LEARNED_RULE_CATEGORY:
+            return self.base_strength
         now = current_time or datetime.now(timezone.utc).timestamp()
         hours_elapsed = max(0.0, (now - self.last_accessed_at) / 3600.0)
         return self.base_strength * math.exp(-decay_rate * hours_elapsed)

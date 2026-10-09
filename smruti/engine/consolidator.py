@@ -23,13 +23,10 @@ from smruti.engine.inhibitory import (
 )
 from smruti.engine.llm import LLMClient
 from smruti.engine.stream import StreamBuffer
-from smruti.models import ActionStatus, Episode
+from smruti.models import LEARNED_RULE_CATEGORY, ActionStatus, Episode
 from smruti.storage.db import DatabaseManager, get_db
 
 logger = logging.getLogger(__name__)
-
-# Category of rules distilled automatically by the sleep cycle (subject to decay)
-LEARNED_RULE_CATEGORY = "problem_resolution"
 
 _STOP_TOKENS = frozenset({
     "the", "and", "for", "not", "with", "from", "error", "failed", "file", "line",

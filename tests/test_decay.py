@@ -9,6 +9,7 @@ import pytest
 
 from smruti.config import smrutiConfig
 from smruti.engine.cortex import Cortex
+from smruti.models import LEARNED_RULE_CATEGORY
 from smruti.storage.db import DatabaseManager
 
 
@@ -40,12 +41,15 @@ def test_add_and_recall_rule(cortex):
     assert len(recalled) == 1
     top_rule, score = recalled[0]
     assert top_rule.id == rule.id
-    assert top_rule.access_count == 1  # reinforced
+    assert top_rule.access_count == 0  # recall is read-only by default
+
+    top_rule, _ = cortex.recall_rules("pytest git push", reinforce=True)[0]
+    assert top_rule.access_count == 1  # explicit opt-in potentiation
 
 def test_exponential_decay_over_simulated_time(cortex):
     rule = cortex.add_rule(
         rule_text="Temporary hotfix for Python 3.10",
-        category="hotfix",
+        category=LEARNED_RULE_CATEGORY,
         base_strength=1.0
     )
     
@@ -63,7 +67,7 @@ def test_exponential_decay_over_simulated_time(cortex):
 def test_prune_decayed_rules(cortex):
     rule = cortex.add_rule(
         rule_text="Obsolete dependency workaround",
-        category="deprecated",
+        category=LEARNED_RULE_CATEGORY,
         base_strength=0.8
     )
     

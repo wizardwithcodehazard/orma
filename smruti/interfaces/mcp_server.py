@@ -157,7 +157,7 @@ def smruti_recall_heuristics(query: str = "", limit: int = 5) -> str:
     Reinforces accessed memories.
     """
     _, _, cortex, _ = _get_engine()
-    recalled = cortex.recall_rules(query=query, limit=limit, reinforce=True)
+    recalled = cortex.recall_rules(query=query, limit=limit)
     if not recalled:
         return "No relevant cortical rules found in active memory."
 

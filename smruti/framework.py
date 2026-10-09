@@ -116,7 +116,7 @@ class smruti:
         self,
         query: str = "",
         limit: int = 5,
-        reinforce: bool = True
+        reinforce: bool = False
     ) -> list[tuple[CorticalRule, float]]:
         """
         Recalls top-ranked cortical rules using dense vector similarity,

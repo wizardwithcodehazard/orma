@@ -15,11 +15,12 @@ class smrutiConfig:
     smruti_dir_name: str = ".smruti"
     
     # Biological decay parameters
-    # decay_rate: controls how fast unused rules decay over time (in hours^-1)
-    default_decay_rate: float = 0.05
+    # decay_rate: how fast learned rules decay without re-observation (in hours^-1);
+    # 0.005 takes a fresh 0.5-strength rule below prune_threshold in ~10 days
+    default_decay_rate: float = 0.005
     # prune_threshold: rules with effective strength below this are archived
     prune_threshold: float = 0.15
-    # reinforcement_boost: strength added per successful recall
+    # reinforcement_boost: strength added each time a rule is re-observed
     reinforcement_boost: float = 0.15
     # learned_failure_ttl_days: auto-learned anti-memories expire after this many days
     learned_failure_ttl_days: float = 7.0

@@ -152,3 +152,25 @@ def test_distinct_learned_rules_are_not_merged(mem):
     consolidator.sleep()
 
     assert cortex.count() == 2
+
+
+def test_user_rules_never_decay_but_learned_rules_do(mem):
+    _, _, cortex, _ = mem
+    from smruti.models import LEARNED_RULE_CATEGORY
+
+    cortex.add_rule("Never deploy on Friday afternoon", category="devops")
+    learned = cortex.add_rule("When 'make' fails, 'make clean' resolved it.", category=LEARNED_RULE_CATEGORY, base_strength=0.5)
+    month_later = learned.created_at + 30 * 86400
+
+    assert cortex.prune_decayed_rules(current_time=month_later) == 1
+    (survivor,) = [r for r, _ in cortex.recall_rules("deploy")]
+    assert survivor.rule_text == "Never deploy on Friday afternoon"
+
+
+def test_recall_does_not_strengthen_rules(mem):
+    _, _, cortex, _ = mem
+    rule = cortex.add_rule("Use uv for dependency management", category="tooling", base_strength=0.6)
+    for _ in range(5):
+        cortex.recall_rules("dependency management")
+    (after,) = [r for r, _ in cortex.recall_rules("dependency management")]
+    assert after.base_strength == rule.base_strength

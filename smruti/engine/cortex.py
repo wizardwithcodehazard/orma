@@ -213,12 +213,13 @@ class Cortex:
         category: str | None = None,
         limit: int = 5,
         current_time: float | None = None,
-        reinforce: bool = True
+        reinforce: bool = False
     ) -> list[tuple[CorticalRule, float]]:
         """
         Retrieves top rules weighted by biological effective strength (Ebbinghaus retention),
         dense vector semantic similarity, and associative spreading activation across graph edges.
-        If reinforce=True, reinforces recalled rules via Hebbian potentiation.
+        Recall is read-only by default: retrieval is not evidence a rule helped. Rules gain
+        strength when re-observed (see add_rule). reinforce=True opts into recall potentiation.
         """
         now = current_time or datetime.now(timezone.utc).timestamp()
         conn = self.db.get_connection()

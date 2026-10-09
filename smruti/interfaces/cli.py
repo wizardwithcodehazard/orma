@@ -155,7 +155,7 @@ def recall(
     config = get_config()
     db = get_db(config)
     cortex = Cortex(db, config)
-    recalled = cortex.recall_rules(query=query, limit=limit, reinforce=True)
+    recalled = cortex.recall_rules(query=query, limit=limit)
     if not recalled:
         _safe_echo("No relevant cortical rules found in active memory.")
         return
