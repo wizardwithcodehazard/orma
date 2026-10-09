@@ -5,6 +5,7 @@ errors into permanent inhibitory anti-memories, links causal resolution trajecto
 and sweeps historical raw buffers and decaying cortical rules.
 """
 
+import hashlib
 import logging
 import re
 from collections import defaultdict
@@ -85,22 +86,21 @@ class Consolidator:
         promoted_rules = 0
         synthesis_tasks: list[dict[str, Any]] = []
 
-        # 2. Analyze failure repetitions with normalized command & error clustering
-        failure_clusters: dict[str, list[Episode]] = defaultdict(list)
+        # 2. Cluster failures by (exact command, error signature) so unrelated failures never merge
+        failure_clusters: dict[tuple[str, str], list[Episode]] = defaultdict(list)
         for ep in episodes:
             if ep.status in [ActionStatus.FAILURE, ActionStatus.ERROR]:
-                cluster_key = self._extract_cluster_key(ep.action)
-                failure_clusters[cluster_key].append(ep)
+                failure_clusters[(self._normalize_command(ep.action), self._error_signature(ep.result))].append(ep)
 
-        for cluster_key, cluster in failure_clusters.items():
+        for (cluster_key, err_sig), cluster in failure_clusters.items():
             if len(cluster) >= 2:
                 # Recurring failure pattern detected -> promote to anti-memory
                 first_ep = cluster[0]
-                sig = f"recurring_failure_{self._slugify(cluster_key)}"
-                
+                sig = f"recurring_failure_{self._slugify(cluster_key)[:60]}_{hashlib.sha1(err_sig.encode()).hexdigest()[:6]}"
+
                 # Check for project scoping in episode metadata or parameter
                 ep_proj = project_root or first_ep.metadata.get("project_root")
-                
+
                 cluster_data = [
                     {"action": e.action, "result": e.result[:200], "context": e.context}
                     for e in cluster
@@ -110,12 +110,11 @@ class Consolidator:
                         reason = self.llm_summarizer("failure_summary", cluster_data)
                     except Exception as e:
                         logger.warning("LLM summarizer failed: %s; falling back to heuristic", e)
-                        reason = f"Command '{cluster_key}' failed {len(cluster)} times. Sample error: {first_ep.result[:120]}"
+                        reason = f"Command '{cluster_key}' failed {len(cluster)} times. Error: {err_sig}"
                 elif self.llm_client.is_configured():
                     reason = self.llm_client.summarize_failure_cluster(cluster_data)
                 else:
-                    sample_err = first_ep.result.strip().split("\n")[-1][:120] if first_ep.result else "Non-zero exit code"
-                    reason = f"Command pattern '{cluster_key}' failed {len(cluster)} times. Error: {sample_err}"
+                    reason = f"Command '{cluster_key}' failed {len(cluster)} times. Error: {err_sig}"
 
                 self.inhibitory.record_anti_memory(
                     signature=sig,
@@ -131,7 +130,7 @@ class Consolidator:
                     "pattern": cluster_key,
                     "signature": sig,
                     "count": len(cluster),
-                    "sample_error": first_ep.result.strip().split("\n")[-1][:120] if first_ep.result else "Non-zero exit"
+                    "sample_error": err_sig
                 })
 
         # 3. Multi-Step Causal Discovery (Window of up to 4 episodes)
@@ -206,15 +205,15 @@ class Consolidator:
         }
 
     @staticmethod
-    def _extract_cluster_key(action: str) -> str:
-        """Extracts normalized command or pattern key from action string."""
-        tokens = action.strip().split()
-        if not tokens:
-            return "unknown"
-        # If multi-word command like "pip install" or "npm run" or "git push", group top 2 words
-        if len(tokens) >= 2 and tokens[0].lower() in {"pip", "npm", "git", "docker", "yarn", "cargo", "pnpm", "poetry", "uv"}:
-            return f"{tokens[0]} {tokens[1]}"
-        return tokens[0]
+    def _normalize_command(action: str) -> str:
+        """Collapses whitespace so trivially different spellings of a command cluster together."""
+        return " ".join(action.split())
+
+    @staticmethod
+    def _error_signature(result: str) -> str:
+        """Last non-empty output line with numbers masked, e.g. "ModuleNotFoundError: No module named 'torch'"."""
+        lines = [ln.strip() for ln in (result or "").splitlines() if ln.strip()]
+        return re.sub(r"\d+", "N", lines[-1])[:120] if lines else "non-zero exit"
 
     @staticmethod
     def _slugify(text: str) -> str:

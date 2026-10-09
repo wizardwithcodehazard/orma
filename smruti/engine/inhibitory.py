@@ -49,6 +49,9 @@ _READ_ONLY_THRESHOLD = 0.95  # Much stricter semantic threshold for read-only ac
 # Anti-memories with this severity warn the agent but never block execution
 ADVISORY_SEVERITY = "warning"
 
+# Signature prefix of anti-memories auto-promoted by the sleep cycle
+LEARNED_SIGNATURE_PREFIX = "recurring_failure_"
+
 
 def _is_read_only_intent(action: str) -> bool:
     """Returns True if the action's first verb strongly signals a non-mutating read operation."""
@@ -180,7 +183,6 @@ class InhibitoryGate:
         """
         conn = self.db.get_connection()
         normalized_action = action.strip()
-        combined_text = f"{context} {normalized_action}".lower()
 
         now = datetime.now(timezone.utc).timestamp()
         # SQL level filter: Only active, non-expired anti-memories for this project (or global)
@@ -220,7 +222,7 @@ class InhibitoryGate:
             pattern = anti_mem.pattern
 
             pat_lower = pattern.lower()
-            if pat_lower in combined_text or pat_lower in normalized_action.lower():
+            if pat_lower in normalized_action.lower():
                 matched_anti_mem = anti_mem
                 match_source = "literal_substring"
                 matched_sources.append("literal_substring")
@@ -254,6 +256,8 @@ class InhibitoryGate:
                 knn_rows = conn.execute(knn_query, (action_blob,)).fetchall()
                 for kr in knn_rows:
                     anti_mem = self._row_to_anti_memory(kr)
+                    if anti_mem.signature.startswith(LEARNED_SIGNATURE_PREFIX):
+                        continue  # learned failures match literally only
                     if not anti_mem.is_active:
                         continue
                     if anti_mem.expires_at is not None and anti_mem.expires_at <= now:
@@ -277,6 +281,8 @@ class InhibitoryGate:
                 # In-memory fallback
                 for r in rows:
                     anti_mem = self._row_to_anti_memory(r)
+                    if anti_mem.signature.startswith(LEARNED_SIGNATURE_PREFIX):
+                        continue  # learned failures match literally only
                     if anti_mem.embedding:
                         sim = EmbeddingEngine.cosine_similarity(action_vec, anti_mem.embedding)
                         effective_threshold = (
