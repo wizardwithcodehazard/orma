@@ -17,7 +17,7 @@ Smruti implements this duality across three distinct temporal speeds:
          │
          ▼
 ┌───────────────────────────────┐
-│ Tier 3B: Inhibitory Gate      │ < 2ms (Exact substring, dense vector, guarded regex)
+│ Tier 3B: Inhibitory Gate      │ literal / regex / semantic; learned = warn, written = block
 │ (Catastrophic Prevention)     │
 └───────────────┬───────────────┘
                 │ Passed
@@ -60,19 +60,20 @@ Smruti implements this duality across three distinct temporal speeds:
 
 ### Tier 3A — Cortical Positive Mesh (`cortex.py`)
 - Stores positive heuristics, coding conventions, architectural invariants, and user preferences.
-- **Ebbinghaus Forgetting Curve**:
-  Rule strength decays mathematically over time based on an exponential power law:
-  
-  effective_strength = base_strength * exp(-time_elapsed / (half_life * access_multiplier))
-  
-  Where `access_multiplier = 1.0 + ln(1 + access_count)`.
-  Memories that are frequently recalled or reinforced resist decay, while unused rules naturally fade out of active context.
+- **Decay applies only to learned rules** (category `problem_resolution`, distilled by the sleep cycle):
+
+  effective_strength = base_strength * exp(-decay_rate * hours_since_last_observed)
+
+  `decay_rate` defaults to 0.005/h, so a fresh learned rule (strength 0.5) falls below the prune threshold in about 10 days unless the same fix is seen again.
+- **Reinforcement comes from evidence, not retrieval.** Re-observing an existing rule (exact or semantic duplicate) adds `reinforcement_boost` to its strength and 0.1 to its confidence. Recall is read-only by default.
+- Rules stated explicitly (`remember`, `observe`, `ingest`) never decay; they persist until forgotten.
 
 ### Tier 3B — Inhibitory Reflex Mesh (`inhibitory.py`)
 - Stores anti-memories (patterns representing known dead ends, recursive loops, or destructive operations).
+- **Learned vs. written.** Anti-memories promoted by the sleep cycle (`recurring_failure_*`, severity `warning`) are keyed on exact command + error signature, match literally only, and *warn* (`passed=True` with reason). They retire when the same command succeeds and expire after `learned_failure_ttl_days` (7). Anti-memories you record yourself block.
 - Evaluates candidate actions before execution through a multi-stage waterfall:
   1. **Literal Substring Match**: Exact pattern containment in candidate action (`< 0.1ms`).
-  2. **Neural Dense Vector Match**: Cosine similarity match against active anti-memories (`< 2ms`).
+  2. **Neural Dense Vector Match**: Cosine similarity against user-written anti-memories (a few ms on CPU; the embedding model loads only when such a match is possible).
   3. **Read-Only Intent Bypass**: Read-only diagnostic commands (e.g., `ls`, `grep`, `SELECT`) require a 0.95 similarity threshold before triggering a block, avoiding false positives on inspection tools.
   4. **Guarded Regex Fallback**: Sandboxed fallback for explicit shell wildcard patterns with syntax error shielding and ReDoS limits.
 

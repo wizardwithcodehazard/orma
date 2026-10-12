@@ -1,67 +1,57 @@
 # Smruti (स्मृति)
 
-> **Biologically Inspired, Dual-Valence Cognitive Memory Engine for Autonomous AI Agents**
+> **Learned failure memory for coding agents.** Smruti watches what your agent actually runs, learns which commands keep failing and what fixed them, and warns the agent before it walks into the same dead end again.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Protocol_Compliant-green.svg)](https://modelcontextprotocol.io/)
 [![Zero External DB](https://img.shields.io/badge/Vector_DB-Zero_Server_In--Process-orange.svg)]()
-[![Tests](https://img.shields.io/badge/tests-43%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen.svg)]()
 
 ---
 
 ## Why Smruti?
 
-Most AI agent memory frameworks focus solely on **positive RAG**: storing text documents or knowledge graph entities. 
+Autonomous coding agents fail in loops: the same missing dependency, the same broken build flag, the same command retried five times. Most agent memory layers (Mem0, Zep, Letta, Cognee) store facts and preferences you tell them. Smruti instead learns from **execution traces**: what was run, what failed, and what fixed it. Everything runs locally on SQLite with in-process embeddings and no API keys.
 
-However, when coding agents operate autonomously, their most frequent failure modes are:
-1. **Loop Amnesia**: Repeating the same broken terminal command, obsolete build flag, or failing compiler fix 5 times in a row.
-2. **Catastrophic Shell Actions**: Accidentally running `rm -rf`, modifying protected branches, or wiping production tables.
-3. **High Latency Overhead**: Calling an external LLM to check safety before every single tool action adds 1–3 seconds of delay per turn.
+## How it works
 
-**Smruti solves this by mirroring biological neuroscience:**
-- **Tier 1 (Episodic Buffer)**: Append-only SQLite WAL stream. Sub-millisecond execution logging with zero LLM overhead.
-- **Tier 2 (Sleep Consolidation)**: Offline background distillation that extracts rules from recurring patterns and prunes verbatim noise.
-- **Tier 3A (Cortical Positive Mesh)**: Positive rules and preferences with mathematical Ebbinghaus forgetting curves and Hebbian reinforcement.
-- **Tier 3B (Inhibitory Reflex Mesh)**: Fast preflight gate (< 2ms) that intercepts dangerous actions and known dead ends before execution.
+1. **Capture**: Claude Code hooks (or `smruti run -- <cmd>`) record every command and its outcome automatically. Nothing depends on the agent remembering to call a tool.
+2. **Sleep**: consolidation groups repeated failures by *exact command + error signature* into learned warnings, and pairs failures with the related command that fixed them into rules.
+3. **Preflight**: before a command runs, a matching learned failure adds a warning (reason + known fix) to the agent's context. Rules you write yourself, such as "never `git push --force` to main", block.
 
----
+**Design principles**
 
-## Architecture Overview
+- **Warn on what was learned, block only on what you wrote.** A wrong block costs more than a missed loop.
+- **Learned memory corrects itself.** A learned warning is retired as soon as the same command succeeds, and expires after 7 days. A learned fix starts at 0.5 confidence and only strengthens when the same fix is seen again, not when it's retrieved.
+- **What you tell it persists.** Only learned rules decay; facts you `remember` stay until you `forget` them.
 
 ```text
-[ Agent Action Loop ]
-         │
+[ Agent runs a shell command ]
+         │  PreToolUse hook / smruti run
          ▼
 ┌─────────────────────────────────┐
-│ Tier 3B: Inhibitory Gate        │ < 2ms (Exact substring, dense vector, guarded regex)
-│ (Catastrophic Action Intercept) │
+│ Preflight Gate                  │ learned failure → warning in agent context
+│                                 │ user-written rule → block (literal / regex / semantic)
 └───────────────┬─────────────────┘
-                │ Passed
                 ▼
 ┌─────────────────────────────────┐
-│ Execution & Tier 1 Buffer       │ < 1ms SQLite WAL append (Zero LLM overhead)
-│ (Sub-millisecond Episode Log)   │
+│ Episodic Buffer                 │ every command + outcome, SQLite WAL, secrets masked
 └───────────────┬─────────────────┘
-                │ Periodic / Task Completion
+                │ every N commands / on demand
                 ▼
 ┌─────────────────────────────────┐
-│ Tier 2: The Sleep Cycle         │ Offline background distillation & Ebbinghaus decay
-│ (Consolidation Engine)          │
+│ Sleep Consolidation             │ (command, error) clusters → learned warnings
+│                                 │ failure → related fix   → tentative rules
+│                                 │ success → retire warning; decay unconfirmed rules
 └───────────────┬─────────────────┘
-                │ Distills & Promotes
                 ▼
 ┌─────────────────────────────────┐
-│ Tier 3A: Cortical Knowledge     │ Vectorized BLAS cosine search + Graph spreading
-│ (Positive Heuristics & Rules)   │
+│ Rules & Preferences             │ recalled by vector + keyword search for prompt context
 └─────────────────────────────────┘
 ```
 
-<<<<<<< HEAD
-For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/ARCHITECTURE.md).
-=======
 For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](docs/ARCHITECTURE.md).
->>>>>>> de41eea (feat: secret masking, empirical benchmark suite, relative links, and troubleshooting guide)
 
 ---
 
@@ -96,11 +86,7 @@ python -m venv .venv
 pip install -e .
 ```
 
-<<<<<<< HEAD
-*For complete platform troubleshooting, see the [Multi-OS Setup Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/SETUP_GUIDE.md).*
-=======
 *For complete platform troubleshooting, see the [Multi-OS Setup Guide](docs/SETUP_GUIDE.md).*
->>>>>>> de41eea (feat: secret masking, empirical benchmark suite, relative links, and troubleshooting guide)
 
 ---
 
@@ -138,6 +124,33 @@ smruti export --output smruti_bundle.json
 
 # Import a bundle into another machine or workspace
 smruti import smruti_bundle.json
+```
+
+---
+
+## Automatic Capture (recommended)
+
+### Claude Code hooks
+Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global):
+
+```json
+{
+  "hooks": {
+    "PreToolUse":         [{"matcher": "Bash", "hooks": [{"type": "command", "command": "smruti hook"}]}],
+    "PostToolUse":        [{"matcher": "Bash", "hooks": [{"type": "command", "command": "smruti hook"}]}],
+    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "smruti hook"}]}]
+  }
+}
+```
+
+- Every Bash command and its outcome is recorded.
+- Learned failures show up as a warning in Claude's context, without changing your permission prompts.
+- Rules you wrote that should block are denied, with the reason shown to Claude.
+- The hook fails open: if smruti errors, the command still runs.
+
+### Any agent or shell
+```bash
+smruti run -- npm run build   # preflight, run, record exit status
 ```
 
 ---
@@ -187,11 +200,7 @@ Smruti exposes a live dynamic resource URI:
 
 Subscribing agents automatically receive project directives, active preferences, and strictly forbidden anti-patterns at session start without burning tool invocation turns.
 
-<<<<<<< HEAD
-*For complete IDE and agent setup instructions, see the [Agent Integrations Guide](file:///c:/Users/Sahil/Desktop/cognee/smruti/docs/AGENT_INTEGRATIONS.md).*
-=======
 *For complete IDE and agent setup instructions, see the [Agent Integrations Guide](docs/AGENT_INTEGRATIONS.md).*
->>>>>>> de41eea (feat: secret masking, empirical benchmark suite, relative links, and troubleshooting guide)
 
 ---
 
@@ -209,7 +218,7 @@ mem = SmrutiMemory(project_root="./my_project")
 mem.observe("We strictly use PostgreSQL with connection pooling as our primary database.")
 mem.remember("Always format code with ruff before committing", category="code_convention")
 
-# 2. Preflight Safety Gate: Check actions before executing (< 2ms)
+# 2. Preflight gate: check actions before executing
 check = mem.check_action("git push origin main --force")
 if not check.passed:
     print(f"BLOCKED: {check.reason}")
@@ -260,11 +269,19 @@ Measured using the reproducible benchmark suite (`benchmarks/benchmark_engine.py
 | **Tier 2 (Neural Vector)** | FastEmbed `bge-small` on CPU | **7.37 milliseconds** | **~129x faster** |
 | **Cloud LLM Guardrail Call** | Remote API Network Roundtrip | ~950 milliseconds | Baseline |
 
-### 2. Autonomous Loop Prevention & Error Reduction
-In tests simulating an agent encountering a failing configuration or broken build command across 10 turns:
-- **Baseline Agent (No Memory)**: Repeated the failing command across all 10 turns (10/10 failures).
-- **Smruti-Guided Agent**: Encountered 2 exploratory failures, consolidated the failure cluster during sleep, and intercepted the remaining 8 attempts via the preflight gate.
-- **Result**: **80.0% reduction in error loops** and substantial token savings.
+### 2. Replay Evaluation on Real Command Histories
+`benchmarks/replay_eval.py` replays real Bash histories in order: Claude Code transcripts (default `~/.claude/projects`) or a JSONL trace. It runs against a throwaway database and reports:
+- how often a warning was followed by a real failure (precision)
+- wrong flags
+- repeat failures caught before they happened
+- the rules learned
+
+```bash
+python benchmarks/replay_eval.py                                   # your Claude Code history
+python benchmarks/replay_eval.py benchmarks/sample_trace.jsonl --sleep-every 2
+```
+
+On the bundled sample trace, all three learned rules are the real fixes (e.g. *"When 'python train.py' fails, 'pip install torch' resolved it."*). No read-only command or bare retry is mistaken for a fix. Learning only happens during sleep, so repeat failures inside one short session are caught only if consolidation runs often enough (`--sleep-every`).
 
 ### 3. BLAS Vector Search Scalability (CPU)
 Batch cosine similarity using vectorized 2D BLAS dot products across rule sets:
@@ -280,7 +297,7 @@ Batch cosine similarity using vectorized 2D BLAS dot products across rule sets:
 
 | Capability | Smruti | Mem0 | Cognee | Zep |
 | :--- | :--- | :--- | :--- | :--- |
-| **Inhibitory Anti-Memories** | **Yes (Tier 3B)** | No | No | No |
+| **Learns failures from execution traces** | **Yes** | No | No | No |
 | **Sub-10ms Preflight Gate** | **Yes (< 8ms local CPU)** | No (~800ms API) | No (Graph query) | No (API roundtrip) |
 | **Zero External DB Setup** | **Yes (SQLite + FastEmbed)** | No (Postgres/Cloud) | No (Tri-Store / Kùzu) | No (Cloud/Docker) |
 | **Biological Ebbinghaus Decay** | **Yes (Mathematical)** | No | No | No |
