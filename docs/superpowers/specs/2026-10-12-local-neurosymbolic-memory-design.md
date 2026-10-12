@@ -30,10 +30,10 @@ Multi-user servers and auth, Postgres, team sync, cloud LLM providers as the sle
 | Module | Responsibility | Neural / symbolic |
 |---|---|---|
 | `smruti/store/` | SQLite schema and migrations, FTS5 and sqlite-vec indexes, typed repositories | Symbolic |
-| `smruti/encode/` | Per turn: embed, adaptive novelty gate, store or count | Neural + statistics |
+| `smruti/encode.py` | Per turn: embed, adaptive novelty gate, store or count | Neural + statistics |
 | `smruti/recall/` | Per request: entity linking, graph expansion, hybrid ranking, budgeted packing | Neural linking → symbolic lookup and packing |
 | `smruti/sleep/` | Idle-time: LLM extraction into a schema, then symbolic consolidation | Neural extraction → symbolic consolidation |
-| `smruti/llm/` | Minimal OpenAI-compatible client (chat, JSON mode, streaming) | — |
+| `smruti/llm.py` | Minimal OpenAI-compatible client (chat, JSON mode, streaming) | — |
 | `smruti/serve/` | `proxy` (OpenAI-compatible server), Python SDK, CLI, MCP, agent hooks | Interface |
 | `smruti/eval/` | LongMemEval harness and baselines | — |
 
@@ -54,7 +54,7 @@ Every row carries a `space` column (default `"default"`). A space is a memory na
 | `predicates` | id, space, name, cardinality (`one`/`many`), embedding | Normalized relation vocabulary, learned during sleep. |
 | `facts` | id, space, subject_id, predicate_id, object_id (nullable), object_value (nullable), confidence, support, valid_from, valid_to, last_used, source_episode_ids | Graph edges. Current facts have `valid_to IS NULL`. Never deleted; closed. |
 | `summaries` | id, space, topic_entity_id (nullable), text, embedding, period_start, period_end, tokens | One rolling summary per topic, rewritten each sleep. |
-| `procedures` | id, space, trigger, action, polarity (`works`/`fails`), error_class, successes, failures, embedding, last_used | "When X → do / avoid Y". Covers coding-agent failure memory. |
+| `procedures` | id, space, trigger, action, error_class, successes, failures, created_at, last_used | "When X → do / avoid Y". Polarity is the majority outcome (works if successes ≥ failures). Covers coding-agent failure memory. |
 | `novelty_stats` | space, recent_scores (JSON ring buffer of last 500) | For the adaptive novelty gate. |
 
 Indexes: FTS5 over `episodes.text`, `facts` (rendered text), `summaries.text`, `procedures.trigger`. sqlite-vec tables for episodes, entities, predicates, summaries, procedures (384-dim, `BAAI/bge-small-en-v1.5` via fastembed).
@@ -80,7 +80,7 @@ Input: space, incoming messages, token budget (default `budget_tokens` 4096 minu
    1. *Core block*: current facts about `user` with confidence ≥ `core_min_confidence` (0.7), sorted by (predicate, id) for a stable, cache-friendly prefix.
    2. Relevant facts, then procedures, then summaries, by score.
    3. Recent raw turns from the client's messages, newest first; the last 2 are always kept.
-6. Rendered as one system message section, `## Memory`, inserted after the client's system prompt. Used items get `last_used` updated.
+6. Rendered as a `## Memory` section appended to the client's system prompt (or sent as the system message if there is none). Recall is read-only: `last_used` changes only when new evidence arrives, so retrieval never reinforces memory and the request path does no writes.
 
 Token counting: the upstream `/tokenize` endpoint when available (llama.cpp), else `len(text) / chars_per_token` (default 3.5, configurable).
 
