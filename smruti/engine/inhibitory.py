@@ -207,10 +207,6 @@ class InhibitoryGate:
         if not rows:
             return InhibitionResult(passed=True)
 
-        # Compute candidate action embedding for neural semantic matching
-        action_vec = self.embeddings.embed_text(normalized_action)
-        action_blob = EmbeddingEngine.vec_to_blob(action_vec) if action_vec else None
-
         matched_anti_mem: AntiMemory | None = None
         match_source = "exact"
         matched_sources: list[str] = []
@@ -243,8 +239,14 @@ class InhibitoryGate:
                     except Exception:
                         pass
 
-        # Tier 2: Neural Dense Vector Semantic Matching
-        if matched_anti_mem is None:
+        # Tier 2: Neural Dense Vector Semantic Matching (learned failures match literally only,
+        # so skip loading the embedding model when nothing else could match)
+        needs_semantic = matched_anti_mem is None and any(
+            not r["signature"].startswith(LEARNED_SIGNATURE_PREFIX) for r in rows
+        )
+        if needs_semantic:
+            action_vec = self.embeddings.embed_text(normalized_action)
+            action_blob = EmbeddingEngine.vec_to_blob(action_vec) if action_vec else None
             if self.db.vec_available and action_blob:
                 knn_query = """
                     SELECT v.anti_memory_id, v.distance, a.*

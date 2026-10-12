@@ -304,6 +304,43 @@ def mcp():
     from smruti.interfaces.mcp_server import run_server
     run_server()
 
+@app.command()
+def hook():
+    """
+    Claude Code hook handler (PreToolUse / PostToolUse / PostToolUseFailure on Bash).
+    Reads the hook JSON from stdin. Never blocks the agent on internal errors.
+    """
+    import json
+    import logging
+    from smruti.interfaces.hooks import handle_claude_hook
+    logging.disable(logging.WARNING)  # stdout/stderr belong to the hook protocol
+    try:
+        out = handle_claude_hook(json.load(sys.stdin))
+    except Exception:
+        return  # fail open
+    if out:
+        print(json.dumps(out))
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def run(
+    ctx: typer.Context,
+    session_id: str = typer.Option("shell", help="Session label for recorded episodes"),
+):
+    """Runs a shell command with preflight checking and automatic outcome recording: smruti run -- <cmd>"""
+    import os
+    import shlex
+    from smruti.interfaces.hooks import format_warning, run_command
+    command = shlex.join(ctx.args) if len(ctx.args) > 1 else " ".join(ctx.args)
+    if not command:
+        _safe_echo("Usage: smruti run -- <command>")
+        raise typer.Exit(2)
+    code, res = run_command(command, session_id=session_id, project_root=os.getcwd())
+    if not res.passed:
+        _safe_echo(f"[BLOCKED BY smruti] {res.matched_signature}: {res.reason}")
+    elif res.matched_signature:
+        typer.echo(format_warning(res), err=True)
+    raise typer.Exit(code)
+
 
 
 
