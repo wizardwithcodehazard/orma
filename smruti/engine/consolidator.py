@@ -97,6 +97,10 @@ class Consolidator:
             }
 
         episodes = sorted(unconsolidated, key=lambda e: e.timestamp)
+        new_ids = {e.id for e in episodes}
+        # Already-consolidated recent history gives context, so failures and fixes that straddle
+        # sleep cycles still pair up. Only clusters/pairs involving a new episode are acted on.
+        window = sorted(self._recent_consolidated(session_id) + episodes, key=lambda e: e.timestamp)
         promoted_anti_memories = 0
         promoted_rules = 0
         synthesis_tasks: list[dict[str, Any]] = []
@@ -113,7 +117,7 @@ class Consolidator:
 
         # 2. Cluster failures by (exact command, error signature) so unrelated failures never merge
         failure_clusters: dict[tuple[str, str], list[Episode]] = defaultdict(list)
-        for ep in episodes:
+        for ep in window:
             if ep.status in [ActionStatus.FAILURE, ActionStatus.ERROR]:
                 failure_clusters[(self._normalize_command(ep.action), self._error_signature(ep.result))].append(ep)
 
@@ -122,7 +126,8 @@ class Consolidator:
             resolved_later = any(
                 e.timestamp > last_failure and self._normalize_command(e.action) == cluster_key for e in successes
             )
-            if len(cluster) >= 2 and not resolved_later:
+            has_new = any(e.id in new_ids for e in cluster)
+            if len(cluster) >= 2 and has_new and not resolved_later:
                 # Recurring failure pattern detected -> promote to anti-memory
                 first_ep = cluster[0]
                 sig = f"recurring_failure_{self._slugify(cluster_key)[:60]}_{hashlib.sha1(err_sig.encode()).hexdigest()[:6]}"
@@ -166,17 +171,18 @@ class Consolidator:
         # 3. Multi-Step Causal Discovery (Window of up to 4 episodes)
         # Finds a failure followed by a subsequent resolution in the same session
         processed_pairs = set()
-        for i in range(len(episodes)):
-            curr_ep = episodes[i]
+        for i in range(len(window)):
+            curr_ep = window[i]
             if curr_ep.status not in [ActionStatus.FAILURE, ActionStatus.ERROR]:
                 continue
 
             # Look ahead up to 4 steps for a successful resolution
-            lookahead_limit = min(len(episodes), i + 5)
+            lookahead_limit = min(len(window), i + 5)
             for j in range(i + 1, lookahead_limit):
-                succ_ep = episodes[j]
+                succ_ep = window[j]
                 if (
-                    succ_ep.status == ActionStatus.SUCCESS
+                    succ_ep.id in new_ids
+                    and succ_ep.status == ActionStatus.SUCCESS
                     and succ_ep.session_id == curr_ep.session_id
                     and self._is_plausible_fix(curr_ep, succ_ep)
                 ):
@@ -251,19 +257,33 @@ class Consolidator:
         lines = [ln.strip() for ln in (result or "").splitlines() if ln.strip()]
         return re.sub(r"\d+", "N", lines[-1])[:120] if lines else "non-zero exit"
 
+    def _recent_consolidated(self, session_id: str | None, limit: int = 50) -> list[Episode]:
+        """Most recent already-consolidated episodes, used as cross-cycle context."""
+        sql = "SELECT * FROM episodes WHERE consolidated_at IS NOT NULL"
+        params: list[Any] = []
+        if session_id:
+            sql += " AND session_id = ?"
+            params.append(session_id)
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        rows = self.db.get_connection().execute(sql, params).fetchall()
+        return [self.stream._row_to_episode(r) for r in rows]
+
     @staticmethod
     def _is_plausible_fix(failed: Episode, fix: Episode) -> bool:
         """
         A later success counts as the fix only if it changes something related to the failure:
         not a read-only inspection, not a blind retry, and sharing a meaningful token with the
-        failed command or its error (e.g. 'pip install torch' after "No module named 'torch'").
+        failed command's arguments or its error (e.g. 'pip install torch' after
+        "No module named 'torch'"). The failed program name alone ('python') is not evidence.
         """
         if _is_read_only_intent(fix.action):
             return False
         if Consolidator._normalize_command(fix.action) == Consolidator._normalize_command(failed.action):
             return False
         fix_tokens = _meaningful_tokens(fix.action)
-        return bool(fix_tokens & _meaningful_tokens(f"{failed.action} {failed.result}"))
+        failed_args = " ".join(failed.action.split()[1:])
+        return bool(fix_tokens & _meaningful_tokens(f"{failed_args} {failed.result}"))
 
     @staticmethod
     def _slugify(text: str) -> str:

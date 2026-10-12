@@ -174,3 +174,28 @@ def test_recall_does_not_strengthen_rules(mem):
         cortex.recall_rules("dependency management")
     (after,) = [r for r, _ in cortex.recall_rules("dependency management")]
     assert after.base_strength == rule.base_strength
+
+
+def test_program_name_alone_is_not_evidence_of_a_fix(mem):
+    stream, _, cortex, consolidator = mem
+    stream.append("python train.py", result="ModuleNotFoundError: No module named 'torch'", status=FAIL)
+    stream.append("python --version", result="Python 3.12.4", status=OK)
+    consolidator.sleep()
+    assert cortex.count() == 0
+
+
+def test_failures_and_fixes_pair_across_sleep_cycles(mem):
+    stream, gate, cortex, consolidator = mem
+    stream.append("npm run build", result="Cannot find module 'vite'", status=FAIL)
+    consolidator.sleep()
+    stream.append("npm run build", result="Cannot find module 'vite'", status=FAIL)
+    consolidator.sleep()
+    assert gate.check_action("npm run build").matched_signature is not None  # counted across cycles
+
+    stream.append("npm install vite", result="added 1 package", status=OK)
+    consolidator.sleep()
+    assert cortex.count() == 1  # fix paired with a failure from an earlier cycle
+
+    consolidator.sleep()
+    (rule,) = [r for r, _ in cortex.recall_rules("vite")]
+    assert rule.confidence == 0.5  # re-running sleep does not re-count old pairs
