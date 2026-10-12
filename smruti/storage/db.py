@@ -468,10 +468,12 @@ def get_db(config: smrutiConfig | None = None) -> DatabaseManager:
 def close_all_dbs() -> None:
     """Closes and unloads all open database managers (useful for tests and shutdowns)."""
     global _default_db
+    # Close outside _db_lock: DatabaseManager.close() re-acquires it to evict itself
     with _db_lock:
-        for mgr in list(_db_managers.values()):
-            mgr.close()
+        managers = list(_db_managers.values())
+        if _default_db is not None and _default_db not in managers:
+            managers.append(_default_db)
         _db_managers.clear()
-        if _default_db is not None:
-            _default_db.close()
-            _default_db = None
+        _default_db = None
+    for mgr in managers:
+        mgr.close()
