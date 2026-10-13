@@ -3,8 +3,7 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-import smruti.cli as cli
-from smruti import Memory
+from smruti import Memory, cli
 
 runner = CliRunner()
 

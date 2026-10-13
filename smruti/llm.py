@@ -7,7 +7,6 @@ import json
 
 import httpx
 
-
 RETRY_REMINDER = {"role": "user", "content": "Return only a valid JSON object."}
 
 

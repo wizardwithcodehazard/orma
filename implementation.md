@@ -1,6 +1,6 @@
 # Implementation status
 
-Branch `feature/local-memory`. Plans 1 (memory core) and 2 (proxy and CLI) are implemented. See [tasks.md](tasks.md) for what is next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together.
+Plans 1 (memory core) and 2 (proxy and CLI) are implemented, plus the accuracy and human-memory work listed in [tasks.md](tasks.md). Handover notes: [HANDOVER.md](HANDOVER.md). See [tasks.md](tasks.md) for what is next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together.
 
 ## Module map
 
@@ -15,8 +15,10 @@ Branch `feature/local-memory`. Plans 1 (memory core) and 2 (proxy and CLI) are i
 | `smruti/store/index.py` | Vector and lexical search helpers. |
 | `smruti/store/store.py` | `Store`: reads, writes, leases, novelty stats, pruning, stats. |
 | `smruti/encode.py` | `Encoder`: per-turn encoding with the adaptive novelty gate. |
-| `smruti/recall/` | `Recaller`: search fusion, entity linking, spreading activation, ranking, budgeted packing. |
-| `smruti/sleep/` | `Sleeper`, LLM extraction (`extract.py`), symbolic consolidation (`consolidate.py`). |
+| `smruti/recall/` | `Recaller` (`__init__.py`): search fusion, priming, ranking; `link.py` entity linking; `activation.py` spreading activation with the fan effect; `rank.py` fusion, base-level activation, importance; `pack.py` budgeted rendering. |
+| `smruti/sleep/` | `Sleeper` (`__init__.py`), LLM extraction and schema (`extract.py`), replay voting (`vote.py`), grounding and symbolic consolidation (`consolidate.py`). |
+| `scripts/demo_ollama.py` | End-to-end demo against a real model, with and without memory. |
+| `scripts/latency_smoke.py` | Latency and hub-robustness check with real embeddings, no LLM. |
 | `smruti/memory.py` | `Memory`, the SDK entry point. |
 | `smruti/serve/proxy.py` | OpenAI-compatible proxy (Starlette). |
 | `smruti/serve/capture.py` | Which turns and replies to record from proxied traffic. |
@@ -32,7 +34,7 @@ Branch `feature/local-memory`. Plans 1 (memory core) and 2 (proxy and CLI) are i
 
 ## Tests
 
-`python -m pytest -q`: 150 passed. Tests use a deterministic fake embedder and fake LLM, so they need no model download.
+`python -m pytest -q`: 248 passed. Tests use a deterministic fake embedder and fake LLM, so they need no model download.
 
 ## Deviations from the spec
 
@@ -43,4 +45,5 @@ Branch `feature/local-memory`. Plans 1 (memory core) and 2 (proxy and CLI) are i
 
 - Weak lexical matches can still pull loosely related facts into the prompt.
 - Trimming history does not yet keep tool-call and tool-result pairs together.
-- No end-to-end benchmark results yet (Plan 3).
+- No benchmark results yet (Plan 3).
+- Extraction quality is bounded by the sleep model: with `llama3.2:3b` some facts are misattributed or missed (see HANDOVER.md).

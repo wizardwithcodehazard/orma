@@ -16,8 +16,17 @@ from smruti.config import SmrutiConfig
 from smruti.embed import Embedder, FastEmbedder
 from smruti.store import index
 from smruti.store.db import connect, init_schema
-from smruti.store.records import (Entity, Episode, Event, Fact, Predicate, Procedure, Summary, fact_text,
-                                  from_row)
+from smruti.store.records import (
+    Entity,
+    Episode,
+    Event,
+    Fact,
+    Predicate,
+    Procedure,
+    Summary,
+    fact_text,
+    from_row,
+)
 
 USER_ENTITY = "user"
 

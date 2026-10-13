@@ -51,7 +51,7 @@ def test_contradiction_on_one_valued_relation_closes_old_fact(store, config):
     }, now=200.0)
     assert report.facts_closed == 1
     assert [f.text for f in store.current_facts("s")] == ["user lives in Bangalore"]
-    old = [f for f in store.fact_history("s") if f.object == "Pune"][0]
+    old = next(f for f in store.fact_history("s") if f.object == "Pune")
     assert old.valid_to == 200.0
 
 
@@ -115,7 +115,7 @@ def test_backdated_fact_is_inserted_closed_and_current_fact_stays(store, config)
     apply(store, config, lives("Bangalore", "2026-06-01"))
     apply(store, config, lives("Pune", "2025-01-01"), ids=[2])
     assert [f.object for f in store.current_facts("s")] == ["Bangalore"]
-    old = [f for f in store.fact_history("s") if f.object == "Pune"][0]
+    old = next(f for f in store.fact_history("s") if f.object == "Pune")
     assert old.valid_to == datetime(2026, 6, 1, tzinfo=timezone.utc).timestamp()
     assert [f.object for f in store.facts([i for i, _ in store.vec_search("facts", "s", store.embed("user lives in Pune"), 5)])] == ["Bangalore"]
 
@@ -233,7 +233,7 @@ def test_move_stated_before_inferred_fact_supersedes_it(store, config):
     apply(store, config, lives("Pune"), ids=[1], now=100 * DAY, at=100 * DAY)  # no date: inferred valid_from
     apply(store, config, lives("Bangalore", "1970-03-01"), ids=[2], now=200 * DAY, at=200 * DAY)
     assert [f.object for f in store.current_facts("s")] == ["Bangalore"]
-    pune = [f for f in store.fact_history("s") if f.object == "Pune"][0]
+    pune = next(f for f in store.fact_history("s") if f.object == "Pune")
     assert pune.valid_to == 100 * DAY and not pune.valid_from_stated
     (bangalore,) = store.current_facts("s")
     assert bangalore.valid_from_stated
@@ -419,7 +419,7 @@ def test_time_on_the_episode_day_is_not_stated(store, config):
     (fact,) = store.current_facts("s")
     assert fact.valid_from == at and not fact.valid_from_stated
     apply(store, config, lives("Bangalore", "2026-03-04"), ids=[2], now=at + 3600, at=at)
-    bangalore = [f for f in store.fact_history("s") if f.object == "Bangalore"][0]
+    bangalore = next(f for f in store.fact_history("s") if f.object == "Bangalore")
     assert bangalore.valid_from_stated
 
 

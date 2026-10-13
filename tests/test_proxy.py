@@ -242,7 +242,7 @@ def test_secrets_are_masked_and_tool_output_is_capped(memory):
         c.post("/v1/chat/completions", json={"model": "m", "messages": messages})
     recorded = texts(memory)
     assert recorded[0] == ("user", "my key is [REDACTED]")
-    tool = [t for r, t in recorded if r == "tool"][0]
+    tool = next(t for r, t in recorded if r == "tool")
     assert "…[truncated]…" in tool and tool.endswith("TAIL") and len(tool) < 200
 
 

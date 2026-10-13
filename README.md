@@ -13,7 +13,7 @@ Small models have small context windows, so you cannot replay a long history on 
 Requires Python 3.10 or newer.
 
 ```bash
-git clone <this repo> && cd smruti
+git clone https://github.com/meluhhan/smruti.git && cd smruti
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
@@ -108,6 +108,8 @@ Principles:
 - An adaptive novelty gate drops turns that add nothing new relative to what that space has recently seen. Tool turns with outcomes are always kept.
 - Extracted facts are checked against the conversation they came from: a fact whose object (or non-user subject) has words that the batch's log does not contain, for example one copied from an existing summary, is dropped. A date that is just the day the message was written does not count as a stated time.
 - Optionally (`sleep_votes` 2 or more) sleep replays each batch: facts a second, sampled extraction also produces count as one extra observation. Facts are never held back for lack of agreement. Off by default because each vote costs a full extraction.
+- The memory block states today's date, so the model can reason about when remembered events happened.
+- The person's own name ("I'm Sahil") becomes an alias of the `user` entity; names of other people are guarded so they are never merged into the user.
 - Only tool calls and results become procedures ("when X, doing Y fails" or "works") that are recalled as lessons next time.
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -163,9 +165,11 @@ The `enable_*` switches turn individual components off so their effect can be me
 
 ## Status
 
-Measured on an Apple Silicon laptop with bge-small embeddings and 2,000 stored facts: recall takes about 22 ms per request and encoding about 5 ms per turn. The test suite has 150 tests.
-
-End-to-end runs with a real local model and the LongMemEval evaluation are in progress (Plan 3, see [tasks.md](tasks.md)). Known limitation: weak lexical matches can still pull loosely related facts into the prompt.
+- 248 tests pass (`python -m pytest -q`); they use a fake embedder and fake LLM, so they need no downloads.
+- Measured on an M1 MacBook Air (8 GB) with bge-small embeddings and 2,000 stored facts: recall about 26 ms per request, encoding about 5 ms per turn (`python scripts/latency_smoke.py`).
+- Verified end to end with Ollama `llama3.2:3b` (`python scripts/demo_ollama.py`): a moved city replaces the old one, a dated event ("went trekking with Asha on 2026-10-09") is recalled, and sleep takes about 10–25 s per batch on the M1.
+- Not yet measured on a benchmark: the LongMemEval harness is the next step (see [tasks.md](tasks.md)).
+- Main limitation: extraction quality is bounded by the model doing sleep. A 3B model sometimes misattributes a fact ("user is allergic" instead of the sister) or misses a link. See [HANDOVER.md](HANDOVER.md) for the full list and the planned fixes.
 
 ## Research
 

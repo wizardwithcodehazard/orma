@@ -11,8 +11,8 @@ import uuid
 from dataclasses import dataclass, field
 
 from smruti.config import SmrutiConfig
-from smruti.sleep.consolidate import ConsolidationReport, Consolidator
 from smruti.recall.pack import count_tokens
+from smruti.sleep.consolidate import ConsolidationReport, Consolidator
 from smruti.sleep.extract import JSON_SCHEMA, ExtractionContext, extract, format_episode
 from smruti.sleep.vote import vote
 from smruti.store import USER_ENTITY, Store
@@ -76,7 +76,7 @@ class Sleeper:
                 ]
                 extraction, agreed = vote(extractions, self.store.embed, cfg.vote_match_threshold)
                 consolidation = self.consolidator.apply(space, extraction, batch, now, agreed=agreed)
-            except Exception as exc:  # any failure must count against the attempt cap
+            except Exception as exc:  # noqa: BLE001 - any failure must count against the attempt cap
                 self.store.record_sleep_failure(ids, str(exc), cfg.sleep_max_attempts, now)
                 report.failed_batches += 1
                 break

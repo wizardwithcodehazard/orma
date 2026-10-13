@@ -1,7 +1,7 @@
 from smruti.encode import Encoder
 from smruti.llm import LLMError
 from smruti.sleep import Sleeper
-from smruti.sleep.extract import JSON_SCHEMA, parse_extraction
+from smruti.sleep.extract import JSON_SCHEMA
 
 PUNE = {"entities": [{"name": "Pune", "type": "city"}],
         "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one"}]}

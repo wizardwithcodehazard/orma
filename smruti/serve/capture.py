@@ -11,7 +11,6 @@ import re
 
 from smruti.messages import message_text
 
-
 _REDACTED = "[REDACTED]"
 _SECRET_PATTERNS = [  # matched by format only
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL), _REDACTED),

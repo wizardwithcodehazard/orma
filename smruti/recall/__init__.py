@@ -9,8 +9,8 @@ without confidence), and pack into the token budget.
 
 import threading
 import time
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 
 from smruti.config import SmrutiConfig
 from smruti.messages import message_text

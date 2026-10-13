@@ -10,11 +10,11 @@ import time
 from pathlib import Path
 
 from smruti.config import SmrutiConfig
-from smruti.encode import EncodeResult, Encoder
+from smruti.encode import Encoder, EncodeResult
 from smruti.llm import LLMClient
 from smruti.messages import message_text
 from smruti.recall import Recaller
-from smruti.sleep import SleepReport, Sleeper
+from smruti.sleep import Sleeper, SleepReport
 from smruti.store import Fact, Store
 
 
