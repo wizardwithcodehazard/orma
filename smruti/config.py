@@ -40,6 +40,7 @@ class SmrutiConfig:
     # the novelty buffer); the median is what a typical turn's closest memory reaches, i.e. the noise level.
     similarity_floor_percentile: float = 50.0
     max_candidate_facts: int = 64
+    max_candidate_events: int = 16
     recency_half_life_days: float = 14.0
     core_min_confidence: float = 0.7
     min_recent_turns: int = 2
@@ -78,6 +79,7 @@ class SmrutiConfig:
     enable_episode_recall: bool = True
     enable_schema_decoding: bool = True  # constrain extraction to JSON_SCHEMA (else plain JSON mode)
     enable_grounding: bool = True  # drop extracted facts, entities and user names the batch's log does not contain
+    enable_events: bool = True  # store dated events during sleep and recall them
 
     @property
     def db_path(self) -> Path:

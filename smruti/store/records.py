@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass, fields
+from datetime import datetime, timezone
 
 
 def fact_text(subject: str, predicate: str, object_: str) -> str:
@@ -117,3 +118,25 @@ class Procedure:
     @property
     def text(self) -> str:
         return f"When {self.trigger}: {self.action} ({'works' if self.works else 'fails'})"
+
+
+@dataclass
+class Event:
+    id: int
+    space: str
+    gist: str
+    occurred_at: float
+    occurred_stated: bool
+    created_at: float
+    source_episode_ids: list[int]
+
+    @classmethod
+    def from_row(cls, row) -> "Event":
+        values = {f.name: row[f.name] for f in fields(cls)}
+        values["source_episode_ids"] = json.loads(values["source_episode_ids"])
+        values["occurred_stated"] = bool(values["occurred_stated"])
+        return cls(**values)
+
+    @property
+    def text(self) -> str:
+        return f"{datetime.fromtimestamp(self.occurred_at, timezone.utc):%Y-%m-%d}: {self.gist}"

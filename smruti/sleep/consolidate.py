@@ -1,8 +1,8 @@
 """
 consolidate.py - Symbolic half of sleep. Resolves extracted names onto the entity graph,
 normalizes relations, applies temporal truth maintenance (a new value for a one-valued
-relation closes the old fact rather than overwriting it), and accumulates evidence. Before any of
-that, a symbolic hallucination check: whatever the batch's own log does not contain is dropped.
+relation closes the old fact rather than overwriting it), accumulates evidence, and records dated
+events linked to the entities that took part. Before any of that, a symbolic hallucination check: whatever the batch's own log does not contain is dropped.
 """
 
 import re
@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from smruti.config import SmrutiConfig
 from smruti.recall.pack import count_tokens
-from smruti.sleep.extract import ExtractedFact, ExtractedProcedure, Extraction
+from smruti.sleep.extract import ExtractedEvent, ExtractedFact, ExtractedProcedure, Extraction
 from smruti.store import USER_ENTITY, Store
 from smruti.store.records import fact_text
 
@@ -28,6 +28,8 @@ class ConsolidationReport:
     summaries_updated: int = 0
     facts_agreed: int = 0  # confirmed by a replay pass: one extra reinforcement (also counted as added or reinforced)
     facts_ungrounded: int = 0  # dropped: not grounded in the batch's log
+    events_added: int = 0
+    events_ungrounded: int = 0  # dropped: a participant not grounded in the batch's log, or none at all
 
     def merge(self, other: "ConsolidationReport") -> None:
         for f in fields(self):
@@ -73,7 +75,7 @@ class Consolidator:
         days = {utc_day(e.created_at) for e in episodes}
         touched: set[int] = set()
         report = ConsolidationReport()
-        user_names, entities, facts = self._grounded(space, extraction, episodes, report)
+        user_names, entities, facts, events = self._grounded(space, extraction, episodes, report)
         user_id = self.store.user_entity(space, now) if user_names else None
         for name in user_names:  # aliases first, so every name below resolves to the user
             if name.lower() != USER_ENTITY:
@@ -87,6 +89,8 @@ class Consolidator:
         for index, fact in sorted(facts, key=start):
             self._fact(space, fact, entities, resolved, episode_ids, default_time, days, now, evidence_time, report,
                        agreed=index in agreed)
+        for event in events if self.config.enable_events else []:
+            self._event(space, event, entities, resolved, episode_ids, default_time, days, now, evidence_time, report)
         # Procedures come from tool turns; chat alone yields junk "lessons".
         for procedure in extraction.procedures if any(e.role == "tool" for e in episodes) else []:
             self._procedure(space, procedure, episode_ids, touched, evidence_time, report)
@@ -96,15 +100,18 @@ class Consolidator:
         return report
 
     def _grounded(self, space: str, extraction: Extraction, episodes, report):
-        """Symbolic hallucination check: the user names, entities and facts whose terms all occur in the
-        batch's log, compared with the lexical index's own tokenizer and stemmer. A fact needs every term of
-        its object and, unless it is the user, of its subject; the user (by name or alias) needs no mention.
-        Returns (user_names, entities, [(index in extraction.facts, fact)])."""
+        """Symbolic hallucination check: the user names, entities, facts and events whose terms all occur in
+        the batch's log, compared with the lexical index's own tokenizer and stemmer. A fact needs every term of
+        its object and, unless it is the user, of its subject; the user (by name or alias) needs no mention. An
+        event needs at least one participant and every participant grounded like a subject; its gist is the
+        model's own summary and is not checked.
+        Returns (user_names, entities, [(index in extraction.facts, fact)], events)."""
         indexed = list(enumerate(extraction.facts))
         if not self.config.enable_grounding:
-            return extraction.user_names, extraction.entities, indexed
+            return extraction.user_names, extraction.entities, indexed, extraction.events
         names, entity_names = extraction.user_names, list(extraction.entities)
-        texts = [e.text for e in episodes] + names + entity_names + [n for _, f in indexed for n in (f.subject, f.object)]
+        texts = ([e.text for e in episodes] + names + entity_names + [n for _, f in indexed for n in (f.subject, f.object)]
+                 + [n for event in extraction.events for n in event.participants])
         stems = self.store.stems(texts)
         log = set().union(*stems[:len(episodes)])
         found = iter(stems[len(episodes):])
@@ -128,13 +135,20 @@ class Consolidator:
                 facts.append(item)
             else:
                 report.facts_ungrounded += 1
-        return user_names, entities, facts
+        events = []
+        for event in extraction.events:
+            grounded = [next(found) <= log or is_user(name) for name in event.participants]
+            if grounded and all(grounded):
+                events.append(event)
+            else:
+                report.events_ungrounded += 1
+        return user_names, entities, facts, events
 
     @staticmethod
-    def _stated_time(fact: ExtractedFact, days) -> float | None:
-        """The fact's own time, unless it falls on the same UTC day as one of the batch's episodes: that is
-        the log line's date copied over, not a time the user stated."""
-        stamp = parse_time(fact.time, None)
+    def _stated_time(item: ExtractedFact | ExtractedEvent, days) -> float | None:
+        """The fact's or event's own time, unless it falls on the same UTC day as one of the batch's episodes:
+        that is the log line's date copied over, not a time the user stated."""
+        stamp = parse_time(item.time, None)
         return None if stamp is None or utc_day(stamp) in days else stamp
 
     def _entity(self, space: str, name: str, type_: str | None, now: float) -> int:
@@ -233,6 +247,21 @@ class Consolidator:
         report.facts_closed += closed
         report.facts_added += 1
         return fact_id
+
+    def _event(self, space, event: ExtractedEvent, types, resolved, episode_ids, default_time, days, now,
+               evidence_time, report) -> None:
+        """Records the event unless this batch already recorded a near-identical one (a retry, or the same
+        event extracted twice)."""
+        vec = self.store.embed(event.gist)
+        recorded = self.store.batch_events(space, episode_ids)
+        if any(float(vec @ self.store.embed(e.gist)) >= self.config.vote_match_threshold for e in recorded):
+            return
+        participants = [resolved.get(name.lower()) or self._entity(space, name, types.get(name), now)
+                        for name in event.participants]
+        stated = self._stated_time(event, days)
+        self.store.add_event(space, event.gist, default_time if stated is None else stated, stated is not None,
+                             participants, episode_ids, vec=vec, now=evidence_time)
+        report.events_added += 1
 
     def _procedure(self, space: str, procedure: ExtractedProcedure, episode_ids, touched: set[int],
                    evidence_time: float, report) -> None:

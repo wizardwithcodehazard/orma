@@ -94,12 +94,17 @@ def test_json_schema_mirrors_the_prompt_schema_and_validates_an_extraction():
     sample = {"user_names": ["Sam"], "entities": [{"name": "Pune", "type": "city"}],
               "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one", "time": ""}],
               "procedures": [{"trigger": "t", "action": "a", "polarity": "fails", "error_class": ""}],
+              "events": [{"gist": "user moved to Pune", "time": "2026-03-01", "participants": ["user", "Pune"]}],
               "summary_updates": [{"topic": "home", "text": "lives in Pune"}]}
     jsonschema.validate(sample, JSON_SCHEMA)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(dict(sample, facts=[dict(sample["facts"][0], cardinality="few")]), JSON_SCHEMA)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({k: v for k, v in sample.items() if k != "procedures"}, JSON_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(dict(sample, events=[{"gist": "x", "time": "", "participants": [1]}]), JSON_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(dict(sample, events=[{"gist": "x", "time": ""}]), JSON_SCHEMA)
 
 
 def test_extract_passes_the_json_schema_and_temperature(fake_llm):
@@ -117,3 +122,21 @@ def test_extract_without_schema_decoding(fake_llm):
 def test_prompt_says_facts_come_only_from_the_log():
     system = build_messages([episode(1, "user", "hi")], ExtractionContext([], [], {}), 150, 1500)[0]["content"]
     assert "facts come only from the LOG" in system
+
+
+def test_parse_events_drops_malformed_and_keeps_string_participants():
+    x = parse_extraction({"events": [
+        {"gist": " user went to Goa with Asha ", "time": "2026-03-07", "participants": ["user", " Asha ", 5, "", None]},
+        {"gist": "", "time": "", "participants": ["user"]},
+        {"gist": "user left", "time": "", "participants": "user"},
+        "junk",
+    ]})
+    assert [(e.gist, e.time, e.participants) for e in x.events] == [
+        ("user went to Goa with Asha", "2026-03-07", ["user", "Asha"])]
+    assert parse_extraction({}).events == []
+
+
+def test_prompt_asks_for_dated_events():
+    system = build_messages([], ExtractionContext([], [], {}), 150, 1500)[0]["content"]
+    assert '"events"' in system and '"participants"' in system
+    assert "20 words" in system

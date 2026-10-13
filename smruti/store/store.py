@@ -1,6 +1,6 @@
 """
 store.py - Typed access to the memory graph: episodes, entities, predicates, facts,
-summaries and procedures, each kept in sync with its vector and lexical index.
+events, summaries and procedures, each kept in sync with its vector and lexical index.
 A single re-entrant lock serializes access so the proxy's request path and background
 sleep can share one store.
 """
@@ -16,7 +16,7 @@ from smruti.config import SmrutiConfig
 from smruti.embed import Embedder, FastEmbedder
 from smruti.store import index
 from smruti.store.db import connect, init_schema
-from smruti.store.records import (Entity, Episode, Fact, Predicate, Procedure, Summary, fact_text,
+from smruti.store.records import (Entity, Episode, Event, Fact, Predicate, Procedure, Summary, fact_text,
                                   from_row)
 
 USER_ENTITY = "user"
@@ -377,6 +377,46 @@ class Store:
         ids = json.dumps(list(entity_ids))
         return [(r[0], r[1], r[2]) for r in self._rows(_INCIDENT, (space, ids, space, ids))]
 
+    # --- Events ------------------------------------------------------------------------
+
+    def add_event(self, space: str, gist: str, occurred_at: float, occurred_stated: bool, participant_ids,
+                  source_episode_ids, vec=None, now=None) -> int:
+        """Inserts a dated event linked to its participant entities. Pass a precomputed vec (of the gist) to
+        keep inference out of the caller's transaction."""
+        vec = self.embed(gist) if vec is None else vec  # inference stays outside the lock and transaction
+        with self.tx() as c:
+            event_id = c.execute(
+                "INSERT INTO events (space, gist, occurred_at, occurred_stated, created_at, source_episode_ids) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (space, gist, occurred_at, int(occurred_stated), _now(now), json.dumps(sorted(set(source_episode_ids)))),
+            ).lastrowid
+            c.executemany("INSERT OR IGNORE INTO event_participants (event_id, entity_id) VALUES (?, ?)",
+                          [(event_id, entity_id) for entity_id in participant_ids])
+            index.vec_put(c, "events", event_id, space, vec)
+            index.text_put(c, "events", event_id, space, gist)
+        return event_id
+
+    def events(self, ids) -> list[Event]:
+        return self._by_ids(Event, "events", ids)
+
+    def batch_events(self, space: str, source_episode_ids) -> list[Event]:
+        """Events recorded from exactly this batch of episodes, oldest first."""
+        rows = self._rows("SELECT * FROM events WHERE space = ? AND source_episode_ids = ? ORDER BY id",
+                          (space, json.dumps(sorted(set(source_episode_ids)))))
+        return [from_row(Event, r) for r in rows]
+
+    def event_participants(self, event_id: int) -> list[int]:
+        return [r[0] for r in self._rows(
+            "SELECT entity_id FROM event_participants WHERE event_id = ? ORDER BY entity_id", (event_id,))]
+
+    def events_for_entities(self, space: str, entity_ids) -> list[tuple[int, int]]:
+        """(event id, entity id) for every event any of the given entities took part in: the event edges of
+        each entity, so the result also counts toward each entity's fan."""
+        return [(r[0], r[1]) for r in self._rows(
+            "SELECT p.event_id, p.entity_id FROM event_participants p JOIN events e ON e.id = p.event_id "
+            "WHERE e.space = ? AND p.entity_id IN (SELECT value FROM json_each(?)) ORDER BY p.event_id, p.entity_id",
+            (space, json.dumps(list(entity_ids))))]
+
     # --- Summaries ---------------------------------------------------------------------
 
     def upsert_summary(self, space: str, topic: str, text: str, tokens: int, now=None) -> int:
@@ -465,5 +505,6 @@ class Store:
             "closed_facts": "SELECT COUNT(*) FROM facts WHERE space = ? AND valid_to IS NOT NULL",
             "procedures": "SELECT COUNT(*) FROM procedures WHERE space = ?",
             "summaries": "SELECT COUNT(*) FROM summaries WHERE space = ?",
+            "events": "SELECT COUNT(*) FROM events WHERE space = ?",
         }
         return {name: self._rows(sql, (space,))[0][0] for name, sql in counts.items()}

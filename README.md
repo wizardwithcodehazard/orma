@@ -91,7 +91,7 @@ Per request (no LLM calls)
                   -> encode: store the new user/tool turns and the reply as episodes
 
 Sleep (background, uses the model)
-  pending episodes -> LLM extracts entities, facts, procedures, summaries (schema-constrained JSON)
+  pending episodes -> LLM extracts entities, facts, events, procedures, summaries (schema-constrained JSON)
                    -> grounding check: drop facts and names the batch's own log does not contain
                    -> symbolic consolidation: merge entities, close contradicted facts,
                       accumulate evidence, update summaries
@@ -101,6 +101,7 @@ Principles:
 
 - Neural for perception, symbolic for memory. The LLM only reads text into a fixed schema. Deciding what is the same entity, what contradicts what and what to keep is done by code over a graph.
 - Facts have time validity. When a one-valued fact changes ("lives in Pune" to "lives in Mumbai"), the old fact is closed (it gets a `valid_to`), not deleted. `smruti facts --history` shows closed facts.
+- Events are episodic memory: the same sleep call records dated things that happened ("2026-03-07: user went to Goa with Asha") linked to the entities involved, so "what did I do last Tuesday?" can be answered after the raw turns are deleted. They are recalled as "Past events" by search over the gist and by spreading activation from their participants.
 - Recall uses spreading activation with the fan effect. Entities mentioned in the query pass activation along their facts, divided among all of an entity's facts, so a hub like `user` gives each fact a small share and a specific entity gives its few facts a lot.
 - An adaptive novelty gate drops turns that add nothing new relative to what that space has recently seen. Tool turns with outcomes are always kept.
 - Extracted facts are checked against the conversation they came from: a fact whose object (or non-user subject) has words that the batch's log does not contain, for example one copied from an existing summary, is dropped. A date that is just the day the message was written does not count as a stated time.
@@ -151,8 +152,8 @@ Settings live in `SmrutiConfig` (`smruti/config.py`); pass one to `Memory(config
 | Sleep | `sleep_after_episodes` (20), `sleep_idle_seconds` (120), `sleep_batch_episodes` (12), `sleep_max_attempts` (3), `episode_retention_days` (7), `procedure_ttl_days` (30) |
 | Replay and vote | `sleep_votes` (1 = no voting), `sleep_vote_temperature` (0.7), `vote_match_threshold` (0.8) |
 | Novelty gate | `novelty_percentile` (10), `novelty_warmup` (50), `novelty_window` (500) |
-| Recall | `search_k`, `max_hops`, `hop_decay`, `recency_half_life_days`, `max_candidate_facts`, `core_min_confidence` |
-| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall`, `enable_schema_decoding`, `enable_grounding` |
+| Recall | `search_k`, `max_hops`, `hop_decay`, `recency_half_life_days`, `max_candidate_facts`, `max_candidate_events`, `core_min_confidence` |
+| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall`, `enable_schema_decoding`, `enable_grounding`, `enable_events` |
 
 The `enable_*` switches turn individual components off so their effect can be measured.
 

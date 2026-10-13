@@ -1,4 +1,4 @@
-from smruti.sleep.extract import ExtractedFact, ExtractedProcedure, Extraction
+from smruti.sleep.extract import ExtractedEvent, ExtractedFact, ExtractedProcedure, Extraction
 from smruti.sleep.vote import vote
 
 
@@ -44,3 +44,10 @@ def test_single_extraction_has_no_agreement(embedder):
     first = Extraction(user_names=["Sam"], entities={"Goa": "city"}, facts=[fact("user", "visited", "Goa")])
     extraction, agreed = vote([first], embedder_fn(embedder), 0.8)
     assert extraction == first and agreed == set()
+
+
+def test_events_come_from_pass_one(embedder):
+    first = Extraction(events=[ExtractedEvent("user went to Goa", "2026-03-07", ["user", "Goa"])])
+    second = Extraction(events=[ExtractedEvent("user visited Goa", "", ["user"])])
+    extraction, _ = vote([first, second], embedder_fn(embedder), 0.8)
+    assert extraction.events == first.events

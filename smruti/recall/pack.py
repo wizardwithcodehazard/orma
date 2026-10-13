@@ -12,6 +12,7 @@ from smruti.messages import message_text
 SECTIONS = {
     "core": "Known facts about the user",
     "facts": "Relevant facts",
+    "events": "Past events",
     "procedures": "Lessons from past actions",
     "summaries": "Background",
     "episodes": "Recent notes",

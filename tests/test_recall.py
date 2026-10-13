@@ -128,12 +128,13 @@ def test_fan_divides_activation_among_an_entitys_facts(store):
     sister = store.add_fact("s", user, store.add_predicate("s", "has_sister", "many"), asha, None, 1.0, [1])
     allergy = store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [1])
 
-    act = spread(store, "s", {user: 1.0}, max_hops=2, decay=0.5)
+    act, events = spread(store, "s", {user: 1.0}, max_hops=2, decay=0.5)
     assert act[fillers[0]] == pytest.approx(0.1)  # user's 1.0 split over 10 facts
     assert act[allergy] == pytest.approx(0.1 * 0.5 / 2)  # Asha got 0.1, decayed, split over 2 facts
     assert act[sister] == pytest.approx(0.1 + 0.025)  # from user at step 0 and from Asha at step 1
 
-    act = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
+    assert events == {}
+    act, _ = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
     assert act == {sister: pytest.approx(0.5), allergy: pytest.approx(0.5)}
 
 
@@ -252,3 +253,65 @@ def test_tool_episodes_are_recalled_as_notes(store, config):
     Encoder(store, config).encode("s", "tool", "pytest passed for Asha module", now=1.0)
     text = Recaller(store, config).build("s", [{"role": "user", "content": "Asha pytest module"}], now=1.0).memory_text
     assert "- pytest passed for Asha module" in text
+
+
+MARCH_7 = 1772841600.0  # 2026-03-07 00:00 UTC
+
+
+def test_an_entitys_activation_is_shared_between_its_facts_and_events(store):
+    from smruti.recall.activation import spread
+
+    user = store.user_entity("s")
+    asha = store.add_entity("s", "Asha", "person")
+    allergy = store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [1])
+    trip = store.add_event("s", "user went to Goa with Asha", MARCH_7, True, [user, asha], [1])
+
+    facts, events = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
+    assert facts == {allergy: pytest.approx(0.5)} and events == {trip: pytest.approx(0.5)}
+    facts, events = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5, events=False)
+    assert facts == {allergy: pytest.approx(1.0)} and events == {}
+
+
+def test_events_are_recalled_with_their_date_through_a_participant(noisy_store, config):
+    store = noisy_store
+    user = store.user_entity("s")
+    asha = store.add_entity("s", "Asha", "person")
+    store.add_event("s", "user baked a chocolate cake for a birthday party", MARCH_7, True, [user, asha], [1],
+                    now=MARCH_7)
+    warm_up(store, config, "s")
+    query = [{"role": "user", "content": "how is Asha doing"}]
+
+    text = Recaller(store, config).build("s", query, now=MARCH_7).memory_text
+    assert "Past events:\n- 2026-03-07: user baked a chocolate cake for a birthday party" in text
+    config.enable_graph = False  # the gist never mentions Asha: only spreading reaches it
+    assert "Past events" not in Recaller(store, config).build("s", query, now=MARCH_7).memory_text
+
+
+def test_events_are_found_by_gist_search(store, config):
+    user = store.user_entity("s")
+    store.add_event("s", "user ran a half marathon in Pune", MARCH_7, True, [user], [1], now=MARCH_7)
+    query = [{"role": "user", "content": "when did I run the half marathon?"}]
+    text = Recaller(store, config).build("s", query, now=MARCH_7).memory_text
+    assert "- 2026-03-07: user ran a half marathon in Pune" in text
+
+    config.enable_events = False
+    assert "Past events" not in Recaller(store, config).build("s", query, now=MARCH_7).memory_text
+
+
+def test_events_pack_between_facts_and_summaries(store, config):
+    user = store.user_entity("s")
+    marathon = store.add_entity("s", "marathon", "event")
+    store.add_fact("s", user, store.add_predicate("s", "trains_for", "many"), marathon, None, MARCH_7, [1], now=MARCH_7)
+    store.add_event("s", "user ran a marathon", MARCH_7, True, [user, marathon], [1], now=MARCH_7)
+    store.upsert_summary("s", "running", "user runs a marathon every year", 8, now=MARCH_7)
+    text = Recaller(store, config).build("s", [{"role": "user", "content": "marathon"}], now=MARCH_7).memory_text
+    assert text.index("Relevant facts:") < text.index("Past events:") < text.index("Background:")
+
+
+def test_candidate_events_are_bounded(store, config):
+    user = store.user_entity("s")
+    for i in range(40):
+        store.add_event("s", f"user went running on day {i}", MARCH_7, True, [user], [i], now=MARCH_7)
+    config.max_candidate_events = 5
+    ranked = Recaller(store, config)._ranked("s", "user running", now=MARCH_7)
+    assert len([item for item in ranked if item.section == "events"]) == 5

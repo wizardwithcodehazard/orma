@@ -2,8 +2,8 @@
 recall - Per-request context assembly with no LLM calls and no writes: fuse lexical and vector
 search (each hit weighted by how much evidence it carries: calibrated similarity, query-term
 coverage), spread activation from the cued entities (query links and search hits) along current
-facts, keep the most relevant facts, rank by relevance x recency x confidence, and pack into the
-token budget.
+facts and to the events they took part in, keep the most relevant facts and events, rank by
+relevance x recency x confidence, and pack into the token budget.
 """
 
 import time
@@ -19,6 +19,12 @@ from smruti.store import USER_ENTITY, Store
 
 SEPARATOR = "\n\n"
 SEARCHED_KINDS = ("facts", "procedures", "summaries")
+
+
+def top(searched: dict[int, float], activated: dict[int, float], n: int) -> dict[int, float]:
+    """Relevance = fused search score + spread activation, for the n most relevant ids."""
+    relevance = {i: searched.get(i, 0.0) + activated.get(i, 0.0) for i in searched.keys() | activated.keys()}
+    return {i: relevance[i] for i in sorted(relevance, key=lambda i: (-relevance[i], i))[:n]}
 
 
 @dataclass
@@ -76,26 +82,29 @@ class Recaller:
             kind: rrf([(i, weight(sim)) for i, sim in self.store.vec_search(kind, space, vec, cfg.search_k)],
                       [(hit.id, hit.query_coverage) for hit in self.store.text_search(kind, space, query, cfg.search_k)],
                       k=cfg.rrf_k)
-            for kind in SEARCHED_KINDS + (("episodes",) if cfg.enable_episode_recall else ())
+            for kind in SEARCHED_KINDS + (("events",) if cfg.enable_events else ())
+            + (("episodes",) if cfg.enable_episode_recall else ())
         }
         hits = self.store.facts(sorted(fused["facts"]))
         activation: dict[int, float] = {}
+        event_activation: dict[int, float] = {}
         if cfg.enable_graph:
             cues = merge_cues(link_entities(self.store, cfg, space, query, vec, weight),
                               search_cues(hits, fused["facts"]))
-            activation = spread(self.store, space, cues, cfg.max_hops, cfg.hop_decay)
+            activation, event_activation = spread(self.store, space, cues, cfg.max_hops, cfg.hop_decay,
+                                                  events=cfg.enable_events)
 
         def fresh(timestamp: float) -> float:
             return recency(timestamp, now, cfg.recency_half_life_days)
 
-        relevance = {fid: fused["facts"].get(fid, 0.0) + activation.get(fid, 0.0)
-                     for fid in fused["facts"].keys() | activation.keys()}
-        # Keep only the most relevant facts, so a long tail of faintly activated facts cannot starve
-        # procedures and summaries, which pack after facts.
-        kept = sorted(relevance, key=lambda fid: (-relevance[fid], fid))[:cfg.max_candidate_facts]
-        relevance = {fid: relevance[fid] for fid in kept}
+        # Keep only the most relevant facts and events, so a long tail of faintly activated ones cannot
+        # starve procedures and summaries, which pack after them.
+        relevance = top(fused["facts"], activation, cfg.max_candidate_facts)
         facts = [(relevance[f.id] * fresh(f.last_used) * f.confidence, MemoryItem("facts", f.id, f.text))
                  for f in self.store.facts(sorted(relevance))]
+        event_relevance = top(fused.get("events", {}), event_activation, cfg.max_candidate_events)
+        events = [(event_relevance[e.id] * fresh(e.occurred_at), MemoryItem("events", e.id, e.text))
+                  for e in self.store.events(sorted(event_relevance))]
         procedures = [(fused["procedures"][p.id] * fresh(p.last_used) * p.confidence,
                        MemoryItem("procedures", p.id, p.text))
                       for p in self.store.procedures(sorted(fused["procedures"]))]
@@ -108,7 +117,7 @@ class Recaller:
                     if e.role in ("user", "tool") and e.text.strip() not in said]
 
         ordered: list[MemoryItem] = []
-        for group in (facts, procedures, summaries, episodes):
+        for group in (facts, events, procedures, summaries, episodes):
             ordered.extend(item for _, item in sorted(group, key=lambda pair: (-pair[0], pair[1].id)))
         return ordered
 

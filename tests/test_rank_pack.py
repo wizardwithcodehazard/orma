@@ -86,3 +86,12 @@ def test_pack_token_count_is_exact_with_the_framing_line():
     for budget in range(10, 120, 7):
         packed = pack([], items, [], budget=budget, chars_per_token=3.5, min_recent=0)
         assert packed.tokens == count_tokens(packed.memory_text, 3.5) <= budget
+
+
+def test_pack_puts_events_after_facts_and_before_procedures():
+    ranked = [MemoryItem("facts", 1, "user lives in Pune"), MemoryItem("events", 2, "2026-03-07: user went to Goa"),
+              MemoryItem("procedures", 3, "When build fails: npm install (works)"),
+              MemoryItem("summaries", 4, "travel: Goa"), MemoryItem("episodes", 5, "note")]
+    text = pack([], ranked, [], budget=1000, chars_per_token=3.5, min_recent=0).memory_text
+    titles = ["Relevant facts:", "Past events:", "Lessons from past actions:", "Background:", "Recent notes:"]
+    assert [text.index(t) for t in titles] == sorted(text.index(t) for t in titles)

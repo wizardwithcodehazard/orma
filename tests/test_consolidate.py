@@ -346,3 +346,64 @@ def test_agreed_fact_gets_one_extra_reinforcement_once(store, config):
     assert {f.object: f.support for f in store.current_facts("s")} == support
     apply(store, config, lives("Pune"), ids=[3], agreed={0})  # agreed restatement in a new batch
     assert [f.support for f in store.current_facts("s") if f.object == "Pune"] == [4]
+
+
+MARCH_10 = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc).timestamp()
+GOA_TRIP = {
+    "entities": [{"name": "Asha", "type": "person"}, {"name": "Goa", "type": "city"}],
+    "events": [{"gist": "user went to Goa with Asha", "time": "2026-03-07", "participants": ["user", "Asha", "Goa"]}],
+}
+
+
+def trip(gist="user went to Goa with Asha", time="", participants=("user", "Asha")):
+    return {"events": [{"gist": gist, "time": time, "participants": list(participants)}]}
+
+
+def test_event_is_stored_with_its_date_and_participants(store, config):
+    report = apply(store, config, GOA_TRIP, ids=[1, 2], now=MARCH_10 + 3600, at=MARCH_10)
+    assert report.events_added == 1
+    (event,) = store.batch_events("s", [1, 2])
+    assert event.gist == "user went to Goa with Asha" and event.text == "2026-03-07: user went to Goa with Asha"
+    assert event.occurred_at == datetime(2026, 3, 7, tzinfo=timezone.utc).timestamp() and event.occurred_stated
+    assert event.source_episode_ids == [1, 2] and event.created_at == MARCH_10
+    expected = {store.user_entity("s"), store.find_entity("s", "Asha").id, store.find_entity("s", "Goa").id}
+    assert set(store.event_participants(event.id)) == expected
+    assert store.stats("s")["events"] == 1
+
+
+def test_event_without_a_stated_time_happened_when_the_batch_began(store, config):
+    apply(store, config, trip(time="2026-03-10"), ids=[1, 2], now=MARCH_10 + 3600, at=MARCH_10)  # the line's own day
+    (event,) = store.batch_events("s", [1, 2])
+    assert event.occurred_at == MARCH_10 and not event.occurred_stated
+
+
+def test_events_with_ungrounded_or_no_participants_are_dropped(store, config):
+    report = apply(store, config, {"events": trip(participants=["user", "Ravi"])["events"]
+                                   + trip(gist="user drove to Goa", participants=[])["events"]
+                                   + trip(gist="user went to Goa", participants=["user", "Goa"])["events"]},
+                   text="Yesterday I went to Goa with my sister")
+    assert report.events_ungrounded == 2 and report.events_added == 1
+    assert [e.gist for e in store.batch_events("s", [1])] == ["user went to Goa"]
+
+
+def test_known_user_alias_participant_needs_no_mention(store, config):
+    apply(store, config, {"user_names": ["Sahil"]}, ids=[1], text="I'm Sahil")
+    report = apply(store, config, trip(gist="Sahil went to Goa", participants=["Sahil", "Goa"]), ids=[2],
+                   text="I went to Goa")
+    assert report.events_added == 1
+    (event,) = store.batch_events("s", [2])
+    assert store.user_entity("s") in store.event_participants(event.id)
+
+
+def test_retried_batch_does_not_duplicate_events(store, config):
+    apply(store, config, GOA_TRIP, ids=[1, 2])
+    report = apply(store, config, GOA_TRIP, ids=[1, 2])
+    assert report.events_added == 0 and len(store.batch_events("s", [1, 2])) == 1
+    apply(store, config, trip(gist="user cooked dinner with Asha"), ids=[1, 2])  # a different event of the batch
+    assert len(store.batch_events("s", [1, 2])) == 2
+
+
+def test_events_can_be_disabled(store, config):
+    config.enable_events = False
+    report = apply(store, config, GOA_TRIP)
+    assert report.events_added == 0 and store.stats("s")["events"] == 0

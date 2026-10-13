@@ -21,7 +21,7 @@ def render(fact: ExtractedFact) -> str:
 def vote(extractions: list[Extraction], embed, threshold: float) -> tuple[Extraction, set[int]]:
     """The first extraction, with user names from every pass, and the indices of its facts that some
     replay confirms: a replayed fact's rendered text has cosine similarity >= threshold (embed returns
-    unit vectors). Entities, procedures and summaries come from the first pass."""
+    unit vectors). Entities, events, procedures and summaries come from the first pass."""
     first, replays = extractions[0], extractions[1:]
     replayed = np.array([embed(render(f)) for r in replays for f in r.facts])
     agreed = {i for i, fact in enumerate(first.facts)

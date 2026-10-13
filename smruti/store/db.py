@@ -8,8 +8,8 @@ from pathlib import Path
 
 import sqlite_vec
 
-VECTOR_KINDS = ("episodes", "entities", "predicates", "facts", "summaries", "procedures")
-TEXT_KINDS = ("episodes", "entities", "facts", "summaries", "procedures")
+VECTOR_KINDS = ("episodes", "entities", "predicates", "facts", "summaries", "procedures", "events")
+TEXT_KINDS = ("episodes", "entities", "facts", "summaries", "procedures", "events")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -94,6 +94,24 @@ CREATE TABLE IF NOT EXISTS procedures (
     last_used REAL NOT NULL,
     source_episode_ids TEXT NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY,
+    space TEXT NOT NULL,
+    gist TEXT NOT NULL,
+    occurred_at REAL NOT NULL,
+    occurred_stated INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    source_episode_ids TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_events_sources ON events(space, source_episode_ids);
+
+CREATE TABLE IF NOT EXISTS event_participants (
+    event_id INTEGER NOT NULL REFERENCES events(id),
+    entity_id INTEGER NOT NULL REFERENCES entities(id),
+    PRIMARY KEY (event_id, entity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_event_participants_entity ON event_participants(entity_id);
 
 CREATE TABLE IF NOT EXISTS sleep_leases (space TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at REAL NOT NULL);
 
