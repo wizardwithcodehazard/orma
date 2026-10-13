@@ -1,112 +1,72 @@
-# Smruti Technical Architecture
+# Architecture
 
-Smruti is a dual-valence, biologically inspired cognitive memory engine designed to eliminate hallucination loops, catastrophic shell commands, and agent amnesia without adding high LLM latency overhead to tool loops.
+An engineering overview of what is implemented. The design rationale is in [the spec](superpowers/specs/2026-10-12-local-neurosymbolic-memory-design.md), which is the source of truth for why things are built this way.
 
----
+Principle: neural for perception, symbolic for memory. The model reads text into structure; code maintains the graph. No LLM call happens on the request path.
 
-## 1. The Dual-Valence Cognitive Model
+## Modules
 
-Traditional agent memory systems are strictly positive: they store text, documents, or graph entities describing what the system *knows*.
+**store** (`smruti/store/`). One SQLite file with typed tables plus sqlite-vec (vector) and FTS5 (lexical, porter tokenizer) indexes keyed by the same integer ids. `db.py` holds the schema, `records.py` the dataclasses (`Episode`, `Entity`, `Predicate`, `Fact`, `Summary`, `Procedure`), `index.py` vector and text search, and `store.py` the `Store` class with all reads and writes. Every record carries a `space`.
 
-In contrast, biological brains rely heavily on **GABAergic inhibitory networks**: synaptic pathways dedicated exclusively to suppressing known catastrophic actions and dead ends.
+**encode** (`smruti/encode.py`). Per-turn encoding, no LLM. Embeds the turn, measures novelty as 1 minus the highest similarity to existing episodes, facts and summaries, and stores it as an episode unless the adaptive gate says it is redundant. The gate drops a turn whose novelty is below the `novelty_percentile` of the space's own recent novelty scores (after `novelty_warmup` samples; window `novelty_window`). Dropped duplicates bump `seen_count` on the matching episode. Turns with a tool outcome are never dropped.
 
-Smruti implements this duality across three distinct temporal speeds:
+**recall** (`smruti/recall/`). Builds the prompt for a request with no LLM call and no writes. It fuses vector and lexical search over facts, procedures, summaries and pending episodes (reciprocal rank fusion, with hits weighted by calibrated similarity and query-term coverage), links query entities, spreads activation along current facts (`activation.py`, with the fan effect), keeps the top `max_candidate_facts`, scores relevance x recency x confidence, and packs into the token budget (`pack.py`). Memory is merged into the system prompt as a `## Memory` block with sections: known facts about the user (core), relevant facts, lessons from past actions, background, recent notes. The newest `min_recent_turns` turns are always kept; older turns fill leftover budget. Tokens are estimated as characters divided by `chars_per_token`.
 
-```text
-[ Agent Action Loop ]
-         │
-         ▼
-┌───────────────────────────────┐
-│ Tier 3B: Inhibitory Gate      │ literal / regex / semantic; learned = warn, written = block
-│ (Catastrophic Prevention)     │
-└───────────────┬───────────────┘
-                │ Passed
-                ▼
-┌───────────────────────────────┐
-│ Execution & Tier 1 Buffer     │ < 1ms SQLite WAL append (Zero LLM overhead)
-│ (Sub-millisecond Episode Log) │
-└───────────────┬───────────────┘
-                │ Periodic / Task Completion
-                ▼
-┌───────────────────────────────┐
-│ Tier 2: The Sleep Cycle       │ Offline background distillation & Ebbinghaus decay
-│ (Consolidation Engine)        │
-└───────────────┬───────────────┘
-                │ Distills & Promotes
-                ▼
-┌───────────────────────────────┐
-│ Tier 3A: Cortical Knowledge   │ Vectorized BLAS cosine search + Graph spreading
-│ (Positive Heuristics & Rules) │
-└───────────────────────────────┘
-```
+**sleep** (`smruti/sleep/`). Background consolidation of pending episodes. `extract.py` is the neural half: the model returns entities, facts, procedures and summary updates as JSON in a fixed schema. `consolidate.py` is the symbolic half: it resolves names onto existing entities and predicates by embedding similarity, closes a one-valued fact when a new value arrives (`valid_to` is set, the row is kept), reinforces repeated facts, records procedures with success/failure evidence, and upserts summaries by topic. `Sleeper` batches episodes to fit `sleep_prompt_tokens`, prunes consolidated episodes older than `episode_retention_days` and stale low-confidence procedures.
 
----
+**llm** (`smruti/llm.py`). A small client for any OpenAI-compatible `/chat/completions` endpoint. `chat_json` uses JSON mode at temperature 0 and retries once with a stricter reminder.
 
-## 2. Temporal Tiers
+**memory** (`smruti/memory.py`). The SDK `Memory` class wiring store, encoder, recaller and sleeper together.
 
-### Tier 1 — Episodic Stream (`stream.py`)
-- **Latency**: `< 1ms` per write.
-- **Mechanism**: Every bash command, file edit, or tool invocation is written as an `Episode` row in SQLite.
-- **Design Rule**: No LLMs or embedding calculations occur during episodic logging. This ensures the agent is never bottlenecked while actively performing work.
+**serve** (`smruti/serve/`). `proxy.py` is a Starlette app. `POST /v1/chat/completions` runs recall, forwards upstream (streaming or not), relays the response, then records new turns in a background task. Every other `/v1/*` request is passed through unchanged. `capture.py` decides what to record: clients resend the whole conversation, so only the turns after the last assistant message are new (the user message and tool results, each tool result paired with the call that produced it). Replies are read from JSON bodies or accumulated from SSE streams. `scheduler.py` is a daemon thread that polls for due spaces and sleeps them.
 
-### Tier 2 — The Sleep Consolidation Cycle (`consolidator.py`)
-- **Trigger**: Run offline via `smruti sleep`, on task milestone completion, or after reaching an episodic threshold.
-- **Mechanism**:
-  1. Replays unconsolidated episodes.
-  2. Aggregates recurrent command failures and compiler crashes.
-  3. Promotes repeated negative patterns into permanent Tier 3B anti-memories.
-  4. Distills verified successful workflows into positive cortical rules.
-  5. Computes biological decay and sweeps historical raw log entries.
+**cli** (`smruti/cli.py`). Typer commands: `proxy`, `sleep`, `facts`, `recall`, `forget`, `stats`.
 
-### Tier 3A — Cortical Positive Mesh (`cortex.py`)
-- Stores positive heuristics, coding conventions, architectural invariants, and user preferences.
-- **Decay applies only to learned rules** (category `problem_resolution`, distilled by the sleep cycle):
+## Data model
 
-  effective_strength = base_strength * exp(-decay_rate * hours_since_last_observed)
+| Table | Purpose |
+| --- | --- |
+| `episodes` | Raw turns: role, text, optional tool outcome, novelty, `seen_count`, `consolidated_at`, `sleep_attempts`, `sleep_error`. |
+| `entities` | Named things (including the special `user`), with type and mention count. |
+| `predicates` | Relation names with cardinality `one` or `many`. |
+| `facts` | Subject, predicate, object entity or literal value, confidence, support, `valid_from`, `valid_to` (null while true), `last_used`, source episode ids. |
+| `summaries` | One per (space, topic) with token count. |
+| `procedures` | Trigger, action, error class, success and failure counts, source episode ids. |
+| `sleep_leases` | One row per space: lease holder and expiry. |
+| `novelty_stats` | Per-space window of recent novelty scores, used by the gate and to calibrate similarity. |
+| `meta` | Schema metadata (embedding dimension). |
 
-  `decay_rate` defaults to 0.005/h, so a fresh learned rule (strength 0.5) falls below the prune threshold in about 10 days unless the same fix is seen again.
-- **Reinforcement comes from evidence, not retrieval.** Re-observing an existing rule (exact or semantic duplicate) adds `reinforcement_boost` to its strength and 0.1 to its confidence. Recall is read-only by default.
-- Rules stated explicitly (`remember`, `observe`, `ingest`) never decay; they persist until forgotten.
+Alongside these are `vec_*` (sqlite-vec) and `fts_*` (FTS5) virtual tables for each searchable kind.
 
-### Tier 3B — Inhibitory Reflex Mesh (`inhibitory.py`)
-- Stores anti-memories (patterns representing known dead ends, recursive loops, or destructive operations).
-- **Learned vs. written.** Anti-memories promoted by the sleep cycle (`recurring_failure_*`, severity `warning`) are keyed on exact command + error signature, match literally only, and *warn* (`passed=True` with reason). They retire when the same command succeeds and expire after `learned_failure_ttl_days` (7). Anti-memories you record yourself block.
-- Evaluates candidate actions before execution through a multi-stage waterfall:
-  1. **Literal Substring Match**: Exact pattern containment in candidate action (`< 0.1ms`).
-  2. **Neural Dense Vector Match**: Cosine similarity against user-written anti-memories (a few ms on CPU; the embedding model loads only when such a match is possible).
-  3. **Read-Only Intent Bypass**: Read-only diagnostic commands (e.g., `ls`, `grep`, `SELECT`) require a 0.95 similarity threshold before triggering a block, avoiding false positives on inspection tools.
-  4. **Guarded Regex Fallback**: Sandboxed fallback for explicit shell wildcard patterns with syntax error shielding and ReDoS limits.
+## Request path
 
----
+1. The proxy picks the space (`X-Smruti-Space` header, else the body's `user`, else the default).
+2. If sleep has no model yet, it adopts the request's `model`.
+3. `Memory.build_context` runs recall and returns the messages to send.
+4. The request goes upstream. The response is relayed as it arrives.
+5. In a background task: for each new user or tool turn, `Memory.observe`, then the assistant reply. Only successful (status below 400) responses are recorded.
 
-## 3. Contrastive Dense Semantic Anchors (`in_flight.py`)
+## Sleep path
 
-Rather than relying on brittle regex patterns (`.*always.*`, `.*never.*`) to detect user instructions, Smruti uses **Contrastive Dense Semantic Anchors**:
+A space is due when it has `sleep_after_episodes` pending episodes, or its newest pending episode is `sleep_idle_seconds` old. The scheduler polls every `--sleep-poll` seconds (default 30). Per space, `Sleeper.run` takes the lease, then loops: fetch up to `sleep_batch_episodes` pending episodes, trim to the prompt budget, build context (nearby entities, predicates and summaries so the model reuses names), extract, consolidate, mark consolidated.
 
-1. Sentences are embedded into 384-dimensional vector space using quantized `bge-small-en-v1.5`.
-2. The vector is evaluated against positive directive anchors (e.g., *"This is a strict constraint that must always be followed"*) and negative chitchat anchors (e.g., *"Here is the console output from the compiler"*).
-3. If the directive similarity is significantly higher than chitchat (`similarity >= 0.45` and `directive_sim >= chitchat_sim`), Smruti autonomously classifies the input as a durable directive and registers it into the cortical mesh.
+## Concurrency
 
----
+One `Store` per `Memory`, one SQLite connection shared across threads, guarded by an `RLock`; write transactions are `BEGIN IMMEDIATE` and nest. The database is in WAL mode with a 5 s busy timeout. Sleep takes a per-space lease (`sleep_lease_seconds`, 600) so two sleepers never consolidate the same space; the lease is re-checked before each batch and released at the end.
 
-## 4. Vectorized BLAS Search (`embeddings.py`)
+## Failure handling
 
-Smruti does not require an external vector database daemon (such as Qdrant or Chroma).
+- The proxy fails open. If recall raises, the original request is forwarded unchanged. If recording raises, the error is logged and the response is unaffected.
+- Upstream unreachable: the proxy returns 502 with an error body. Upstream error statuses are passed through and not recorded.
+- A sleep batch that fails (model error, bad JSON after one retry, consolidation error) increments `sleep_attempts` on its episodes and stops that run; later cycles retry it. After `sleep_max_attempts` the episodes are retired (marked consolidated) so sleep cannot loop on a bad batch.
+- Scheduler errors are logged and retried on the next poll.
 
-- Active rule vectors are stacked into an in-memory 2D numpy matrix (`N x 384`).
-- Similarity retrieval uses vectorized BLAS dot products:
-  
-  similarities = (rule_matrix @ query_vector) / (norms * query_norm)
-  
-- Searches across thousands of rules complete in `< 1ms` on standard consumer laptop CPUs.
+## Ablation switches
 
----
+`SmrutiConfig` flags, all default true, for measuring each component:
 
-## 5. Storage Engine & Concurrency (`db.py`)
-
-- **Database**: SQLite3 in WAL (Write-Ahead Logging) mode.
-- **Concurrency Pragmas**:
-  - `PRAGMA busy_timeout = 5000;`: Eliminates `database is locked` race conditions between parallel agent processes.
-  - `PRAGMA cache_size = -8000;`: Allocates 8 MB in-memory cache for fast index lookups.
-  - `PRAGMA synchronous = NORMAL;`: Optimizes write throughput while preserving ACID guarantees.
-- **Pluggable Architecture**: Supports switching to PostgreSQL via the `SMRUTI_DATABASE_URL` environment variable.
+- `enable_novelty_gate`: off stores every turn.
+- `enable_graph`: off skips entity linking and spreading activation.
+- `enable_core_block`: off omits the "known facts about the user" block.
+- `enable_similarity_weighting`: off weighs every similarity as 1 (plain RRF).
+- `enable_episode_recall`: off omits unconsolidated episodes from recall.

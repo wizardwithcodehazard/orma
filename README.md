@@ -1,326 +1,157 @@
 # Smruti (स्मृति)
 
-> **Learned failure memory for coding agents.** Smruti watches what your agent actually runs, learns which commands keep failing and what fixed them, and warns the agent before it walks into the same dead end again.
+Long-term memory for small local LLMs, so a 3B model with a 4k context can remember across conversations.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
-[![MCP](https://img.shields.io/badge/MCP-Protocol_Compliant-green.svg)](https://modelcontextprotocol.io/)
-[![Zero External DB](https://img.shields.io/badge/Vector_DB-Zero_Server_In--Process-orange.svg)]()
-[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen.svg)]()
+Smruti runs as an OpenAI-compatible proxy in front of Ollama, llama.cpp, LM Studio or vLLM. It also ships a CLI and a Python SDK. Everything is local: one SQLite file, local embeddings, no API keys.
 
----
+## Why
 
-## Why Smruti?
+Small models have small context windows, so you cannot replay a long history on every request. Smruti keeps a structured memory (facts, entities, procedures, summaries) and gives the model only what matters for the current message, within a fixed token budget. The request path makes no LLM calls: recall is embeddings, SQLite and arithmetic. The model is used only in the background, to turn finished conversation into memory.
 
-Autonomous coding agents fail in loops: the same missing dependency, the same broken build flag, the same command retried five times. Most agent memory layers (Mem0, Zep, Letta, Cognee) store facts and preferences you tell them. Smruti instead learns from **execution traces**: what was run, what failed, and what fixed it. Everything runs locally on SQLite with in-process embeddings and no API keys.
+## Quickstart (Ollama)
 
-## How it works
-
-1. **Capture**: Claude Code hooks (or `smruti run -- <cmd>`) record every command and its outcome automatically. Nothing depends on the agent remembering to call a tool.
-2. **Sleep**: consolidation groups repeated failures by *exact command + error signature* into learned warnings, and pairs failures with the related command that fixed them into rules.
-3. **Preflight**: before a command runs, a matching learned failure adds a warning (reason + known fix) to the agent's context. Rules you write yourself, such as "never `git push --force` to main", block.
-
-**Design principles**
-
-- **Warn on what was learned, block only on what you wrote.** A wrong block costs more than a missed loop.
-- **Learned memory corrects itself.** A learned warning is retired as soon as the same command succeeds, and expires after 7 days. A learned fix starts at 0.5 confidence and only strengthens when the same fix is seen again, not when it's retrieved.
-- **What you tell it persists.** Only learned rules decay; facts you `remember` stay until you `forget` them.
-
-```text
-[ Agent runs a shell command ]
-         │  PreToolUse hook / smruti run
-         ▼
-┌─────────────────────────────────┐
-│ Preflight Gate                  │ learned failure → warning in agent context
-│                                 │ user-written rule → block (literal / regex / semantic)
-└───────────────┬─────────────────┘
-                ▼
-┌─────────────────────────────────┐
-│ Episodic Buffer                 │ every command + outcome, SQLite WAL, secrets masked
-└───────────────┬─────────────────┘
-                │ every N commands / on demand
-                ▼
-┌─────────────────────────────────┐
-│ Sleep Consolidation             │ (command, error) clusters → learned warnings
-│                                 │ failure → related fix   → tentative rules
-│                                 │ success → retire warning; decay unconfirmed rules
-└───────────────┬─────────────────┘
-                ▼
-┌─────────────────────────────────┐
-│ Rules & Preferences             │ recalled by vector + keyword search for prompt context
-└─────────────────────────────────┘
-```
-
-For detailed mathematical specifications and engineering internals, read the [Technical Architecture Documentation](docs/ARCHITECTURE.md).
-
----
-
-## Quickstart
-
-### 1. Installation
-
-Smruti runs 100% locally with zero external API keys required. It uses in-process FastEmbed (`bge-small-en-v1.5`) via ONNX Runtime on CPU.
-
-#### macOS & Linux
-```bash
-# Clone the repository
-git clone https://github.com/wizardwithcodehazard/smruti.git
-cd smruti
-
-# Create and activate environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install in editable mode
-pip install -e .
-```
-
-#### Windows (PowerShell)
-```powershell
-git clone https://github.com/wizardwithcodehazard/smruti.git
-cd smruti
-
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-pip install -e .
-```
-
-*For complete platform troubleshooting, see the [Multi-OS Setup Guide](docs/SETUP_GUIDE.md).*
-
----
-
-### 2. CLI Inspection & Commands
-
-Smruti ships with a rich developer CLI:
+Requires Python 3.10 or newer.
 
 ```bash
-# Initialize Smruti database in active project (.smruti/smruti.db)
-smruti init
+git clone <this repo> && cd smruti
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 
-# View status of active cortical rules, anti-memories, and episodic buffer
-smruti status
-
-# Store a declarative invariant or preference directly
-smruti remember "Never deploy to production on Friday afternoon without approval" --category "devops"
-
-# Ingest an entire architecture document or guide into chunked memory
-smruti ingest docs/ARCHITECTURE.md --category "architecture"
-
-# View formatted memory context ready for prompt injection
-smruti context
-
-# Recall top-scoring heuristics using dense vector search
-smruti recall "deployment approval"
-
-# Record an inhibitory anti-memory (block catastrophic commands)
-smruti anti-fact "Do not suggest Redux Toolkit; strictly use Zustand"
-
-# Run offline Tier 2 Sleep consolidation cycle
-smruti sleep
-
-# Export memory state into a portable JSON bundle for team sharing
-smruti export --output smruti_bundle.json
-
-# Import a bundle into another machine or workspace
-smruti import smruti_bundle.json
+ollama pull llama3.2:3b
+smruti proxy        # upstream http://localhost:11434/v1, listening on 127.0.0.1:8080
 ```
 
----
+Point your client at `http://localhost:8080/v1`. For example:
 
-## Automatic Capture (recommended)
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3.2:3b", "messages": [{"role": "user", "content": "I live in Pune and I work on compilers."}]}'
+```
 
-### Claude Code hooks
-Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global):
+After a few turns, look at what was remembered:
+
+```bash
+smruti facts
+```
+
+Sleep (turning raw turns into facts) runs in the background once 20 turns are pending, or after 120 s of idle time. To force it now: `smruti sleep --model llama3.2:3b`. The first run downloads the bge-small embedding model (about 130 MB).
+
+## Use with your client
+
+Any client that lets you set an OpenAI base URL works. Full setup for more clients is in [docs/CLIENTS.md](docs/CLIENTS.md).
+
+OpenAI Python SDK:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8080/v1", api_key="unused")
+reply = client.chat.completions.create(
+    model="llama3.2:3b",
+    messages=[{"role": "user", "content": "Where do I live?"}],
+)
+print(reply.choices[0].message.content)
+```
+
+Open WebUI: Settings, Connections, set the OpenAI API URL to `http://localhost:8080/v1`.
+
+OpenCode (`opencode.json`, check OpenCode's docs for the current format):
 
 ```json
 {
-  "hooks": {
-    "PreToolUse":         [{"matcher": "Bash", "hooks": [{"type": "command", "command": "smruti hook"}]}],
-    "PostToolUse":        [{"matcher": "Bash", "hooks": [{"type": "command", "command": "smruti hook"}]}],
-    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "smruti hook"}]}]
-  }
-}
-```
-
-- Every Bash command and its outcome is recorded.
-- Learned failures show up as a warning in Claude's context, without changing your permission prompts.
-- Rules you wrote that should block are denied, with the reason shown to Claude.
-- The hook fails open: if smruti errors, the command still runs.
-
-### Any agent or shell
-```bash
-smruti run -- npm run build   # preflight, run, record exit status
-```
-
----
-
-## AI Agent Integration (MCP)
-
-Smruti provides native support for the **Model Context Protocol (MCP)**, connecting directly to **Cursor, Claude Desktop, Google Antigravity, and Windsurf**.
-
-### Claude Desktop Configuration
-Add Smruti to your Claude Desktop config file:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
+  "provider": {
     "smruti": {
-      "command": "smruti",
-      "args": ["mcp"]
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Smruti (Ollama)",
+      "options": { "baseURL": "http://localhost:8080/v1" },
+      "models": { "llama3.2:3b": { "name": "llama3.2:3b" } }
     }
   }
 }
 ```
 
-### Cursor Configuration
-1. Open Cursor **Settings** -> **Features** -> **MCP Servers**.
-2. Click **Add New MCP Server**:
-   - **Name**: `smruti`
-   - **Type**: `command`
-   - **Command**: `smruti mcp`
+Memory spaces keep users or projects apart. A request picks its space with the `X-Smruti-Space` header, or else the request's `user` field; otherwise the proxy's `--space` default (`default`) is used.
 
-In your repository's `.cursorrules`, add:
-```markdown
-# Smruti Autonomous Memory Protocol
-- At conversation startup, query smruti_recall_heuristics for past rules.
-- When learning user constraints or project conventions, call smruti_observe or smruti_remember.
-- Before running shell commands or major modifications, call smruti_preflight_check.
-- After running terminal commands, log outcomes via smruti_record_episode.
-- At task completion, trigger smruti_trigger_sleep.
+## How it works
+
+```
+Per request (no LLM calls)
+  client -> proxy -> recall: search memory, spread activation, pack within budget
+                  -> upstream model (request with memory merged into the system prompt)
+                  -> reply streamed back to the client
+                  -> encode: store the new user/tool turns and the reply as episodes
+
+Sleep (background, uses the model)
+  pending episodes -> LLM extracts entities, facts, procedures, summaries (JSON)
+                   -> symbolic consolidation: merge entities, close contradicted facts,
+                      accumulate evidence, update summaries
 ```
 
-### Live MCP Resource (`smruti://active-context`)
-Smruti exposes a live dynamic resource URI:
-- **URI**: `smruti://active-context`
-- **MIME**: `text/markdown`
+Principles:
 
-Subscribing agents automatically receive project directives, active preferences, and strictly forbidden anti-patterns at session start without burning tool invocation turns.
+- Neural for perception, symbolic for memory. The LLM only reads text into a fixed schema. Deciding what is the same entity, what contradicts what and what to keep is done by code over a graph.
+- Facts have time validity. When a one-valued fact changes ("lives in Pune" to "lives in Mumbai"), the old fact is closed (it gets a `valid_to`), not deleted. `smruti facts --history` shows closed facts.
+- Recall uses spreading activation with the fan effect. Entities mentioned in the query pass activation along their facts, divided among all of an entity's facts, so a hub like `user` gives each fact a small share and a specific entity gives its few facts a lot.
+- An adaptive novelty gate drops turns that add nothing new relative to what that space has recently seen. Tool turns with outcomes are always kept.
+- Tool calls and results become procedures ("when X, doing Y fails" or "works") that are recalled as lessons next time.
 
-*For complete IDE and agent setup instructions, see the [Agent Integrations Guide](docs/AGENT_INTEGRATIONS.md).*
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
----
-
-## Python SDK Integration
-
-You can integrate Smruti directly into your own agent loop, LangChain runnable, or custom script:
+## Python SDK
 
 ```python
-from smruti import SmrutiMemory
+from smruti import Memory
 
-# Initialize workspace memory
-mem = SmrutiMemory(project_root="./my_project")
+mem = Memory(upstream="http://localhost:11434/v1", model="llama3.2:3b")
 
-# 1. Store declarative facts or observe natural user conversation
-mem.observe("We strictly use PostgreSQL with connection pooling as our primary database.")
-mem.remember("Always format code with ruff before committing", category="code_convention")
+reply = mem.chat([{"role": "user", "content": "I live in Pune"}])      # recall, call the model, record both turns
 
-# 2. Preflight gate: check actions before executing
-check = mem.check_action("git push origin main --force")
-if not check.passed:
-    print(f"BLOCKED: {check.reason}")
-    print(f"Suggested alternative: {check.suggested_fix}")
-else:
-    # Execute tool...
-    mem.record_episode("git push origin main --force", outcome="Success", status="success")
+mem.observe("user", "My dog is called Biscuit")                        # record a turn without calling a model
+messages = mem.build_context([{"role": "user", "content": "What is my dog called?"}])  # messages to send upstream
 
-# 3. Retrieve formatted context for prompt injection
-prompt_context = mem.get_prompt_context()
-
-# 4. Trigger Sleep Consolidation at milestone boundaries
-report = mem.sleep()
-print("Consolidation summary:", report)
-
+report = mem.sleep()                                                   # consolidate pending turns
+for fact in mem.facts():                                               # current facts; include_closed=True for history
+    print(fact.id, fact.text)
+mem.forget(fact.id)                                                    # end a fact's validity
 mem.close()
 ```
 
----
+`Memory(path=None, upstream=None, model=None, config=None, ...)`. `chat` and `sleep` need `upstream` (or an `llm`). All methods take a `space` argument (default `"default"`).
 
-## Team Sync & Portability
+## CLI reference
 
-Share project reflexes and conventions with your entire team via Git:
+| Command | What it does |
+| --- | --- |
+| `smruti proxy` | Run the memory proxy. Options: `--upstream`, `--host`, `--port`, `--model`, `--space`, `--sleep-poll` (seconds between background sleep checks, 0 disables). |
+| `smruti sleep --model M` | Consolidate pending turns now. Options: `--upstream`, `--space`. |
+| `smruti facts [ENTITY]` | List remembered facts. Options: `--space`, `--history` (include facts that are no longer true). |
+| `smruti recall "text"` | Show the memory block that would be added to the prompt for that message. Options: `--space`, `--budget`. |
+| `smruti forget FACT_ID` | Mark a fact as no longer true. Option: `--space`. |
+| `smruti stats` | Counts of what is stored, as JSON. Option: `--space`. |
 
-```bash
-# Export active rules and anti-memories to JSON
-smruti export -o smruti_bundle.json
+## Configuration and ablations
 
-# Commit to version control
-git add smruti_bundle.json && git commit -m "chore: sync project memory bundle"
-```
+Settings live in `SmrutiConfig` (`smruti/config.py`); pass one to `Memory(config=...)`. The CLI uses the defaults. Memory is stored in `~/.smruti/memory.db`; set `SMRUTI_DIR` to use another directory.
 
-Teammates and CI/CD agents can import the bundle instantly:
-```bash
-smruti import smruti_bundle.json
-```
+| Group | Fields (defaults) |
+| --- | --- |
+| Budget | `budget_tokens` (4096), `chars_per_token` (3.5), `min_recent_turns` (2) |
+| Sleep | `sleep_after_episodes` (20), `sleep_idle_seconds` (120), `sleep_batch_episodes` (12), `sleep_max_attempts` (3), `episode_retention_days` (7), `procedure_ttl_days` (30) |
+| Novelty gate | `novelty_percentile` (10), `novelty_warmup` (50), `novelty_window` (500) |
+| Recall | `search_k`, `max_hops`, `hop_decay`, `recency_half_life_days`, `max_candidate_facts`, `core_min_confidence` |
+| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall` |
 
----
+The `enable_*` switches turn individual components off so their effect can be measured.
 
-## Empirical Benchmarks
+## Status
 
-Measured using the reproducible benchmark suite (`benchmarks/benchmark_engine.py`):
+Measured on an Apple Silicon laptop with bge-small embeddings and 2,000 stored facts: recall takes about 22 ms per request and encoding about 5 ms per turn. The test suite has 150 tests.
 
-### 1. Preflight Safety Gate Latencies
-| Check Type | Execution Mechanism | Latency | Speedup vs Cloud LLM |
-| :--- | :--- | :--- | :--- |
-| **Tier 1 (Exact Substring)** | Substring Hash Match | **6.2 microseconds** | **> 15,000x faster** |
-| **Tier 2 (Neural Vector)** | FastEmbed `bge-small` on CPU | **7.37 milliseconds** | **~129x faster** |
-| **Cloud LLM Guardrail Call** | Remote API Network Roundtrip | ~950 milliseconds | Baseline |
+End-to-end runs with a real local model and the LongMemEval evaluation are in progress (Plan 3, see [tasks.md](tasks.md)). Known limitation: weak lexical matches can still pull loosely related facts into the prompt.
 
-### 2. Replay Evaluation on Real Command Histories
-`benchmarks/replay_eval.py` replays real Bash histories in order: Claude Code transcripts (default `~/.claude/projects`) or a JSONL trace. It runs against a throwaway database and reports:
-- how often a warning was followed by a real failure (precision)
-- wrong flags
-- repeat failures caught before they happened
-- the rules learned
+## Research
 
-```bash
-python benchmarks/replay_eval.py                                   # your Claude Code history
-python benchmarks/replay_eval.py benchmarks/sample_trace.jsonl --sleep-every 2
-```
+The design rationale is in [docs/superpowers/specs/2026-10-12-local-neurosymbolic-memory-design.md](docs/superpowers/specs/2026-10-12-local-neurosymbolic-memory-design.md). The engineering overview is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-On the bundled sample trace, all three learned rules are the real fixes (e.g. *"When 'python train.py' fails, 'pip install torch' resolved it."*). No read-only command or bare retry is mistaken for a fix. Learning only happens during sleep, so repeat failures inside one short session are caught only if consolidation runs often enough (`--sleep-every`).
-
-### 3. BLAS Vector Search Scalability (CPU)
-Batch cosine similarity using vectorized 2D BLAS dot products across rule sets:
-- **100 rules**: 0.053 ms
-- **1,000 rules**: 1.053 ms
-- **5,000 rules**: 5.246 ms
-- **10,000 rules**: 10.984 ms
-- **25,000 rules**: 22.216 ms
-
----
-
-## Competitor Comparison
-
-| Capability | Smruti | Mem0 | Cognee | Zep |
-| :--- | :--- | :--- | :--- | :--- |
-| **Learns failures from execution traces** | **Yes** | No | No | No |
-| **Sub-10ms Preflight Gate** | **Yes (< 8ms local CPU)** | No (~800ms API) | No (Graph query) | No (API roundtrip) |
-| **Zero External DB Setup** | **Yes (SQLite + FastEmbed)** | No (Postgres/Cloud) | No (Tri-Store / Kùzu) | No (Cloud/Docker) |
-| **Biological Ebbinghaus Decay** | **Yes (Mathematical)** | No | No | No |
-| **Secret Sanitization** | **Yes (Automatic mask)** | Manual | Manual | Cloud-side |
-| **Enterprise Knowledge Graph** | Minimal (Heuristic edges) | No | **Yes (Triplets/Ontology)** | No |
-
----
-
-## Privacy & Security
-
-Smruti runs 100% offline and locally. To prevent secret leakage:
-- **Automated Credential Masking**: The Tier 1 episodic buffer automatically sanitizes API keys (`sk-...`), GitHub tokens (`ghp_...`), Bearer headers, AWS keys (`AKIA...`), database connection passwords, and private keys before committing any command or output to disk.
-
----
-
-## Documentation Index
-
-- [Multi-OS Setup & Troubleshooting Guide](docs/SETUP_GUIDE.md)
-- [Agent & IDE Integration Guide (Cursor, Claude, Antigravity, Windsurf)](docs/AGENT_INTEGRATIONS.md)
-- [Technical Architecture & Neuroscience Deep Dive](docs/ARCHITECTURE.md)
-
----
-
-## License
-
-Smruti is open source under the [Apache-2.0 License](https://opensource.org/licenses/Apache-2.0).
+License: Apache-2.0.

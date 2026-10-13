@@ -1,176 +1,44 @@
-# Smruti Setup & Installation Guide
+# Setup guide
 
-This guide provides instructions for setting up **Smruti** across different operating systems (macOS, Linux, Windows), configuring virtual environments, and resolving system dependencies.
+## Install
 
----
-
-## 1. Prerequisites
-
-- **Python**: Version 3.10, 3.11, or 3.12 (Check via `python --version` or `python3 --version`).
-- **RAM**: Minimum 500 MB free memory (Smruti runs Quantized `bge-small-en-v1.5` embeddings on CPU via ONNX Runtime).
-- **Disk Space**: ~150 MB for the local embedding model cache.
-- **Internet Access**: Required once on first run to download the local model weights (~130 MB); completely offline afterward.
-
----
-
-## 2. OS-Specific Installation
-
-### macOS (Apple Silicon M1/M2/M3 & Intel)
-
-1. **Verify Python & Homebrew**:
-   ```bash
-   brew install python@3.11
-   ```
-
-2. **Create a Dedicated Virtual Environment**:
-   ```bash
-   python3 -m venv ~/.smruti-env
-   source ~/.smruti-env/bin/activate
-   ```
-
-3. **Install Smruti**:
-   ```bash
-   # From source repository:
-   git clone https://github.com/wizardwithcodehazard/smriti.git
-   cd smriti
-   pip install -e .
-   ```
-
-4. **Verify CLI**:
-   ```bash
-   smruti --help
-   ```
-
----
-
-### Linux (Ubuntu, Debian, Fedora, Arch)
-
-1. **Install Python Build Tools**:
-   ```bash
-   # Ubuntu / Debian
-   sudo apt update && sudo apt install -y python3 python3-pip python3-venv git
-   
-   # Fedora
-   sudo dnf install -y python3 python3-pip git
-   ```
-
-2. **Setup Virtual Environment**:
-   ```bash
-   python3 -m venv ~/.smruti-env
-   source ~/.smruti-env/bin/activate
-   ```
-
-3. **Install Smruti**:
-   ```bash
-   git clone https://github.com/wizardwithcodehazard/smriti.git
-   cd smriti
-   pip install -e .
-   ```
-
-4. **Verify CLI**:
-   ```bash
-   smruti status
-   ```
-
----
-
-### Windows (PowerShell / Command Prompt)
-
-1. **Ensure Python is on PATH**:
-   Download Python 3.11 or 3.12 from [python.org](https://www.python.org/) and check **"Add Python to PATH"** during installation.
-
-2. **Open PowerShell as User**:
-   ```powershell
-   # Create a virtual environment
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
-   *(If execution policy errors occur, run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`)*
-
-3. **Install Smruti**:
-   ```powershell
-   git clone https://github.com/wizardwithcodehazard/smriti.git
-   cd smriti
-   pip install -e .
-   ```
-
-4. **Verify Installation**:
-   ```powershell
-   smruti status
-   ```
-
----
-
-## 3. Storage Backends
-
-By default, Smruti creates a local SQLite database in `.smruti/smruti.db` inside your active project root.
-
-### Pluggable PostgreSQL Backend (Optional)
-For team environments or centralized services, configure PostgreSQL by setting the environment variable:
+Smruti needs Python 3.10 or newer (3.9 is not supported).
 
 ```bash
-export SMRUTI_DATABASE_URL="postgresql://user:password@localhost:5432/smruti_db"
+git clone <this repo> && cd smruti
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"      # ".[dev]" adds pytest and ruff; use "." for runtime only
+smruti --help
 ```
-Or in Windows PowerShell:
-```powershell
-$env:SMRUTI_DATABASE_URL="postgresql://user:password@localhost:5432/smruti_db"
-```
 
-Smruti automatically applies migrations and provisions tables on startup.
+On first use Smruti downloads the `BAAI/bge-small-en-v1.5` embedding model (about 130 MB) once and caches it.
 
----
-
-## 4. Verifying Model Embeddings
-
-On first run, `fastembed` downloads the quantized model `bge-small-en-v1.5`. You can verify this works offline by running:
+## Run
 
 ```bash
-smruti remember "Strict test verification fact" --category "test"
-smruti recall "test verification"
+ollama pull llama3.2:3b
+smruti proxy
 ```
 
-If the heuristic is returned with a strength score > 1.0, your local embeddings and storage pipeline are fully operational.
+Defaults: upstream `http://localhost:11434/v1`, listen on `127.0.0.1:8080`. Point clients at `http://localhost:8080/v1`; see [CLIENTS.md](CLIENTS.md).
 
----
+## Where data lives
 
-## 5. Troubleshooting & FAQs
+`~/.smruti/memory.db` (SQLite, WAL mode). Set `SMRUTI_DIR` to use a different directory. Memory spaces share this one file.
 
-### How do I unblock a false positive anti-memory?
-If an anti-memory is overly aggressive and blocks a legitimate action:
-1. List active anti-memories:
-   ```bash
-   smruti status
-   ```
-2. Deactivate the specific pattern using the Python SDK or MCP `smruti_forget`:
-   ```python
-   from smruti import SmrutiMemory
-   mem = SmrutiMemory()
-   mem.inhibitory.deactivate_anti_memory("the_signature_name")
-   mem.close()
-   ```
+## Tests
 
-### How do I reset or wipe the local project memory?
-Simply remove the local `.smruti` directory:
-- **macOS / Linux**: `rm -rf .smruti`
-- **Windows**: `Remove-Item -Recurse -Force .smruti`
-Running `smruti init` will re-provision a clean, empty database.
+```bash
+python -m pytest -q
+```
 
-### What if I see "database is locked" errors during heavy parallel runs?
-Smruti sets `PRAGMA busy_timeout = 5000` by default, giving processes 5 seconds to wait for WAL transactions. If you are running dozens of concurrent subagents, either increase `busy_timeout` or switch to the PostgreSQL backend via `SMRUTI_DATABASE_URL`.
+Tests use fake embedders and fake LLM transports, so they need no model download or running server.
 
-### Migrating from Cognee or Mem0
-If you are moving from Cognee or Mem0:
-1. Export your existing facts to a JSON file with `rule_text` and `category` fields.
-2. Ingest them directly using the Smruti SDK:
-   ```python
-   import json
-   from smruti import SmrutiMemory
+## Troubleshooting
 
-   mem = SmrutiMemory()
-   with open("exported_facts.json") as f:
-       facts = json.load(f)
-   for item in facts:
-       mem.remember(item["rule_text"], category=item.get("category", "general"))
-   mem.close()
-   ```
-
+- **502 from the proxy.** The upstream runtime is unreachable. Check that Ollama (or your runtime) is running and that `--upstream` is the right `/v1` URL.
+- **Facts never appear.** Sleep needs a model. The proxy learns it from the first request that names one; otherwise pass `--model`. `smruti sleep --model llama3.2:3b` forces a run. Background sleep starts at 20 pending turns or 120 s idle; check `smruti stats` for `pending_episodes`.
+- **Sleep batches failing.** A failed batch is retried on later cycles and retired after 3 attempts. Use a model that can follow a JSON schema; very small models may extract poorly.
+- **`SyntaxError` or install errors on Python 3.9.** Use Python 3.10 or newer.
+- **Reset memory.** Stop the proxy and delete `~/.smruti/memory.db` (and its `-wal` and `-shm` files if present).
+- **Remove one wrong fact.** `smruti facts` to find its id, then `smruti forget ID`.
