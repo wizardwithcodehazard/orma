@@ -20,6 +20,15 @@ class FakeEmbedder:
         return normalize(out)
 
 
+class NoisyEmbedder(FakeEmbedder):
+    """FakeEmbedder plus a component shared by every text, so unrelated texts have cosine ~0.5 like a
+    real small embedding model (bge-small scores unrelated short texts ~0.4-0.6) instead of ~0."""
+
+    def embed(self, texts):
+        shared = np.full(self.dim, 1.0 / np.sqrt(self.dim), dtype=np.float32)
+        return normalize(super().embed(texts) + shared)
+
+
 class FakeLLM:
     """Returns queued JSON extractions (or raises queued exceptions) and a fixed chat reply."""
 
@@ -60,5 +69,14 @@ def store(config, embedder):
     from smruti.store import Store
 
     s = Store(config, embedder)
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def noisy_store(config):
+    from smruti.store import Store
+
+    s = Store(config, NoisyEmbedder())
     yield s
     s.close()

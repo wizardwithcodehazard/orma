@@ -1,7 +1,9 @@
 """
 recall - Per-request context assembly with no LLM calls and no writes: fuse lexical and vector
-search, spread activation from the cued entities (query links and search hits) along current
-facts, rank by relevance x recency x confidence, and pack into the token budget.
+search (each hit weighted by how much evidence it carries: calibrated similarity, query-term
+coverage), spread activation from the cued entities (query links and search hits) along current
+facts, keep the most relevant facts, rank by relevance x recency x confidence, and pack into the
+token budget.
 """
 
 import time
@@ -12,7 +14,7 @@ from smruti.messages import message_text
 from smruti.recall.activation import merge_cues, search_cues, spread
 from smruti.recall.link import link_entities
 from smruti.recall.pack import MemoryItem, Packed, count_tokens, pack
-from smruti.recall.rank import recency, rrf
+from smruti.recall.rank import recency, rrf, similarity_weight
 from smruti.store import USER_ENTITY, Store
 
 SEPARATOR = "\n\n"
@@ -67,15 +69,19 @@ class Recaller:
         if not query:
             return []
         vec = self.store.embed(query)
+        weight = similarity_weight(self.store.novelty_scores(space), cfg.similarity_floor_percentile,
+                                   cfg.novelty_warmup, cfg.enable_similarity_weighting)
         fused = {
-            kind: rrf([i for i, _ in self.store.vec_search(kind, space, vec, cfg.search_k)],
-                      [i for i, _ in self.store.text_search(kind, space, query, cfg.search_k)])
+            kind: rrf([(i, weight(sim)) for i, sim in self.store.vec_search(kind, space, vec, cfg.search_k)],
+                      [(hit.id, hit.query_coverage) for hit in self.store.text_search(kind, space, query, cfg.search_k)],
+                      k=cfg.rrf_k)
             for kind in SEARCHED_KINDS
         }
         hits = self.store.facts(sorted(fused["facts"]))
         activation: dict[int, float] = {}
         if cfg.enable_graph:
-            cues = merge_cues(link_entities(self.store, cfg, space, query, vec), search_cues(hits, fused["facts"]))
+            cues = merge_cues(link_entities(self.store, cfg, space, query, vec, weight),
+                              search_cues(hits, fused["facts"]))
             activation = spread(self.store, space, cues, cfg.max_hops, cfg.hop_decay)
 
         def fresh(timestamp: float) -> float:
@@ -83,6 +89,10 @@ class Recaller:
 
         relevance = {fid: fused["facts"].get(fid, 0.0) + activation.get(fid, 0.0)
                      for fid in fused["facts"].keys() | activation.keys()}
+        # Keep only the most relevant facts, so a long tail of faintly activated facts cannot starve
+        # procedures and summaries, which pack after facts.
+        kept = sorted(relevance, key=lambda fid: (-relevance[fid], fid))[:cfg.max_candidate_facts]
+        relevance = {fid: relevance[fid] for fid in kept}
         facts = [(relevance[f.id] * fresh(f.last_used) * f.confidence, MemoryItem("facts", f.id, f.text))
                  for f in self.store.facts(sorted(relevance))]
         procedures = [(fused["procedures"][p.id] * fresh(p.last_used) * p.confidence,

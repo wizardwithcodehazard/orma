@@ -32,10 +32,14 @@ class SmrutiConfig:
     budget_tokens: int = 4096
     chars_per_token: float = 3.5
     entity_link_k: int = 8
-    entity_link_threshold: float = 0.6
     max_hops: int = 2
     hop_decay: float = 0.6
     search_k: int = 20
+    rrf_k: int = 60
+    # Similarity floor = this percentile of the space's nearest-neighbour similarity distribution (from
+    # the novelty buffer); the median is what a typical turn's closest memory reaches, i.e. the noise level.
+    similarity_floor_percentile: float = 50.0
+    max_candidate_facts: int = 64
     recency_half_life_days: float = 14.0
     core_min_confidence: float = 0.7
     min_recent_turns: int = 2
@@ -57,6 +61,7 @@ class SmrutiConfig:
     enable_novelty_gate: bool = True
     enable_graph: bool = True
     enable_core_block: bool = True
+    enable_similarity_weighting: bool = True
 
     @property
     def db_path(self) -> Path:

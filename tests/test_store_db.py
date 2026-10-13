@@ -40,7 +40,23 @@ def test_text_search_ranks_matches_and_is_syntax_safe(conn):
     index.text_put(conn, "facts", 9, "b", "user lives in Pune")
     hits = index.text_search(conn, "facts", "a", 'Where does the user live? "Pune"!', 5)
     assert hits[0][0] == 7
-    assert 9 not in [i for i, _ in hits]
+    assert 9 not in [hit.id for hit in hits]
+
+
+def test_text_search_reports_term_coverage_with_the_index_stemmer(conn):
+    index.text_put(conn, "facts", 1, "a", "user lives in Pune")
+    index.text_put(conn, "entities", 2, "a", "New York")
+    # "live" and "lives" share a porter stem, so coverage agrees with what MATCH matched.
+    (hit,) = index.text_search(conn, "facts", "a", "Where does the user live?", 5)
+    assert hit.query_coverage == pytest.approx(2 / 5) and hit.row_coverage == pytest.approx(2 / 4)
+    (hit,) = index.text_search(conn, "entities", "a", "any new ideas?", 5)
+    assert hit.row_coverage == pytest.approx(1 / 2)
+    (hit,) = index.text_search(conn, "entities", "a", "I visited New York", 5)
+    assert hit.row_coverage == 1.0 and hit.query_coverage == pytest.approx(2 / 4)
+
+
+def test_terms_split_like_the_fts_tokenizer():
+    assert index.terms("Is_allergic to, Peanuts! peanuts") == ["is", "allergic", "to", "peanuts"]
 
 
 def test_text_search_with_no_terms_returns_nothing(conn):

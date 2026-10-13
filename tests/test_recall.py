@@ -134,3 +134,65 @@ def test_fan_divides_activation_among_an_entitys_facts(store):
 
     act = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
     assert act == {sister: pytest.approx(0.5), allergy: pytest.approx(0.5)}
+
+
+def warm_up(store, config, space, n=None):
+    """Feed the encoder unrelated turns so the space has a real nearest-neighbour similarity distribution."""
+    from smruti.encode import Encoder
+
+    encoder = Encoder(store, config)
+    for i in range(n or config.novelty_warmup + 10):
+        encoder.encode(space, "user", f"w{i}alpha w{i}beta w{i}gamma w{i}delta")
+
+
+def test_unrelated_query_recalls_nothing_with_a_noisy_embedder(noisy_store, config):
+    store = noisy_store
+    ravi = store.add_entity("s", "Ravi", "person")
+    meera = store.add_entity("s", "Meera", "person")
+    store.add_fact("s", ravi, store.add_predicate("s", "plays", "many"), None, "guitar", 1.0, [1], now=1.0)
+    store.add_fact("s", meera, store.add_predicate("s", "works_at", "one"), None, "Infosys", 1.0, [1], now=1.0)
+    warm_up(store, config, "s")
+    assert len(store.novelty_scores("s")) >= config.novelty_warmup
+
+    recaller = Recaller(store, config)
+    unrelated = recaller.build("s", [{"role": "user", "content": "what is the weather like today"}], now=1.0)
+    assert memory_lines(unrelated.memory_text) == []
+    related = recaller.build("s", [{"role": "user", "content": "does Ravi still play guitar"}], now=1.0)
+    assert "- Ravi plays guitar" in related.memory_text
+
+    config.enable_similarity_weighting = False  # ablation: plain rank-only RRF lets the junk top hit in
+    ablated = Recaller(store, config).build("s", [{"role": "user", "content": "what is the weather like today"}], now=1.0)
+    assert memory_lines(ablated.memory_text) != []
+
+
+def test_entity_name_links_only_when_all_its_terms_are_in_the_query(store, config):
+    from smruti.recall.link import link_entities
+
+    ny = store.add_entity("s", "New York", "city")
+    no_embedding = lambda sim: 0.0  # isolate lexical linking
+
+    def linked(query):
+        return link_entities(store, config, "s", query, store.embed(query), no_embedding)
+
+    assert ny not in linked("any new ideas?")
+    assert linked("I visited New York") == {ny: 1.0}
+    assert linked("new york is big") == {ny: 1.0}
+
+
+def test_embedding_links_are_weighted_by_calibrated_similarity(store, config):
+    from smruti.recall.link import link_entities
+
+    ny = store.add_entity("s", "New York", "city")
+    query = "trip"
+    assert link_entities(store, config, "s", query, store.embed(query), lambda sim: 0.0) == {}
+    assert link_entities(store, config, "s", query, store.embed(query), lambda sim: 0.3) == {ny: 0.3}
+
+
+def test_candidate_facts_are_bounded(store, config):
+    user = store.user_entity("s")
+    note = store.add_predicate("s", "mentioned", "many")
+    for i in range(500):
+        store.add_fact("s", user, note, None, f"filler {i}", 1.0, [i], now=1.0)
+    ranked = Recaller(store, config)._ranked("s", "tell me about user stuff", now=1.0)
+    facts = [item for item in ranked if item.section == "facts"]
+    assert 0 < len(facts) <= config.max_candidate_facts

@@ -4,16 +4,45 @@ from smruti.recall.pack import MemoryItem, count_tokens, pack
 from smruti.recall.rank import recency, rrf
 
 
+def ranked(*ids, weight=1.0):
+    return [(i, weight) for i in ids]
+
+
 def test_rrf_rewards_agreement_and_normalizes():
-    s = rrf([1, 2, 3], [3, 1])
+    s = rrf(ranked(1, 2, 3), ranked(3, 1))
     assert s[1] > s[3] > s[2]
     assert all(0 < v <= 1 for v in s.values())
-    assert rrf([1, 2], [1, 3])[1] == pytest.approx(1.0)
-    assert rrf([1, 2], [3])[1] < 1.0  # first in only one list is not inflated to 1.0
+    assert rrf(ranked(1, 2), ranked(1, 3))[1] == pytest.approx(1.0)
+    assert rrf(ranked(1, 2), ranked(3))[1] < 1.0  # first in only one list is not inflated to 1.0
 
 
 def test_rrf_of_nothing_is_empty():
     assert rrf([], []) == {}
+
+
+def test_rrf_zero_weight_drops_an_item():
+    s = rrf([(1, 0.0), (2, 1.0)], [(1, 0.0)])
+    assert 1 not in s
+    assert s[2] == pytest.approx((1 / 62) / (2 / 61))  # 2 keeps its rank (second), weight does not shift ranks
+
+
+def test_rrf_weights_scale_contributions():
+    full, half = rrf([(1, 1.0)], []), rrf([(1, 0.5)], [])
+    assert half[1] == pytest.approx(full[1] / 2)
+    assert rrf([(1, 1.0)], [(1, 1.0)], k=10)[1] == pytest.approx(1.0)  # normalized by len(rankings) / (k + 1)
+    assert rrf([(1, 1.0)], [(1, 0.25)], k=10)[1] == pytest.approx((1 + 0.25) / 2)
+
+
+def test_similarity_weight_is_calibrated_against_the_space_distribution():
+    from smruti.recall.rank import similarity_weight
+
+    novelty = [0.6, 0.5, 0.4]  # nearest-neighbour similarities 0.4, 0.5, 0.6 -> median floor 0.5
+    w = similarity_weight(novelty, percentile=50.0, warmup=3, enabled=True)
+    assert w(0.45) == 0.0 and w(0.5) == 0.0
+    assert w(0.75) == pytest.approx(0.5)
+    assert w(1.0) == pytest.approx(1.0)
+    assert similarity_weight(novelty, 50.0, warmup=4, enabled=True)(0.1) == 1.0  # warming up: plain RRF
+    assert similarity_weight(novelty, 50.0, warmup=3, enabled=False)(0.1) == 1.0  # ablated
 
 
 def test_recency_half_life():

@@ -89,6 +89,10 @@ CREATE TABLE IF NOT EXISTS novelty_stats (space TEXT PRIMARY KEY, scores TEXT NO
 """
 
 
+# Shared by every FTS table and by index.stems, so symbolic term matching uses the index's own tokenizer.
+FTS_TOKENIZER = "porter unicode61"
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
@@ -117,5 +121,5 @@ def init_schema(conn: sqlite3.Connection, dim: int) -> None:
     for kind in TEXT_KINDS:
         conn.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS fts_{kind} USING fts5("
-            f"text, space UNINDEXED, tokenize = 'porter unicode61')"
+            f"text, space UNINDEXED, tokenize = '{FTS_TOKENIZER}')"
         )

@@ -93,7 +93,7 @@ class Store:
         with self.lock:
             return index.vec_search(self.conn, kind, space, vec, k)
 
-    def text_search(self, kind: str, space: str, text: str, k: int) -> list[tuple[int, float]]:
+    def text_search(self, kind: str, space: str, text: str, k: int) -> list[index.TextHit]:
         with self.lock:
             return index.text_search(self.conn, kind, space, text, k)
 
