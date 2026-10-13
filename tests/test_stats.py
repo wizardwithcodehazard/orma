@@ -12,7 +12,7 @@ def test_stats_count_memory_by_kind(config, embedder):
     mem.observe("user", "hello", space="s")
     assert mem.stats("s") == {
         "episodes": 1, "pending_episodes": 1, "entities": 1, "current_facts": 1,
-        "closed_facts": 1, "procedures": 0, "summaries": 0, "candidate_facts": 0,
+        "closed_facts": 1, "procedures": 0, "summaries": 0,
     }
     assert mem.stats("other")["episodes"] == 0
     mem.close()

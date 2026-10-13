@@ -114,3 +114,11 @@ def test_predicate_names_are_unique_per_space(store):
     store.add_predicate("t", "lives_in", "one")
     with pytest.raises(sqlite3.IntegrityError):
         store.add_predicate("s", "lives_in", "one")
+
+
+def test_new_databases_have_no_candidate_facts_table(conn):
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'candidate_facts'").fetchone() is None
+
+
+def test_store_stems_with_the_index_tokenizer(store):
+    assert store.stems(["Peanuts allergy", ""]) == [{"peanut", "allergi"}, set()]

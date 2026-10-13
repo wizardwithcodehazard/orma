@@ -62,13 +62,13 @@ class SmrutiConfig:
     episode_retention_days: float = 7.0
     procedure_ttl_days: float = 30.0
     procedure_min_confidence: float = 0.5
-    # Replay and vote: each batch is extracted sleep_votes times (the first pass at temperature 0, replays at
-    # sleep_vote_temperature); a fact enters the graph only when a replay states it too (rendered-text cosine
-    # >= vote_match_threshold). The rest wait as candidates for an independent batch, for candidate_ttl_days.
-    sleep_votes: int = 2  # 1 = single pass, no voting
+    # Replay and vote (an experiment; each extra vote costs a full extraction): each batch is extracted
+    # sleep_votes times (the first pass at temperature 0, replays at sleep_vote_temperature). The first pass is
+    # consolidated; a fact a replay also states (rendered-text cosine >= vote_match_threshold) counts as one
+    # extra observation.
+    sleep_votes: int = 1  # 1 = single pass, no voting
     sleep_vote_temperature: float = 0.7
     vote_match_threshold: float = 0.8
-    candidate_ttl_days: float = 14.0
 
     # Ablation switches
     enable_novelty_gate: bool = True
@@ -77,6 +77,7 @@ class SmrutiConfig:
     enable_similarity_weighting: bool = True
     enable_episode_recall: bool = True
     enable_schema_decoding: bool = True  # constrain extraction to JSON_SCHEMA (else plain JSON mode)
+    enable_grounding: bool = True  # drop extracted facts, entities and user names the batch's log does not contain
 
     @property
     def db_path(self) -> Path:

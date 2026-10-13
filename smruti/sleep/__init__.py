@@ -1,10 +1,9 @@
 """
 sleep - Idle-time consolidation. Pending episodes are processed in batches: the LLM extracts
 structure (neural), the consolidator integrates it into the graph (symbolic). Failed batches
-are retried on later cycles and retired after sleep_max_attempts. Each batch is replayed
-(extracted again at a higher temperature) and only facts both passes agree on are consolidated;
-the rest wait as candidates. Old raw episodes, stale uncertain procedures and expired candidates
-are forgotten.
+are retried on later cycles and retired after sleep_max_attempts. With sleep_votes > 1 a batch is
+replayed (extracted again at a higher temperature) and facts a replay agrees with gain confidence.
+Old raw episodes and stale uncertain procedures are forgotten.
 """
 
 import time
@@ -29,7 +28,6 @@ class SleepReport:
     failed_batches: int = 0
     pruned_episodes: int = 0
     pruned_procedures: int = 0
-    pruned_candidates: int = 0
     consolidation: ConsolidationReport = field(default_factory=ConsolidationReport)
 
 
@@ -76,8 +74,8 @@ class Sleeper:
                             schema=schema, temperature=0.0 if attempt == 0 else cfg.sleep_vote_temperature)
                     for attempt in range(max(1, cfg.sleep_votes))
                 ]
-                agreed, unconfirmed = vote(extractions, self.store.embed, cfg.vote_match_threshold)
-                consolidation = self.consolidator.apply(space, agreed, batch, now, unconfirmed=unconfirmed)
+                extraction, agreed = vote(extractions, self.store.embed, cfg.vote_match_threshold)
+                consolidation = self.consolidator.apply(space, extraction, batch, now, agreed=agreed)
             except Exception as exc:  # any failure must count against the attempt cap
                 self.store.record_sleep_failure(ids, str(exc), cfg.sleep_max_attempts, now)
                 report.failed_batches += 1
@@ -89,7 +87,6 @@ class Sleeper:
         report.pruned_episodes = self.store.prune_episodes(now - cfg.episode_retention_days * 86400.0)
         report.pruned_procedures = self.store.prune_procedures(now - cfg.procedure_ttl_days * 86400.0,
                                                                cfg.procedure_min_confidence)
-        report.pruned_candidates = self.store.prune_candidates(now - cfg.candidate_ttl_days * 86400.0)
 
     def _fit_budget(self, pending) -> tuple[list, int]:
         """The longest prefix of pending episodes whose formatted log fits sleep_prompt_tokens (always at least

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from smruti.sleep.consolidate import Consolidator, parse_time
@@ -10,9 +11,11 @@ LIVES_PUNE = {
 }
 
 
-def apply(store, config, data, ids=(1,), now=100.0, at=None, role="user"):
-    episodes = [Episode(i, "s", role, "t", None, 1.0, 1, now if at is None else at, None) for i in ids]
-    return Consolidator(store, config).apply("s", parse_extraction(data), episodes, now=now)
+def apply(store, config, data, ids=(1,), now=100.0, at=None, role="user", text=None, agreed=()):
+    """text is the batch's log; by default the extraction itself, so everything in it is grounded."""
+    text = json.dumps(data) if text is None else text
+    episodes = [Episode(i, "s", role, text, None, 1.0, 1, now if at is None else at, None) for i in ids]
+    return Consolidator(store, config).apply("s", parse_extraction(data), episodes, now=now, agreed=agreed)
 
 
 def lives(place, time="", cardinality="one", predicate="lives_in"):
@@ -280,3 +283,66 @@ def test_paraphrased_literal_reinforces_instead_of_contradicting(store, config):
     assert report.facts_closed == 0 and report.facts_reinforced == 1
     (fact,) = store.current_facts("s")
     assert fact.support == 2
+
+
+def test_fact_copied_from_context_instead_of_the_log_is_dropped(store, config):
+    apply(store, config, lives("Pune"), ids=[1], text="I live in Pune")
+    report = apply(store, config, {
+        "entities": [{"name": "Bangalore", "type": "city"}, {"name": "Pune", "type": "city"}],
+        "facts": lives("Bangalore")["facts"] + lives("Pune")["facts"],  # Pune only came from EXISTING SUMMARIES
+    }, ids=[2], text="I moved to Bangalore last month")
+    assert report.facts_ungrounded == 1 and report.facts_added == 1
+    assert [f.object for f in store.current_facts("s")] == ["Bangalore"]
+
+
+def test_grounding_uses_the_index_stemmer_and_checks_non_user_subjects(store, config):
+    report = apply(store, config, {"facts": [
+        {"subject": "Asha", "predicate": "is_allergic_to", "object": "peanut", "cardinality": "many"},
+        {"subject": "Ravi", "predicate": "is_allergic_to", "object": "peanut", "cardinality": "many"},
+    ]}, text="Asha is allergic to peanuts")
+    assert report.facts_ungrounded == 1
+    assert [f.text for f in store.current_facts("s")] == ["Asha is allergic to peanut"]
+
+
+def test_user_names_and_entities_must_be_grounded(store, config):
+    apply(store, config, {"user_names": ["Sahil", "Sam"], "entities": [{"name": "Goa", "type": "city"}]},
+          text="hi, I'm Sahil")
+    assert store.aliases(store.user_entity("s")) == ["sahil"]
+    assert store.find_entity("s", "Goa") is None
+
+
+def test_known_user_alias_subject_needs_no_mention(store, config):
+    apply(store, config, {"user_names": ["Sahil"]}, ids=[1], text="I'm Sahil")
+    report = apply(store, config, {"facts": [
+        {"subject": "Sahil", "predicate": "likes", "object": "tea", "cardinality": "many"}]}, ids=[2], text="I like tea")
+    assert report.facts_ungrounded == 0
+    assert [f.text for f in store.current_facts("s")] == ["user likes tea"]
+
+
+def test_grounding_can_be_disabled(store, config):
+    config.enable_grounding = False
+    report = apply(store, config, lives("Pune"), text="I moved to Bangalore last month")
+    assert report.facts_ungrounded == 0 and [f.object for f in store.current_facts("s")] == ["Pune"]
+
+
+def test_time_on_the_episode_day_is_not_stated(store, config):
+    at = datetime(2026, 3, 5, 10, 0, tzinfo=timezone.utc).timestamp()
+    apply(store, config, lives("Pune", "2026-03-05"), ids=[1], now=at + 3600, at=at)
+    (fact,) = store.current_facts("s")
+    assert fact.valid_from == at and not fact.valid_from_stated
+    apply(store, config, lives("Bangalore", "2026-03-04"), ids=[2], now=at + 3600, at=at)
+    bangalore = [f for f in store.fact_history("s") if f.object == "Bangalore"][0]
+    assert bangalore.valid_from_stated
+
+
+def test_agreed_fact_gets_one_extra_reinforcement_once(store, config):
+    data = {"facts": lives("Pune")["facts"] + [
+        {"subject": "user", "predicate": "likes", "object": "tea", "cardinality": "many"}]}
+    report = apply(store, config, data, ids=[1, 2], agreed={0})
+    assert report.facts_agreed == 1 and report.facts_added == 2
+    support = {f.object: f.support for f in store.current_facts("s")}
+    assert support == {"Pune": 2, "tea": 1}
+    apply(store, config, data, ids=[1, 2], agreed={0})  # retry of the same batch
+    assert {f.object: f.support for f in store.current_facts("s")} == support
+    apply(store, config, lives("Pune"), ids=[3], agreed={0})  # agreed restatement in a new batch
+    assert [f.support for f in store.current_facts("s") if f.object == "Pune"] == [4]

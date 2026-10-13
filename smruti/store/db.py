@@ -8,7 +8,7 @@ from pathlib import Path
 
 import sqlite_vec
 
-VECTOR_KINDS = ("episodes", "entities", "predicates", "facts", "summaries", "procedures", "candidates")
+VECTOR_KINDS = ("episodes", "entities", "predicates", "facts", "summaries", "procedures")
 TEXT_KINDS = ("episodes", "entities", "facts", "summaries", "procedures")
 
 SCHEMA = """
@@ -93,20 +93,6 @@ CREATE TABLE IF NOT EXISTS procedures (
     created_at REAL NOT NULL,
     last_used REAL NOT NULL,
     source_episode_ids TEXT NOT NULL DEFAULT '[]'
-);
-
--- Facts only one extraction pass produced: held back from the graph (and from recall) until a later,
--- independent batch repeats them, or dropped after candidate_ttl_days.
-CREATE TABLE IF NOT EXISTS candidate_facts (
-    id INTEGER PRIMARY KEY,
-    space TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    predicate TEXT NOT NULL,
-    object TEXT NOT NULL,
-    cardinality TEXT NOT NULL,
-    time TEXT NOT NULL,
-    source_episode_ids TEXT NOT NULL,
-    created_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sleep_leases (space TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at REAL NOT NULL);

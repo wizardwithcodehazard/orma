@@ -112,3 +112,8 @@ def test_extract_without_schema_decoding(fake_llm):
     llm = fake_llm([{"facts": []}])
     extract(llm, None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500, schema=None)
     assert llm.json_kwargs == [{"schema": None, "temperature": 0.0}]
+
+
+def test_prompt_says_facts_come_only_from_the_log():
+    system = build_messages([episode(1, "user", "hi")], ExtractionContext([], [], {}), 150, 1500)[0]["content"]
+    assert "facts come only from the LOG" in system
