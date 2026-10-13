@@ -426,3 +426,17 @@ class Store:
                 index.vec_drop(c, "procedures", procedure_id)
                 index.text_drop(c, "procedures", procedure_id)
         return len(doomed)
+
+    # --- Introspection -----------------------------------------------------------------
+
+    def stats(self, space: str) -> dict[str, int]:
+        counts = {
+            "episodes": "SELECT COUNT(*) FROM episodes WHERE space = ?",
+            "pending_episodes": "SELECT COUNT(*) FROM episodes WHERE space = ? AND consolidated_at IS NULL",
+            "entities": "SELECT COUNT(*) FROM entities WHERE space = ?",
+            "current_facts": "SELECT COUNT(*) FROM facts WHERE space = ? AND valid_to IS NULL",
+            "closed_facts": "SELECT COUNT(*) FROM facts WHERE space = ? AND valid_to IS NOT NULL",
+            "procedures": "SELECT COUNT(*) FROM procedures WHERE space = ?",
+            "summaries": "SELECT COUNT(*) FROM summaries WHERE space = ?",
+        }
+        return {name: self._rows(sql, (space,))[0][0] for name, sql in counts.items()}

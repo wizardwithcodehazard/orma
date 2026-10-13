@@ -51,6 +51,13 @@ class Memory:
     def sleep(self, space: str = "default", now=None) -> SleepReport:
         return Sleeper(self.store, self.config, self._require_llm(), self.model).run(space, now)
 
+    def due_spaces(self, now=None) -> list[str]:
+        """Spaces whose pending turns are due for consolidation."""
+        return Sleeper(self.store, self.config, self.llm, self.model).due_spaces(now)
+
+    def stats(self, space: str = "default") -> dict[str, int]:
+        return self.store.stats(space)
+
     def facts(self, entity: str | None = None, space: str = "default", include_closed: bool = False) -> list[Fact]:
         subject_id = None
         if entity is not None:
