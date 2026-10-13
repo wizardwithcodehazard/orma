@@ -1,7 +1,7 @@
 """
-recall - Per-request context assembly with no LLM calls and no writes: link the query to
-graph entities, expand along current facts, fuse lexical and vector search, rank by
-relevance x recency x confidence, and pack into the token budget.
+recall - Per-request context assembly with no LLM calls and no writes: fuse lexical and vector
+search, spread activation from the cued entities (query links and search hits) along current
+facts, rank by relevance x recency x confidence, and pack into the token budget.
 """
 
 import time
@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from smruti.config import SmrutiConfig
 from smruti.messages import message_text
+from smruti.recall.activation import merge_cues, search_cues, spread
 from smruti.recall.link import link_entities
 from smruti.recall.pack import MemoryItem, Packed, count_tokens, pack
 from smruti.recall.rank import recency, rrf
@@ -71,17 +72,17 @@ class Recaller:
                       [i for i, _ in self.store.text_search(kind, space, query, cfg.search_k)])
             for kind in SEARCHED_KINDS
         }
-        graph: dict[int, float] = {}
+        hits = self.store.facts(sorted(fused["facts"]))
+        activation: dict[int, float] = {}
         if cfg.enable_graph:
-            linked = link_entities(self.store, cfg, space, query, vec)
-            graph = {fact_id: cfg.hop_decay ** hops
-                     for fact_id, hops in self.store.neighborhood(space, linked, cfg.max_hops).items()}
+            cues = merge_cues(link_entities(self.store, cfg, space, query, vec), search_cues(hits, fused["facts"]))
+            activation = spread(self.store, space, cues, cfg.max_hops, cfg.hop_decay)
 
         def fresh(timestamp: float) -> float:
             return recency(timestamp, now, cfg.recency_half_life_days)
 
-        relevance = {fid: max(graph.get(fid, 0.0), fused["facts"].get(fid, 0.0))
-                     for fid in graph.keys() | fused["facts"].keys()}
+        relevance = {fid: fused["facts"].get(fid, 0.0) + activation.get(fid, 0.0)
+                     for fid in fused["facts"].keys() | activation.keys()}
         facts = [(relevance[f.id] * fresh(f.last_used) * f.confidence, MemoryItem("facts", f.id, f.text))
                  for f in self.store.facts(sorted(relevance))]
         procedures = [(fused["procedures"][p.id] * fresh(p.last_used) * p.confidence,

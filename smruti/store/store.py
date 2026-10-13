@@ -28,20 +28,13 @@ JOIN predicates p ON p.id = f.predicate_id
 LEFT JOIN entities o ON o.id = f.object_id
 """
 
-# Breadth-first walk over current entity-to-entity facts; each fact gets the hop distance
-# of the nearest walked entity it touches.
-_NEIGHBORHOOD = """
-WITH RECURSIVE walk(entity_id, hops) AS (
-    SELECT value, 0 FROM json_each(?)
-    UNION
-    SELECT CASE WHEN f.subject_id = w.entity_id THEN f.object_id ELSE f.subject_id END, w.hops + 1
-    FROM walk w JOIN facts f ON f.subject_id = w.entity_id OR f.object_id = w.entity_id
-    WHERE f.space = ? AND f.valid_to IS NULL AND f.object_id IS NOT NULL AND w.hops + 1 < ?
-)
-SELECT f.id AS id, MIN(w.hops) AS hops
-FROM walk w JOIN facts f ON f.subject_id = w.entity_id OR f.object_id = w.entity_id
-WHERE f.space = ? AND f.valid_to IS NULL
-GROUP BY f.id
+# Current facts touching any of the given entities, as subject or as object.
+_INCIDENT = """
+SELECT f.id, f.subject_id, f.object_id FROM facts f
+WHERE f.space = ? AND f.valid_to IS NULL AND f.subject_id IN (SELECT value FROM json_each(?))
+UNION
+SELECT f.id, f.subject_id, f.object_id FROM facts f
+WHERE f.space = ? AND f.valid_to IS NULL AND f.object_id IN (SELECT value FROM json_each(?))
 """
 
 
@@ -319,13 +312,11 @@ class Store:
             index.vec_drop(c, "facts", fact_id)
             index.text_drop(c, "facts", fact_id)
 
-    def neighborhood(self, space: str, entity_ids, max_hops: int) -> dict[int, int]:
-        """Current facts within max_hops edges of the given entities, as {fact id: hop distance}."""
-        entity_ids = list(entity_ids)
-        if not entity_ids or max_hops < 1:
-            return {}
-        rows = self._rows(_NEIGHBORHOOD, (json.dumps(entity_ids), space, max_hops, space))
-        return {r["id"]: r["hops"] for r in rows}
+    def incident_facts(self, space: str, entity_ids) -> list[tuple[int, int, int | None]]:
+        """Current facts touching any of the given entities, as (fact id, subject id, object id or None).
+        Every edge of each entity is returned, so the result also gives each entity's fan."""
+        ids = json.dumps(list(entity_ids))
+        return [(r[0], r[1], r[2]) for r in self._rows(_INCIDENT, (space, ids, space, ids))]
 
     # --- Summaries ---------------------------------------------------------------------
 

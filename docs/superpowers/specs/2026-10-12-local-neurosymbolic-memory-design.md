@@ -72,10 +72,10 @@ Indexes: FTS5 over `episodes.text`, `facts` (rendered text), `summaries.text`, `
 
 Input: space, incoming messages, token budget (default `budget_tokens` 4096 minus the client's system prompt and current user message).
 
-1. **Entity linking**: embed the current user message; KNN over `entities` (top 8, similarity ≥ `entity_link_threshold` 0.6); plus FTS5 match of entity names against the message. Always include `user`.
-2. **Graph expansion**: current facts within `max_hops` of linked entities.
-3. **Hybrid search**: FTS5 + vector KNN over facts, summaries and procedures, with reciprocal-rank fusion.
-4. **Score** = relevance × recency (exp decay on `last_used`, half-life `recency_half_life_days` 14) × confidence. Graph-expanded facts get relevance `hop_decay ** hops` (`hop_decay` default 0.6).
+1. **Entity linking**: embed the current user message; KNN over `entities` (top 8, similarity ≥ `entity_link_threshold` 0.6, cue weight = similarity); plus FTS5 match of entity names against the message (weight 1.0). `user` is not linked unconditionally: it is a hub and would otherwise dominate.
+2. **Spreading activation with the fan effect (ACT-R)**: cues are the linked entities plus the subject/object entities of the search-hit facts (weight = that fact's fused score, max per entity). For `max_hops` steps, each frontier entity e with activation a gives every current fact incident to e `a × hop_decay^step / fan(e)`, where fan(e) is e's number of current facts; the fact's other endpoint entity carries that amount into the next frontier (each entity visited once). A hub's activation is thus split thinly across its many facts, while a specific entity lends its few facts a lot.
+3. **Hybrid search**: FTS5 + vector KNN over facts, summaries and procedures, with reciprocal-rank fusion (normalized to the best possible score).
+4. **Score** = relevance × recency (exp decay on `last_used`, half-life `recency_half_life_days` 14) × confidence. For facts, relevance = fused search score + spread activation (`hop_decay` default 0.6); with `enable_graph` off it is the search score alone.
 5. **Pack**, in this fixed order, until the budget is used:
    1. *Core block*: current facts about `user` with confidence ≥ `core_min_confidence` (0.7), sorted by (predicate, id) for a stable, cache-friendly prefix.
    2. Relevant facts, then procedures, then summaries, by score.

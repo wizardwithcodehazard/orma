@@ -48,23 +48,29 @@ def test_reinforce_then_close_fact(store):
     assert store.text_search("facts", "s", "Pune", 5) == []
 
 
-def test_neighborhood_follows_current_edges(store):
+def test_incident_facts_are_current_edges_in_the_space(store):
     user = store.user_entity("s")
     mom = store.add_entity("s", "mother", "person")
     pune = store.add_entity("s", "Pune", "city")
-    state = store.add_entity("s", "Maharashtra", "state")
     has = store.add_predicate("s", "has_mother", "one")
     lives = store.add_predicate("s", "lives_in", "one")
-    located = store.add_predicate("s", "located_in", "one")
+    likes = store.add_predicate("s", "likes", "many")
     f1 = store.add_fact("s", user, has, mom, None, 1.0, [1])
     f2 = store.add_fact("s", mom, lives, pune, None, 1.0, [1])
-    f3 = store.add_fact("s", pune, located, state, None, 1.0, [1])
-    assert store.neighborhood("s", [user], max_hops=1) == {f1: 0}
-    assert store.neighborhood("s", [user], max_hops=2) == {f1: 0, f2: 1}
-    assert store.neighborhood("s", [user], max_hops=3) == {f1: 0, f2: 1, f3: 2}
-    store.close_fact(f2, 5.0)
-    assert store.neighborhood("s", [user], max_hops=3) == {f1: 0}
-    assert store.neighborhood("s", [], max_hops=3) == {}
+    f3 = store.add_fact("s", user, likes, None, "chess", 1.0, [1])
+    closed = store.add_fact("s", mom, likes, None, "tea", 1.0, [1])
+    store.close_fact(closed, 5.0)
+    other = store.user_entity("t")
+    store.add_fact("t", other, likes, None, "go", 1.0, [1])
+
+    assert sorted(store.incident_facts("s", [user])) == [(f1, user, mom), (f3, user, None)]
+    assert sorted(store.incident_facts("s", [mom])) == [(f1, user, mom), (f2, mom, pune)]  # as object too
+    assert sorted(store.incident_facts("s", [user, mom])) == [(f1, user, mom), (f2, mom, pune), (f3, user, None)]
+    assert store.incident_facts("s", [other]) == []
+    assert store.incident_facts("s", []) == []
+    # Every edge comes back, so the fan (number of current facts) per entity is a count over the rows.
+    fan = {e: sum(e in (s_, o) for _, s_, o in store.incident_facts("s", [user, mom, pune])) for e in (user, mom, pune)}
+    assert fan == {user: 2, mom: 2, pune: 1}
 
 
 def test_nearest_predicate(store):

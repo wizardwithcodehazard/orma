@@ -1,3 +1,5 @@
+import pytest
+
 from smruti.recall import Recaller
 
 
@@ -99,3 +101,36 @@ def test_no_user_message_skips_search(store, config):
     build_graph(store)
     out = Recaller(store, config).build("s", [{"role": "system", "content": "Be brief."}])
     assert memory_lines(out.memory_text) == []
+
+
+def test_hub_fan_does_not_drown_cue_related_facts(store, config):
+    user = store.user_entity("s")
+    asha = store.add_entity("s", "Asha", "person")
+    mentioned = store.add_predicate("s", "mentioned", "many")
+    for i in range(60):
+        store.add_fact("s", user, mentioned, None, f"topic {i} about project {i % 7}", 1.0, [i], now=1.0)
+    store.add_fact("s", user, store.add_predicate("s", "has_sister", "many"), asha, None, 1.0, [100], now=1.0)
+    store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [101], now=1.0)
+    out = Recaller(store, config).build(
+        "s", [{"role": "user", "content": "I'm baking cookies for my sister, any ideas?"}], budget=80, now=1.0)
+    assert 3 <= len(memory_lines(out.memory_text)) <= 6
+    assert "- Asha is allergic to peanuts" in out.memory_text
+
+
+def test_fan_divides_activation_among_an_entitys_facts(store):
+    from smruti.recall.activation import spread
+
+    user = store.user_entity("s")
+    asha = store.add_entity("s", "Asha", "person")
+    note = store.add_predicate("s", "mentioned", "many")
+    fillers = [store.add_fact("s", user, note, None, f"topic {i}", 1.0, [1]) for i in range(9)]
+    sister = store.add_fact("s", user, store.add_predicate("s", "has_sister", "many"), asha, None, 1.0, [1])
+    allergy = store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [1])
+
+    act = spread(store, "s", {user: 1.0}, max_hops=2, decay=0.5)
+    assert act[fillers[0]] == pytest.approx(0.1)  # user's 1.0 split over 10 facts
+    assert act[allergy] == pytest.approx(0.1 * 0.5 / 2)  # Asha got 0.1, decayed, split over 2 facts
+    assert act[sister] == pytest.approx(0.1 + 0.025)  # from user at step 0 and from Asha at step 1
+
+    act = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
+    assert act == {sister: pytest.approx(0.5), allergy: pytest.approx(0.5)}
