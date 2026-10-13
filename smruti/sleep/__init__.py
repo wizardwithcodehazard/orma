@@ -13,7 +13,7 @@ from smruti.config import SmrutiConfig
 from smruti.sleep.consolidate import ConsolidationReport, Consolidator
 from smruti.recall.pack import count_tokens
 from smruti.sleep.extract import ExtractionContext, extract, format_episode
-from smruti.store import Store
+from smruti.store import USER_ENTITY, Store
 
 WORDS_PER_TOKEN = 0.75
 
@@ -97,11 +97,15 @@ class Sleeper:
     def _context(self, space: str, batch) -> ExtractionContext:
         cfg = self.config
         vec = self.store.embed(" ".join(e.text for e in batch))
+        nearest = [entity for entity, _ in self.store.nearest_entities(space, vec, 20)]
+        user = self.store.find_entity(space, USER_ENTITY)
+        if user is not None and all(e.id != user.id for e in nearest):
+            nearest.insert(0, user)  # the person chatting is always a candidate subject
         entities = []
-        for entity, _ in self.store.nearest_entities(space, vec, 20):
+        for entity in nearest:
             aliases = self.store.aliases(entity.id)
             entities.append(f"{entity.name} (also called: {', '.join(aliases)})" if aliases else entity.name)
         predicates = [p.name for p, _ in self.store.nearest_predicates(space, vec, cfg.sleep_context_predicates)]
         summary_ids = [i for i, _ in self.store.vec_search("summaries", space, vec, 3)]
         summaries = {s.topic: s.text for s in self.store.summaries(summary_ids)}
-        return ExtractionContext(entities, predicates, summaries)
+        return ExtractionContext(entities, predicates, summaries, self.store.summary_topics(space))

@@ -58,9 +58,9 @@ def test_pack_keeps_last_turns_and_respects_budget():
     turns = [{"role": "user", "content": "x" * 70}, {"role": "assistant", "content": "y" * 70},
              {"role": "user", "content": "z" * 70}]
     items = [MemoryItem("facts", i, f"fact number {i}") for i in range(50)]
-    packed = pack([], items, turns, budget=100, chars_per_token=3.5, min_recent=2)
+    packed = pack([], items, turns, budget=140, chars_per_token=3.5, min_recent=2)
     assert packed.turns == turns[-2:]
-    assert packed.tokens <= 100
+    assert packed.tokens <= 140
     assert 0 < len(packed.used) < 50
     assert packed.memory_text.startswith(f"## Memory\n{FRAMING}\nRelevant facts:\n- fact number 0")
 

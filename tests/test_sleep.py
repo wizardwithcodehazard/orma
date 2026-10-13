@@ -128,3 +128,17 @@ def test_known_entities_show_aliases(store, config, fake_llm):
     llm = fake_llm([{"facts": []}])
     Sleeper(store, config, llm).run("s")
     assert "user (also called: sahil)" in llm.calls[0][1]["content"]
+
+
+def test_extraction_context_lists_user_and_all_topics(store, config, fake_llm):
+    from smruti.encode import Encoder
+
+    store.user_entity("s")
+    store.upsert_summary("s", "travel", "planning a Goa trip", 5)
+    store.upsert_summary("s", "work", "backend developer", 3)
+    Encoder(store, config).encode("s", "user", "completely unrelated words here")
+    llm = fake_llm([{"facts": []}])
+    Sleeper(store, config, llm).run("s")
+    prompt = llm.calls[0][1]["content"]
+    assert "KNOWN ENTITIES: user" in prompt
+    assert "EXISTING TOPICS: travel, work" in prompt

@@ -392,6 +392,9 @@ class Store:
     def summaries(self, ids) -> list[Summary]:
         return self._by_ids(Summary, "summaries", ids)
 
+    def summary_topics(self, space: str) -> list[str]:
+        return [r["topic"] for r in self._rows("SELECT topic FROM summaries WHERE space = ? ORDER BY topic", (space,))]
+
     def summary(self, space: str, topic: str) -> Summary | None:
         rows = self._rows("SELECT * FROM summaries WHERE space = ? AND topic = ?", (space, topic))
         return from_row(Summary, rows[0]) if rows else None

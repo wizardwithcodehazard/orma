@@ -19,7 +19,7 @@ SECTIONS = {
 
 
 FRAMING = ("Things remembered from earlier conversations with this user (the person you are talking to). "
-           "Use them when relevant; do not mention this list.")
+           "Use them when relevant; do not mention this list. If a fact and the background disagree, trust the fact.")
 
 
 def count_tokens(text: str, chars_per_token: float) -> int:
