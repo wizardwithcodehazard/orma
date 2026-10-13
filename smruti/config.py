@@ -1,150 +1,63 @@
 """
-config.py - Dynamic environment and runtime configuration for smruti.
-Discovers local .smruti/ directory or falls back to user home directory.
+config.py - Every tunable of the memory layer in one place, so each component can be
+ablated or swept in experiments.
 """
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def default_data_dir() -> Path:
+    env_dir = os.environ.get("SMRUTI_DIR")
+    return Path(env_dir).expanduser().resolve() if env_dir else Path.home() / ".smruti"
+
+
 @dataclass
-class smrutiConfig:
-    # Storage settings
-    db_filename: str = "smruti.db"
-    project_dir: Path = Path.cwd()
-    smruti_dir_name: str = ".smruti"
-    
-    # Biological decay parameters
-    # decay_rate: how fast learned rules decay without re-observation (in hours^-1);
-    # 0.005 takes a fresh 0.5-strength rule below prune_threshold in ~10 days
-    default_decay_rate: float = 0.005
-    # prune_threshold: rules with effective strength below this are archived
-    prune_threshold: float = 0.15
-    # reinforcement_boost: strength added each time a rule is re-observed
-    reinforcement_boost: float = 0.15
-    # learned_failure_ttl_days: auto-learned anti-memories expire after this many days
-    learned_failure_ttl_days: float = 7.0
-    
-    # Semantic & Associative Graph parameters
-    dedup_similarity_threshold: float = 0.85
-    associative_edge_threshold: float = 0.60
-    spreading_activation_factor: float = 0.25
+class SmrutiConfig:
+    # Storage
+    data_dir: Path = field(default_factory=default_data_dir)
+    db_filename: str = "memory.db"
+
+    # Embeddings
     embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_dim: int = 384
 
-    # Consolidation thresholds
-    consolidation_turn_interval: int = 5
-    auto_consolidate: bool = True
-    raw_retention_days: int = 7
+    # Encode: adaptive novelty gate
+    novelty_percentile: float = 10.0
+    novelty_warmup: int = 50
+    novelty_window: int = 500
 
-    # Pluggable Storage Backend (sqlite / postgres)
-    backend_type: str = "sqlite"
-    postgres_url: str | None = None
+    # Recall
+    budget_tokens: int = 4096
+    chars_per_token: float = 3.5
+    entity_link_k: int = 8
+    entity_link_threshold: float = 0.6
+    max_hops: int = 2
+    hop_decay: float = 0.6
+    search_k: int = 20
+    recency_half_life_days: float = 14.0
+    core_min_confidence: float = 0.7
+    min_recent_turns: int = 2
 
-    # SQLite concurrency & write retry settings
-    busy_timeout_ms: int = 5000
-    write_max_retries: int = 5
-    write_base_delay: float = 0.02
-    write_max_delay: float = 0.5
-    use_queue_worker: bool = True
-    queue_batch_size: int = 100
+    # Sleep
+    sleep_after_episodes: int = 20
+    sleep_idle_seconds: float = 120.0
+    sleep_batch_episodes: int = 12
+    sleep_max_attempts: int = 3
+    entity_merge_threshold: float = 0.85
+    predicate_merge_threshold: float = 0.8
+    procedure_merge_threshold: float = 0.85
+    summary_max_tokens: int = 200
+    episode_retention_days: float = 7.0
+    procedure_ttl_days: float = 30.0
+    procedure_min_confidence: float = 0.5
 
-
-    @property
-    def smruti_dir(self) -> Path:
-        """
-        Dynamically finds .smruti in current working directory, parent git repositories,
-        active editor/IDE workspaces, or falls back to user home directory (~/.smruti).
-        Prevents polluting application installation directories.
-        """
-        import os
-        import tempfile
-        env_dir = os.environ.get("SMRUTI_DIR")
-        if env_dir:
-            return Path(env_dir).resolve()
-
-        def _safe_fallback() -> Path:
-            try:
-                home = Path.home()
-                if home != Path("/") and os.access(home, os.W_OK):
-                    return home / self.smruti_dir_name
-            except Exception:
-                pass
-            return Path(tempfile.gettempdir()) / self.smruti_dir_name
-
-        current = self.project_dir.resolve()
-
-        # 1. Search upwards from current directory for an existing .smruti
-        for parent in [current, *current.parents]:
-            candidate = parent / self.smruti_dir_name
-            if candidate.is_dir():
-                return candidate
-
-        # 2. Search upwards for a git repository or project anchor
-        for parent in [current, *current.parents]:
-            if (parent / ".git").exists() or (parent / "pyproject.toml").exists() or (parent / "package.json").exists():
-                return parent / self.smruti_dir_name
-
-        # 3. Detect if process was launched inside an editor/IDE binary folder
-        # e.g., AppData\Local\Programs, Program Files, site-packages, /usr/bin
-        current_str = str(current).lower()
-        is_app_dir = any(
-            bad in current_str for bad in [
-                "appdata\\local\\programs",
-                "program files",
-                "site-packages",
-                "/usr/bin",
-                "/usr/lib",
-                "/applications"
-            ]
-        )
-
-        if is_app_dir:
-            # Check for active workspace folders from common editor storage state
-            try:
-                import json
-                from urllib.parse import unquote, urlparse
-                for storage_path in [
-                    Path.home() / "AppData" / "Roaming" / "Antigravity IDE" / "User" / "globalStorage" / "storage.json",
-                    Path.home() / "AppData" / "Roaming" / "Code" / "User" / "globalStorage" / "storage.json",
-                    Path.home() / "AppData" / "Roaming" / "Cursor" / "User" / "globalStorage" / "storage.json",
-                ]:
-                    if storage_path.exists():
-                        data = json.loads(storage_path.read_text(encoding="utf-8"))
-                        backup = data.get("backupWorkspaces", {})
-                        folders = backup.get("folders", [])
-                        for f in folders:
-                            uri = f.get("folderUri", "")
-                            parsed = urlparse(uri)
-                            raw_path = unquote(parsed.path)
-                            if raw_path.startswith("/") and len(raw_path) > 2 and raw_path[2] == ":":
-                                raw_path = raw_path[1:]
-                            ws_path = Path(raw_path)
-                            if ws_path.exists():
-                                if (ws_path / self.smruti_dir_name).is_dir():
-                                    return ws_path / self.smruti_dir_name
-                                for sub in ws_path.iterdir():
-                                    if sub.is_dir() and (sub / self.smruti_dir_name).is_dir():
-                                        return sub / self.smruti_dir_name
-            except Exception:
-                pass
-
-            # Safe global fallback for agent daemons
-            return _safe_fallback()
-
-        # 4. Standard fallback in writable project directory (nearest existing ancestor must be writable)
-        nearest = current
-        while not nearest.exists() and nearest != nearest.parent:
-            nearest = nearest.parent
-        if current == Path("/") or nearest == Path("/") or not os.access(nearest, os.W_OK):
-            return _safe_fallback()
-
-        return current / self.smruti_dir_name
+    # Ablation switches
+    enable_novelty_gate: bool = True
+    enable_graph: bool = True
+    enable_core_block: bool = True
 
     @property
     def db_path(self) -> Path:
-        return self.smruti_dir / self.db_filename
-
-def get_config() -> smrutiConfig:
-    return smrutiConfig()
-
-SmrutiConfig = smrutiConfig
+        return Path(self.data_dir) / self.db_filename
