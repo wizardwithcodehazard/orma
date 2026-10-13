@@ -35,3 +35,18 @@ def test_prune_procedures_drops_only_stale_and_uncertain(store):
     store.add_procedure_evidence(recent, works=False, now=100.0)       # 1-1 but recent
     assert store.prune_procedures(unused_since=50.0, min_confidence=0.6) == 1
     assert {p.id for p in store.procedures([confident, contested, recent])} == {confident, recent}
+
+
+def test_prune_procedures_clears_vector_and_text_indexes(store):
+    pid = store.add_procedure("s", "disk full", "clean cache", None, works=False, now=1.0)
+    assert store.text_search("procedures", "s", "disk full", 5)
+    assert store.prune_procedures(unused_since=50.0, min_confidence=0.7) == 1
+    assert store.vec_search("procedures", "s", store.embed("When disk full: clean cache"), 5) == []
+    assert store.text_search("procedures", "s", "disk full", 5) == []
+    assert store.procedures([pid]) == []
+
+
+def test_nearest_procedure_is_none_after_prune(store):
+    store.add_procedure("s", "disk full", "clean cache", None, works=False, now=1.0)
+    store.prune_procedures(unused_since=50.0, min_confidence=0.7)
+    assert store.nearest_procedure("s", store.embed("When disk full: clean cache")) is None

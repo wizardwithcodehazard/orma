@@ -4,6 +4,10 @@ import json
 from dataclasses import dataclass, fields
 
 
+def fact_text(subject: str, predicate: str, object_: str) -> str:
+    return f"{subject} {predicate.replace('_', ' ')} {object_}"
+
+
 def from_row(cls, row):
     return cls(**{f.name: row[f.name] for f in fields(cls)})
 
@@ -59,7 +63,7 @@ class Fact:
 
     @property
     def text(self) -> str:
-        return f"{self.subject} {self.predicate.replace('_', ' ')} {self.object}"
+        return fact_text(self.subject, self.predicate, self.object)
 
     @classmethod
     def from_row(cls, row) -> "Fact":

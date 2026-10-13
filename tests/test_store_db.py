@@ -61,3 +61,21 @@ def test_dimension_mismatch_is_rejected(tmp_path):
     with pytest.raises(ValueError):
         init_schema(c, 8)
     c.close()
+
+
+def test_index_functions_reject_unknown_kind(conn):
+    v = unit(1, 0, 0, 0)
+    with pytest.raises(ValueError):
+        index.vec_put(conn, "bogus", 1, "a", v)
+    with pytest.raises(ValueError):
+        index.vec_drop(conn, "bogus", 1)
+    with pytest.raises(ValueError):
+        index.vec_search(conn, "bogus", "a", v, 1)
+    with pytest.raises(ValueError):
+        index.text_put(conn, "bogus", 1, "a", "x")
+    with pytest.raises(ValueError):
+        index.text_drop(conn, "bogus", 1)
+    with pytest.raises(ValueError):
+        index.text_search(conn, "bogus", "a", "x", 1)
+    with pytest.raises(ValueError):
+        index.text_put(conn, "predicates", 1, "a", "x")  # predicates have no text index

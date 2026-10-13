@@ -16,7 +16,7 @@ from smruti.config import SmrutiConfig
 from smruti.embed import Embedder, FastEmbedder
 from smruti.store import index
 from smruti.store.db import connect, init_schema
-from smruti.store.records import Entity, Episode, Fact, Predicate, Procedure, Summary, from_row
+from smruti.store.records import Entity, Episode, Fact, Predicate, Procedure, Summary, fact_text, from_row
 
 USER_ENTITY = "user"
 
@@ -245,13 +245,20 @@ class Store:
         return [from_row(Predicate, r) for r in self._rows("SELECT * FROM predicates WHERE space = ? ORDER BY id", (space,))]
 
     def nearest_predicate(self, space: str, vec) -> tuple[Predicate, float] | None:
-        hits = self.vec_search("predicates", space, vec, 1)
-        return (self.predicate(hits[0][0]), hits[0][1]) if hits else None
+        with self.lock:
+            hits = self.vec_search("predicates", space, vec, 1)
+            found = self.predicate(hits[0][0]) if hits else None
+            return (found, hits[0][1]) if found else None
 
     # --- Facts -------------------------------------------------------------------------
 
     def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None) -> int:
         """Inserts a current fact with one observation of support (confidence 1/2)."""
+        subject = self.entity(subject_id).name
+        predicate = self.predicate(predicate_id).name
+        object_ = self.entity(object_id).name if object_id else object_value
+        text = fact_text(subject, predicate, object_)
+        vec = self.embed(text)  # inference stays outside the lock and transaction
         with self.tx() as c:
             fact_id = c.execute(
                 "INSERT INTO facts (space, subject_id, predicate_id, object_id, object_value, confidence, support, "
@@ -259,8 +266,7 @@ class Store:
                 (space, subject_id, predicate_id, object_id, object_value, valid_from, _now(now),
                  json.dumps(sorted(set(source_episode_ids)))),
             ).lastrowid
-            text = self.facts([fact_id])[0].text
-            index.vec_put(c, "facts", fact_id, space, self.embed(text))
+            index.vec_put(c, "facts", fact_id, space, vec)
             index.text_put(c, "facts", fact_id, space, text)
         return fact_id
 
@@ -318,6 +324,8 @@ class Store:
     # --- Summaries ---------------------------------------------------------------------
 
     def upsert_summary(self, space: str, topic: str, text: str, tokens: int, now=None) -> int:
+        indexed = f"{topic}: {text}"
+        vec = self.embed(indexed)
         with self.tx() as c:
             c.execute(
                 "INSERT INTO summaries (space, topic, text, tokens, updated_at) VALUES (?, ?, ?, ?, ?) "
@@ -328,8 +336,7 @@ class Store:
             summary_id = c.execute(
                 "SELECT id FROM summaries WHERE space = ? AND topic = ?", (space, topic)
             ).fetchone()["id"]
-            indexed = f"{topic}: {text}"
-            index.vec_put(c, "summaries", summary_id, space, self.embed(indexed))
+            index.vec_put(c, "summaries", summary_id, space, vec)
             index.text_put(c, "summaries", summary_id, space, indexed)
         return summary_id
 
@@ -367,14 +374,16 @@ class Store:
         return self._by_ids(Procedure, "procedures", ids)
 
     def nearest_procedure(self, space: str, vec) -> tuple[Procedure, float] | None:
-        hits = self.vec_search("procedures", space, vec, 1)
-        return (self.procedures([hits[0][0]])[0], hits[0][1]) if hits else None
+        with self.lock:
+            hits = self.vec_search("procedures", space, vec, 1)
+            found = self.procedures([hits[0][0]]) if hits else []
+            return (found[0], hits[0][1]) if found else None
 
     def prune_procedures(self, unused_since: float, min_confidence: float) -> int:
         """Forgets procedures that are both stale and not confidently established."""
-        stale = [from_row(Procedure, r) for r in self._rows("SELECT * FROM procedures WHERE last_used < ?", (unused_since,))]
-        doomed = [p.id for p in stale if p.confidence < min_confidence]
         with self.tx() as c:
+            stale = [from_row(Procedure, r) for r in c.execute("SELECT * FROM procedures WHERE last_used < ?", (unused_since,))]
+            doomed = [p.id for p in stale if p.confidence < min_confidence]
             for procedure_id in doomed:
                 c.execute("DELETE FROM procedures WHERE id = ?", (procedure_id,))
                 index.vec_drop(c, "procedures", procedure_id)
