@@ -9,7 +9,6 @@ import time
 from dataclasses import dataclass, field
 
 from smruti.config import SmrutiConfig
-from smruti.llm import LLMError
 from smruti.sleep.consolidate import ConsolidationReport, Consolidator
 from smruti.sleep.extract import ExtractionContext, extract
 from smruti.store import Store
@@ -51,11 +50,12 @@ class Sleeper:
             try:
                 extraction = extract(self.llm, self.model, batch, self._context(space, batch),
                                      max_words=int(cfg.summary_max_tokens * WORDS_PER_TOKEN))
-            except LLMError as exc:
+                consolidation = self.consolidator.apply(space, extraction, batch, now)
+            except Exception as exc:  # any failure must count against the attempt cap
                 self.store.record_sleep_failure(ids, str(exc), cfg.sleep_max_attempts, now)
                 report.failed_batches += 1
                 break
-            report.consolidation.merge(self.consolidator.apply(space, extraction, ids, now))
+            report.consolidation.merge(consolidation)
             self.store.mark_consolidated(ids, now)
             report.batches += 1
             report.episodes += len(ids)

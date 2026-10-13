@@ -46,6 +46,23 @@ def test_due_spaces_by_count_or_idle_time(store, config, fake_llm):
 def test_consolidated_episodes_are_pruned_after_retention(store, config, fake_llm):
     config.episode_retention_days = 1
     Encoder(store, config).encode("s", "user", "hello", now=0.0)
-    Sleeper(store, config, fake_llm([{}])).run("s", now=10.0)
+    Sleeper(store, config, fake_llm([{"facts": []}])).run("s", now=10.0)
     report = Sleeper(store, config, fake_llm()).run("s", now=10.0 + 2 * 86400)
     assert report.pruned_episodes == 1
+
+
+def test_unexpected_extract_or_apply_error_counts_as_failed_attempt(store, config, fake_llm):
+    config.sleep_max_attempts = 1
+    Encoder(store, config).encode("s", "user", "hello")
+    assert Sleeper(store, config, fake_llm([ValueError("bad")])).run("s").failed_batches == 1
+    assert store.pending_episodes("s", 10) == []
+
+    Encoder(store, config).encode("s", "user", "again")
+    sleeper = Sleeper(store, config, fake_llm([PUNE]))
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("embedder died")
+
+    sleeper.consolidator.apply = boom
+    assert sleeper.run("s").failed_batches == 1
+    assert store.pending_episodes("s", 10) == []

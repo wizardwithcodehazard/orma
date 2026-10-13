@@ -28,7 +28,7 @@ def test_chat_posts_openai_payload():
     assert "response_format" not in seen["body"]
 
 
-def test_chat_json_retries_once_at_temperature_zero():
+def test_chat_json_retries_once_with_stricter_reminder_at_temperature_zero():
     bodies = []
 
     def handler(request):
@@ -37,7 +37,14 @@ def test_chat_json_retries_once_at_temperature_zero():
 
     assert client(handler).chat_json([]) == {"facts": []}
     assert bodies[0]["response_format"] == {"type": "json_object"}
-    assert bodies[1]["temperature"] == 0.0
+    assert bodies[0]["temperature"] == 0.0 and bodies[1]["temperature"] == 0.0
+    assert bodies[1]["messages"][-1] == {"role": "user", "content": "Return only a valid JSON object."}
+    assert len(bodies[1]["messages"]) == len(bodies[0]["messages"]) + 1
+
+
+def test_chat_json_extracts_object_from_fenced_output():
+    fenced = 'Sure!\n```json\n{"facts": []}\n```'
+    assert client(lambda request: reply(fenced)).chat_json([]) == {"facts": []}
 
 
 def test_chat_json_gives_up_after_retry():
@@ -48,3 +55,13 @@ def test_chat_json_gives_up_after_retry():
 def test_http_errors_become_llm_errors():
     with pytest.raises(LLMError):
         client(lambda request: httpx.Response(500, json={"error": "boom"})).chat([])
+
+
+def test_http_error_includes_body_snippet():
+    with pytest.raises(LLMError, match="model not loaded"):
+        client(lambda request: httpx.Response(500, text="model not loaded")).chat([])
+
+
+def test_non_string_content_raises():
+    with pytest.raises(LLMError):
+        client(lambda request: reply([{"type": "text"}])).chat([])

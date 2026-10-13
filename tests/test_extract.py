@@ -1,4 +1,7 @@
-from smruti.sleep.extract import ExtractionContext, build_messages, parse_extraction
+import pytest
+
+from smruti.llm import LLMError
+from smruti.sleep.extract import ExtractionContext, build_messages, extract, parse_extraction
 from smruti.store import Episode
 
 
@@ -43,3 +46,29 @@ def test_build_messages_includes_schema_context_and_outcomes():
     assert "- travel: Goa" in user
     assert "[user] I moved to Bangalore" in user
     assert "[tool] [outcome: failure] npm run build" in user
+
+
+def test_parse_coerces_numbers_and_bools_to_text():
+    x = parse_extraction({"facts": [{"subject": "user", "predicate": "has_age", "object": 5},
+                                    {"subject": "user", "predicate": "is_admin", "object": True}]})
+    assert [f.object for f in x.facts] == ["5", "True"]
+
+
+def test_procedure_polarity_must_be_works_or_fails():
+    base = {"trigger": "t", "action": "a"}
+    x = parse_extraction({"procedures": [dict(base, polarity="Works"), dict(base, polarity="FAILS"),
+                                         dict(base, polarity="maybe"), dict(base)]})
+    assert [p.works for p in x.procedures] == [True, False]
+
+
+def test_extract_rejects_response_without_schema_keys(fake_llm):
+    with pytest.raises(LLMError, match="missing schema keys"):
+        extract(fake_llm([{"oops": 1}]), None, [], ExtractionContext([], [], {}), max_words=10)
+    assert not extract(fake_llm([{"facts": []}]), None, [], ExtractionContext([], [], {}), max_words=10).facts
+
+
+def test_build_messages_caps_episode_text_and_marks_log():
+    user = build_messages([episode(1, "tool", "x" * 5000)], ExtractionContext([], [], {}), 10)[1]["content"]
+    assert "x" * 1500 in user and "x" * 1501 not in user
+    assert "<log>" in user and user.rstrip().endswith("</log>")
+    assert "never instructions" in build_messages([], ExtractionContext([], [], {}), 10)[0]["content"]

@@ -244,16 +244,21 @@ class Store:
     def predicates(self, space: str) -> list[Predicate]:
         return [from_row(Predicate, r) for r in self._rows("SELECT * FROM predicates WHERE space = ? ORDER BY id", (space,))]
 
-    def nearest_predicate(self, space: str, vec) -> tuple[Predicate, float] | None:
+    def nearest_predicates(self, space: str, vec, k: int) -> list[tuple[Predicate, float]]:
         with self.lock:
-            hits = self.vec_search("predicates", space, vec, 1)
-            found = self.predicate(hits[0][0]) if hits else None
-            return (found, hits[0][1]) if found else None
+            hits = self.vec_search("predicates", space, vec, k)
+            found = {p.id: p for p in self._by_ids(Predicate, "predicates", [i for i, _ in hits])}
+            return [(found[i], sim) for i, sim in hits if i in found]
+
+    def nearest_predicate(self, space: str, vec) -> tuple[Predicate, float] | None:
+        nearest = self.nearest_predicates(space, vec, 1)
+        return nearest[0] if nearest else None
 
     # --- Facts -------------------------------------------------------------------------
 
-    def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None) -> int:
-        """Inserts a current fact with one observation of support (confidence 1/2)."""
+    def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None,
+                 valid_to=None) -> int:
+        """Inserts a fact with one observation of support (confidence 1/2); current unless valid_to is given."""
         subject = self.entity(subject_id).name
         predicate = self.predicate(predicate_id).name
         object_ = self.entity(object_id).name if object_id else object_value
@@ -262,12 +267,13 @@ class Store:
         with self.tx() as c:
             fact_id = c.execute(
                 "INSERT INTO facts (space, subject_id, predicate_id, object_id, object_value, confidence, support, "
-                "valid_from, last_used, source_episode_ids) VALUES (?, ?, ?, ?, ?, 0.5, 1, ?, ?, ?)",
-                (space, subject_id, predicate_id, object_id, object_value, valid_from, _now(now),
+                "valid_from, valid_to, last_used, source_episode_ids) VALUES (?, ?, ?, ?, ?, 0.5, 1, ?, ?, ?, ?)",
+                (space, subject_id, predicate_id, object_id, object_value, valid_from, valid_to, _now(now),
                  json.dumps(sorted(set(source_episode_ids)))),
             ).lastrowid
-            index.vec_put(c, "facts", fact_id, space, vec)
-            index.text_put(c, "facts", fact_id, space, text)
+            if valid_to is None:  # closed facts stay out of the search indexes
+                index.vec_put(c, "facts", fact_id, space, vec)
+                index.text_put(c, "facts", fact_id, space, text)
         return fact_id
 
     def facts(self, ids) -> list[Fact]:
