@@ -118,16 +118,26 @@ class Consolidator:
         predicate_id = self._predicate(space, fact.predicate, fact.cardinality)
         current = self.store.current_facts(space, subject_id=subject_id, predicate_id=predicate_id)
 
-        def same(existing) -> bool:
+        new_object_vec = None
+
+        def same(existing, fuzzy: bool = False) -> bool:
+            nonlocal new_object_vec
             if object_id is not None and existing.object_id == object_id:
                 return True
-            return existing.object.strip().lower() == fact.object.strip().lower()  # entity/literal flip
+            if existing.object.strip().lower() == fact.object.strip().lower():  # entity/literal flip
+                return True
+            if not fuzzy:
+                return False
+            # Neural match for paraphrased values ("peanuts" vs "peanut") so they reinforce, not contradict
+            if new_object_vec is None:
+                new_object_vec = self.store.embed(fact.object)
+            return float(new_object_vec @ self.store.embed(existing.object)) >= self.config.entity_merge_threshold
 
         batch = set(episode_ids)
         if any(f.predicate_id == predicate_id and same(f) and batch <= set(f.source_episode_ids)
                for f in self.store.fact_history(space, subject_id=subject_id)):
             return  # this batch already contributed this fact (retry or duplicate)
-        match = next((f for f in current if same(f)), None)
+        match = next((f for f in current if same(f, fuzzy=True)), None)
         if match is not None:
             self.store.reinforce_fact(match.id, episode_ids, evidence_time)
             report.facts_reinforced += 1

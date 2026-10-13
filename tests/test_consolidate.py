@@ -270,3 +270,13 @@ def test_procedures_need_a_tool_episode_in_the_batch(store, config):
     report = apply(store, config, PROC, ids=[1], role="user")
     assert report.procedures_added == 0 and store.nearest_procedure("s", store.embed(PROC_QUERY)) is None
     assert apply(store, config, PROC, ids=[2], role="tool").procedures_added == 1
+
+
+def test_paraphrased_literal_reinforces_instead_of_contradicting(store, config):
+    allergy = lambda value: {"facts": [{"subject": "user", "predicate": "is_allergic_to", "object": value,
+                                        "cardinality": "one"}]}
+    apply(store, config, allergy("peanut allergy"), ids=[1])
+    report = apply(store, config, allergy("allergy peanut"), ids=[2])  # same words, different string
+    assert report.facts_closed == 0 and report.facts_reinforced == 1
+    (fact,) = store.current_facts("s")
+    assert fact.support == 2
