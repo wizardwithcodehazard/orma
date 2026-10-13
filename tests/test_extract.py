@@ -141,3 +141,11 @@ def test_prompt_asks_for_dated_events():
     system = build_messages([], ExtractionContext([], [], {}), 150, 1500)[0]["content"]
     assert '"events"' in system and '"participants"' in system
     assert "20 words" in system
+
+
+def test_event_guidance_excludes_the_conversation_itself():
+    from smruti.sleep.extract import INSTRUCTIONS, JSON_SCHEMA
+
+    assert "The conversation itself is never an event" in INSTRUCTIONS
+    assert 'never "assistant"' in INSTRUCTIONS
+    assert "Never the conversation itself" in JSON_SCHEMA["properties"]["events"]["description"]
