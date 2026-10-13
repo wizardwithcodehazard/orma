@@ -117,3 +117,22 @@ class Procedure:
     @property
     def text(self) -> str:
         return f"When {self.trigger}: {self.action} ({'works' if self.works else 'fails'})"
+
+
+@dataclass
+class CandidateFact:
+    id: int
+    space: str
+    subject: str
+    predicate: str
+    object: str
+    cardinality: str
+    time: str
+    source_episode_ids: list[int]
+    created_at: float
+
+    @classmethod
+    def from_row(cls, row) -> "CandidateFact":
+        values = {f.name: row[f.name] for f in fields(cls)}
+        values["source_episode_ids"] = json.loads(values["source_episode_ids"])
+        return cls(**values)

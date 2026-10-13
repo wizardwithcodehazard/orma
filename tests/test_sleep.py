@@ -1,6 +1,7 @@
 from smruti.encode import Encoder
 from smruti.llm import LLMError
 from smruti.sleep import Sleeper
+from smruti.sleep.extract import JSON_SCHEMA, parse_extraction
 
 PUNE = {"entities": [{"name": "Pune", "type": "city"}],
         "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one"}]}
@@ -142,3 +143,85 @@ def test_extraction_context_lists_user_and_all_topics(store, config, fake_llm):
     prompt = llm.calls[0][1]["content"]
     assert "KNOWN ENTITIES: user" in prompt
     assert "EXISTING TOPICS: travel, work" in prompt
+
+
+TEA = {"entities": [], "facts": [{"subject": "user", "predicate": "likes", "object": "masala tea", "cardinality": "many"}]}
+EMPTY = {"facts": []}
+
+
+def test_votes_run_a_second_pass_at_the_vote_temperature_with_the_json_schema(store, config, fake_llm):
+    config.sleep_votes = 2
+    Encoder(store, config).encode("s", "user", "I live in Pune")
+    llm = fake_llm([PUNE, PUNE])
+    report = Sleeper(store, config, llm).run("s")
+    assert report.batches == 1 and report.consolidation.facts_added == 1
+    assert [k["temperature"] for k in llm.json_kwargs] == [0.0, 0.7]
+    assert all(k["schema"] == JSON_SCHEMA for k in llm.json_kwargs)
+    assert llm.calls[0] == llm.calls[1]  # same prompt replayed
+
+
+def test_failed_second_pass_fails_the_batch(store, config, fake_llm):
+    config.sleep_votes = 2
+    Encoder(store, config).encode("s", "user", "I live in Pune")
+    report = Sleeper(store, config, fake_llm([PUNE, LLMError("down")])).run("s")
+    assert report.failed_batches == 1 and store.current_facts("s") == []
+
+
+def test_fact_seen_once_becomes_a_candidate_and_is_promoted_by_a_later_batch(store, config, fake_llm):
+    config.sleep_votes = 2
+    enc = Encoder(store, config)
+    enc.encode("s", "user", "I love masala tea", now=100.0)
+    first = dict(PUNE, facts=PUNE["facts"] + TEA["facts"])
+    report = Sleeper(store, config, fake_llm([first, PUNE])).run("s", now=200.0)
+    assert (report.consolidation.facts_added, report.consolidation.facts_unconfirmed) == (1, 1)
+    assert [f.object for f in store.current_facts("s")] == ["Pune"]
+    assert store.stats("s")["candidate_facts"] == 1
+
+    enc.encode("s", "user", "masala tea again please", now=300.0)
+    report = Sleeper(store, config, fake_llm([TEA, EMPTY])).run("s", now=400.0)
+    assert report.consolidation.facts_promoted == 1
+    promoted = [f for f in store.current_facts("s") if f.object == "masala tea"]
+    assert len(promoted) == 1 and len(promoted[0].source_episode_ids) == 2
+    assert store.stats("s")["candidate_facts"] == 0
+
+
+def test_candidate_is_not_promoted_by_the_same_batch(store, config, fake_llm):
+    config.sleep_votes = 2
+    Encoder(store, config).encode("s", "user", "I love masala tea")
+    consolidator = Sleeper(store, config, fake_llm()).consolidator
+    batch = store.pending_episodes("s", 10)
+    for _ in range(2):  # a retried batch re-proposes the same lone fact
+        consolidator.apply("s", parse_extraction(EMPTY), batch, unconfirmed=parse_extraction(TEA).facts)
+    assert store.stats("s")["candidate_facts"] == 1 and store.current_facts("s") == []
+
+
+def test_agreed_fact_absorbs_a_matching_candidate_as_reinforcement(store, config, fake_llm):
+    config.sleep_votes = 2
+    enc = Encoder(store, config)
+    enc.encode("s", "user", "I love masala tea", now=100.0)
+    Sleeper(store, config, fake_llm([TEA, EMPTY])).run("s", now=200.0)
+    enc.encode("s", "user", "masala tea is my favourite", now=300.0)
+    report = Sleeper(store, config, fake_llm([TEA, TEA])).run("s", now=400.0)
+    tea = store.current_facts("s")
+    assert len(tea) == 1 and tea[0].support == 2 and len(tea[0].source_episode_ids) == 2
+    assert report.consolidation.facts_reinforced == 1
+    assert store.stats("s")["candidate_facts"] == 0
+
+
+def test_candidates_expire(store, config, fake_llm):
+    config.sleep_votes = 2
+    config.candidate_ttl_days = 1
+    Encoder(store, config).encode("s", "user", "I love masala tea", now=0.0)
+    Sleeper(store, config, fake_llm([TEA, EMPTY])).run("s", now=10.0)
+    assert store.stats("s")["candidate_facts"] == 1
+    report = Sleeper(store, config, fake_llm()).run("s", now=10.0 + 2 * 86400)
+    assert report.pruned_candidates == 1 and store.stats("s")["candidate_facts"] == 0
+
+
+def test_single_vote_keeps_every_extracted_fact(store, config, fake_llm):
+    assert config.sleep_votes == 1
+    Encoder(store, config).encode("s", "user", "I love masala tea")
+    llm = fake_llm([TEA])
+    report = Sleeper(store, config, llm).run("s")
+    assert report.consolidation.facts_added == 1 and report.consolidation.facts_unconfirmed == 0
+    assert len(llm.json_kwargs) == 1 and store.stats("s")["candidate_facts"] == 0

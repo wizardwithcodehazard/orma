@@ -1,6 +1,6 @@
 """
 store.py - Typed access to the memory graph: episodes, entities, predicates, facts,
-summaries and procedures, each kept in sync with its vector and lexical index.
+summaries, procedures and candidate facts, each kept in sync with its vector and lexical index.
 A single re-entrant lock serializes access so the proxy's request path and background
 sleep can share one store.
 """
@@ -16,7 +16,8 @@ from smruti.config import SmrutiConfig
 from smruti.embed import Embedder, FastEmbedder
 from smruti.store import index
 from smruti.store.db import connect, init_schema
-from smruti.store.records import Entity, Episode, Fact, Predicate, Procedure, Summary, fact_text, from_row
+from smruti.store.records import (CandidateFact, Entity, Episode, Fact, Predicate, Procedure, Summary, fact_text,
+                                  from_row)
 
 USER_ENTITY = "user"
 
@@ -447,6 +448,39 @@ class Store:
                 index.text_drop(c, "procedures", procedure_id)
         return len(doomed)
 
+    # --- Candidate facts ---------------------------------------------------------------
+
+    def add_candidate(self, space, subject, predicate, object_, cardinality, time_, source_episode_ids, vec,
+                      now=None) -> int:
+        """A fact awaiting independent confirmation; vec is the embedding of its rendered text."""
+        with self.tx() as c:
+            candidate_id = c.execute(
+                "INSERT INTO candidate_facts (space, subject, predicate, object, cardinality, time, source_episode_ids, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (space, subject, predicate, object_, cardinality, time_, json.dumps(sorted(set(source_episode_ids))),
+                 _now(now)),
+            ).lastrowid
+            index.vec_put(c, "candidates", candidate_id, space, vec)
+        return candidate_id
+
+    def nearest_candidates(self, space: str, vec, k: int) -> list[tuple[CandidateFact, float]]:
+        with self.lock:
+            hits = self.vec_search("candidates", space, vec, k)
+            found = {c.id: c for c in self._by_ids(CandidateFact, "candidate_facts", [i for i, _ in hits])}
+            return [(found[i], sim) for i, sim in hits if i in found]
+
+    def delete_candidate(self, candidate_id: int) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM candidate_facts WHERE id = ?", (candidate_id,))
+            index.vec_drop(c, "candidates", candidate_id)
+
+    def prune_candidates(self, before: float) -> int:
+        with self.tx() as c:
+            ids = [r[0] for r in c.execute("SELECT id FROM candidate_facts WHERE created_at < ?", (before,))]
+            for candidate_id in ids:
+                self.delete_candidate(candidate_id)
+        return len(ids)
+
     # --- Introspection -----------------------------------------------------------------
 
     def stats(self, space: str) -> dict[str, int]:
@@ -458,5 +492,6 @@ class Store:
             "closed_facts": "SELECT COUNT(*) FROM facts WHERE space = ? AND valid_to IS NOT NULL",
             "procedures": "SELECT COUNT(*) FROM procedures WHERE space = ?",
             "summaries": "SELECT COUNT(*) FROM summaries WHERE space = ?",
+            "candidate_facts": "SELECT COUNT(*) FROM candidate_facts WHERE space = ?",
         }
         return {name: self._rows(sql, (space,))[0][0] for name, sql in counts.items()}

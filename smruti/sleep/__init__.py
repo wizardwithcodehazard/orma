@@ -1,8 +1,10 @@
 """
 sleep - Idle-time consolidation. Pending episodes are processed in batches: the LLM extracts
 structure (neural), the consolidator integrates it into the graph (symbolic). Failed batches
-are retried on later cycles and retired after sleep_max_attempts. Old raw episodes and stale,
-uncertain procedures are forgotten.
+are retried on later cycles and retired after sleep_max_attempts. Each batch is replayed
+(extracted again at a higher temperature) and only facts both passes agree on are consolidated;
+the rest wait as candidates. Old raw episodes, stale uncertain procedures and expired candidates
+are forgotten.
 """
 
 import time
@@ -12,7 +14,8 @@ from dataclasses import dataclass, field
 from smruti.config import SmrutiConfig
 from smruti.sleep.consolidate import ConsolidationReport, Consolidator
 from smruti.recall.pack import count_tokens
-from smruti.sleep.extract import ExtractionContext, extract, format_episode
+from smruti.sleep.extract import JSON_SCHEMA, ExtractionContext, extract, format_episode
+from smruti.sleep.vote import vote
 from smruti.store import USER_ENTITY, Store
 
 WORDS_PER_TOKEN = 0.75
@@ -26,6 +29,7 @@ class SleepReport:
     failed_batches: int = 0
     pruned_episodes: int = 0
     pruned_procedures: int = 0
+    pruned_candidates: int = 0
     consolidation: ConsolidationReport = field(default_factory=ConsolidationReport)
 
 
@@ -64,10 +68,16 @@ class Sleeper:
                 return  # the lease lapsed during a long run and someone else took it
             ids = [e.id for e in batch]
             try:
-                extraction = extract(self.llm, self.model, batch, self._context(space, batch),
-                                     max_words=int(cfg.summary_max_tokens * WORDS_PER_TOKEN),
-                                     max_chars=max_chars)
-                consolidation = self.consolidator.apply(space, extraction, batch, now)
+                context = self._context(space, batch)
+                schema = JSON_SCHEMA if cfg.enable_schema_decoding else None
+                max_words = int(cfg.summary_max_tokens * WORDS_PER_TOKEN)
+                extractions = [  # the first pass is deterministic; replays sample
+                    extract(self.llm, self.model, batch, context, max_words=max_words, max_chars=max_chars,
+                            schema=schema, temperature=0.0 if attempt == 0 else cfg.sleep_vote_temperature)
+                    for attempt in range(max(1, cfg.sleep_votes))
+                ]
+                agreed, unconfirmed = vote(extractions, self.store.embed, cfg.vote_match_threshold)
+                consolidation = self.consolidator.apply(space, agreed, batch, now, unconfirmed=unconfirmed)
             except Exception as exc:  # any failure must count against the attempt cap
                 self.store.record_sleep_failure(ids, str(exc), cfg.sleep_max_attempts, now)
                 report.failed_batches += 1
@@ -79,6 +89,7 @@ class Sleeper:
         report.pruned_episodes = self.store.prune_episodes(now - cfg.episode_retention_days * 86400.0)
         report.pruned_procedures = self.store.prune_procedures(now - cfg.procedure_ttl_days * 86400.0,
                                                                cfg.procedure_min_confidence)
+        report.pruned_candidates = self.store.prune_candidates(now - cfg.candidate_ttl_days * 86400.0)
 
     def _fit_budget(self, pending) -> tuple[list, int]:
         """The longest prefix of pending episodes whose formatted log fits sleep_prompt_tokens (always at least

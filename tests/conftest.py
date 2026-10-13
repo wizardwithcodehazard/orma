@@ -36,9 +36,11 @@ class FakeLLM:
         self.extractions = list(extractions)
         self.chat_reply = chat_reply
         self.calls = []
+        self.json_kwargs = []  # schema, temperature, ... of each chat_json call
 
-    def chat_json(self, messages, model=None):
+    def chat_json(self, messages, model=None, **kwargs):
         self.calls.append(messages)
+        self.json_kwargs.append(kwargs)
         result = self.extractions.pop(0)
         if isinstance(result, Exception):
             raise result
@@ -51,7 +53,9 @@ class FakeLLM:
 
 @pytest.fixture
 def config(tmp_path):
-    return SmrutiConfig(data_dir=tmp_path, embedding_dim=FakeEmbedder.dim)
+    # One extraction per sleep batch, so queued FakeLLM extractions map one-to-one onto batches;
+    # replay-and-vote tests set sleep_votes=2 explicitly.
+    return SmrutiConfig(data_dir=tmp_path, embedding_dim=FakeEmbedder.dim, sleep_votes=1)
 
 
 @pytest.fixture

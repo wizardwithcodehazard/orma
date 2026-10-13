@@ -1,7 +1,7 @@
 import pytest
 
 from smruti.llm import LLMError
-from smruti.sleep.extract import ExtractionContext, build_messages, extract, parse_extraction
+from smruti.sleep.extract import JSON_SCHEMA, SCHEMA, ExtractionContext, build_messages, extract, parse_extraction
 from smruti.store import Episode
 
 
@@ -86,3 +86,29 @@ def test_user_names_are_parsed_as_strings_only():
     assert parse_extraction({"user_names": ["Sahil", "", 5, None, " Sam "]}).user_names == ["Sahil", "Sam"]
     assert parse_extraction({"user_names": "Sahil"}).user_names == []
     assert '"user_names"' in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]
+
+
+def test_json_schema_mirrors_the_prompt_schema_and_validates_an_extraction():
+    jsonschema = pytest.importorskip("jsonschema")
+    assert set(JSON_SCHEMA["required"]) == set(JSON_SCHEMA["properties"]) == set(SCHEMA)
+    sample = {"user_names": ["Sam"], "entities": [{"name": "Pune", "type": "city"}],
+              "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one", "time": ""}],
+              "procedures": [{"trigger": "t", "action": "a", "polarity": "fails", "error_class": ""}],
+              "summary_updates": [{"topic": "home", "text": "lives in Pune"}]}
+    jsonschema.validate(sample, JSON_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(dict(sample, facts=[dict(sample["facts"][0], cardinality="few")]), JSON_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({k: v for k, v in sample.items() if k != "procedures"}, JSON_SCHEMA)
+
+
+def test_extract_passes_the_json_schema_and_temperature(fake_llm):
+    llm = fake_llm([{"facts": []}])
+    extract(llm, None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500, temperature=0.7)
+    assert llm.json_kwargs == [{"schema": JSON_SCHEMA, "temperature": 0.7}]
+
+
+def test_extract_without_schema_decoding(fake_llm):
+    llm = fake_llm([{"facts": []}])
+    extract(llm, None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500, schema=None)
+    assert llm.json_kwargs == [{"schema": None, "temperature": 0.0}]

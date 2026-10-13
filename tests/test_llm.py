@@ -65,3 +65,40 @@ def test_http_error_includes_body_snippet():
 def test_non_string_content_raises():
     with pytest.raises(LLMError):
         client(lambda request: reply([{"type": "text"}])).chat([])
+
+
+SCHEMA = {"type": "object", "properties": {"facts": {"type": "array"}}, "required": ["facts"]}
+
+
+def test_chat_json_with_schema_sends_strict_json_schema_and_given_temperature():
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return reply("not json" if len(bodies) == 1 else '{"facts": []}')
+
+    assert client(handler).chat_json([], schema=SCHEMA, temperature=0.7) == {"facts": []}
+    expected = {"type": "json_schema", "json_schema": {"name": "memory", "schema": SCHEMA, "strict": True}}
+    assert bodies[0]["response_format"] == expected and bodies[1]["response_format"] == expected
+    assert bodies[0]["temperature"] == 0.7 and bodies[1]["temperature"] == 0.0
+
+
+def test_json_schema_rejected_with_4xx_falls_back_to_json_object_and_is_remembered():
+    formats = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        formats.append(body["response_format"]["type"])
+        if body["response_format"]["type"] == "json_schema":
+            return httpx.Response(400, text="response_format json_schema not supported")
+        return reply('{"facts": []}')
+
+    llm = client(handler)
+    assert llm.chat_json([], schema=SCHEMA) == {"facts": []}
+    assert llm.chat_json([], schema=SCHEMA) == {"facts": []}
+    assert formats == ["json_schema", "json_object", "json_object"]
+
+
+def test_json_schema_server_error_is_not_a_fallback():
+    with pytest.raises(LLMError):
+        client(lambda request: httpx.Response(500, text="boom")).chat_json([], schema=SCHEMA)

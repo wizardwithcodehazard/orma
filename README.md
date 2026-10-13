@@ -91,7 +91,8 @@ Per request (no LLM calls)
                   -> encode: store the new user/tool turns and the reply as episodes
 
 Sleep (background, uses the model)
-  pending episodes -> LLM extracts entities, facts, procedures, summaries (JSON)
+  pending episodes -> LLM extracts entities, facts, procedures, summaries (schema-constrained JSON),
+                      twice; facts both passes agree on go on, the rest wait as candidates
                    -> symbolic consolidation: merge entities, close contradicted facts,
                       accumulate evidence, update summaries
 ```
@@ -102,6 +103,7 @@ Principles:
 - Facts have time validity. When a one-valued fact changes ("lives in Pune" to "lives in Mumbai"), the old fact is closed (it gets a `valid_to`), not deleted. `smruti facts --history` shows closed facts.
 - Recall uses spreading activation with the fan effect. Entities mentioned in the query pass activation along their facts, divided among all of an entity's facts, so a hub like `user` gives each fact a small share and a specific entity gives its few facts a lot.
 - An adaptive novelty gate drops turns that add nothing new relative to what that space has recently seen. Tool turns with outcomes are always kept.
+- Sleep replays each batch: a second, sampled extraction must agree with the first before a fact enters the graph. A fact only one pass found is kept as a candidate and becomes a fact when a later conversation repeats it (or expires after 14 days).
 - Only tool calls and results become procedures ("when X, doing Y fails" or "works") that are recalled as lessons next time.
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -146,9 +148,10 @@ Settings live in `SmrutiConfig` (`smruti/config.py`); pass one to `Memory(config
 | --- | --- |
 | Budget | `budget_tokens` (4096), `chars_per_token` (3.5), `min_recent_turns` (2) |
 | Sleep | `sleep_after_episodes` (20), `sleep_idle_seconds` (120), `sleep_batch_episodes` (12), `sleep_max_attempts` (3), `episode_retention_days` (7), `procedure_ttl_days` (30) |
+| Replay and vote | `sleep_votes` (2; 1 disables voting), `sleep_vote_temperature` (0.7), `vote_match_threshold` (0.8), `candidate_ttl_days` (14) |
 | Novelty gate | `novelty_percentile` (10), `novelty_warmup` (50), `novelty_window` (500) |
 | Recall | `search_k`, `max_hops`, `hop_decay`, `recency_half_life_days`, `max_candidate_facts`, `core_min_confidence` |
-| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall` |
+| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall`, `enable_schema_decoding` |
 
 The `enable_*` switches turn individual components off so their effect can be measured.
 

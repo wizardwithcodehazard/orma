@@ -28,6 +28,32 @@ SCHEMA = {
     "summary_updates": [{"topic": "short topic name", "text": "updated summary"}],
 }
 
+
+_STRING = {"type": "string"}
+
+
+def _array_of(properties: dict) -> dict:
+    return {"type": "array", "items": {"type": "object", "properties": properties,
+                                       "required": list(properties), "additionalProperties": False}}
+
+
+# The same shape as SCHEMA as a JSON Schema, for runtimes that constrain decoding to it
+# (response_format json_schema). SCHEMA stays in the prompt: it carries the field descriptions.
+JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "user_names": {"type": "array", "items": _STRING},
+        "entities": _array_of({"name": _STRING, "type": _STRING}),
+        "facts": _array_of({"subject": _STRING, "predicate": _STRING, "object": _STRING,
+                            "cardinality": {"type": "string", "enum": ["one", "many"]}, "time": _STRING}),
+        "procedures": _array_of({"trigger": _STRING, "action": _STRING,
+                                 "polarity": {"type": "string", "enum": ["works", "fails"]}, "error_class": _STRING}),
+        "summary_updates": _array_of({"topic": _STRING, "text": _STRING}),
+    },
+    "required": ["user_names", "entities", "facts", "procedures", "summary_updates"],
+    "additionalProperties": False,
+}
+
 INSTRUCTIONS = """You turn a log of conversation turns and tool results into structured long-term memory.
 Return only a JSON object with this shape:
 {schema}
@@ -136,8 +162,10 @@ def build_messages(episodes, context: ExtractionContext, max_words: int, max_cha
     ]
 
 
-def extract(llm, model, episodes, context: ExtractionContext, max_words: int, max_chars: int) -> Extraction:
-    data = llm.chat_json(build_messages(episodes, context, max_words, max_chars), model=model)
+def extract(llm, model, episodes, context: ExtractionContext, max_words: int, max_chars: int,
+            temperature: float = 0.0, schema: dict | None = JSON_SCHEMA) -> Extraction:
+    data = llm.chat_json(build_messages(episodes, context, max_words, max_chars), model=model, schema=schema,
+                         temperature=temperature)
     if not any(key in data for key in SCHEMA):
         raise LLMError("extraction missing schema keys")
     return parse_extraction(data)

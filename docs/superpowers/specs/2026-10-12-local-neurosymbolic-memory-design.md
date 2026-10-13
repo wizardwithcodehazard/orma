@@ -90,7 +90,7 @@ Token counting: the upstream `/tokenize` endpoint when available (llama.cpp), el
 
 Per space, holding the space's lease, over unconsolidated episodes in batches of up to `sleep_batch_episodes` (12) whose formatted log fits `sleep_prompt_tokens` (3000; an episode is cut at `sleep_max_episode_chars`, 1500, or less to fit):
 
-1. **Extract (neural)**: one JSON-mode call per batch. The prompt provides the batch text, the names of currently linked entities, the `sleep_context_predicates` (30) predicates nearest to the batch, and the output schema:
+1. **Extract (neural)**: one call per pass, decoding constrained to the equivalent JSON Schema (`response_format` `json_schema`, strict) when the runtime supports it; a 4xx to that falls back to plain JSON mode for the rest of the client's life (`enable_schema_decoding` ablates it). The prompt provides the batch text, the names of currently linked entities, the `sleep_context_predicates` (30) predicates nearest to the batch, and the output schema:
    ```json
    {"user_names": ["names the person chatting uses for themself"],
     "entities": [{"name": "", "type": ""}],
@@ -99,6 +99,7 @@ Per space, holding the space's lease, over unconsolidated episodes in batches of
     "summary_updates": [{"topic": "", "text": ""}]}
    ```
    Each log line is prefixed with its episode date (`[YYYY-MM-DD] [role] ...`) so relative times resolve. Invalid JSON is retried once at temperature 0, then the batch is skipped and left unconsolidated.
+   **Replay and vote**: the batch is extracted `sleep_votes` (2) times, first at temperature 0, then replayed with the same prompt at `sleep_vote_temperature` (0.7); any failed pass fails the batch. A first-pass fact is agreed when a replayed fact's rendered text ("subject predicate object") has cosine ≥ `vote_match_threshold` (0.8), so differently worded predicates still agree. Kept: agreed facts, first-pass entities they reference or a replay also names, user names in both passes, and first-pass procedures and summaries. `sleep_votes = 1` disables voting.
 2. **Consolidate (symbolic)**:
    - **User names**: `user_names` are stored as lowercased aliases of the `user` entity (table `entity_aliases`) before anything else in the batch is resolved; aliases are checked before name or similarity matching, so "Sahil" resolves to `user`.
    - **Entities**: merge into an existing entity when embedding similarity ≥ `entity_merge_threshold` (0.85) and the type matches; else create.
@@ -107,7 +108,8 @@ Per space, holding the space's lease, over unconsolidated episodes in batches of
    - **Confidence** = support / (support + 1) for facts; Beta mean (successes + 1) / (successes + failures + 2) for procedures.
    - **Procedures**: ignored unless the batch contains a `tool` episode; merge by trigger and action similarity ≥ 0.85, adding to successes or failures by polarity once per batch (tracked in `source_episode_ids`). Each fact's close + insert is one transaction. `last_used` of facts and procedures is the batch's latest episode time, not the sleep time.
    - **Summaries**: replace the topic's summary with the extracted text; cap at `summary_max_tokens` (200).
-3. Mark the batch consolidated; delete episodes older than the retention period; decay procedures (not facts) unused for `procedure_ttl_days` (30) and below confidence 0.5.
+   - **Candidates**: an unconfirmed fact is stored in `candidate_facts` (never recalled). If it matches (same similarity rule) a candidate from disjoint episodes, it is promoted instead: consolidated as a fact with both batches' episode ids, and the candidate deleted. An agreed fact deletes the candidates it matches, counting an independent one as one reinforcement. Re-proposing an identical candidate from the same batch is a no-op.
+3. Mark the batch consolidated; delete episodes older than the retention period; decay procedures (not facts) unused for `procedure_ttl_days` (30) and below confidence 0.5; delete candidates older than `candidate_ttl_days` (14).
 
 ## 8. Evaluation (`smruti/eval/`)
 
