@@ -16,7 +16,7 @@ from smruti.config import SmrutiConfig
 from smruti.embed import Embedder, FastEmbedder
 from smruti.store import index
 from smruti.store.db import connect, init_schema
-from smruti.store.records import Entity, Episode, Fact, Predicate, from_row
+from smruti.store.records import Entity, Episode, Fact, Predicate, Procedure, Summary, from_row
 
 USER_ENTITY = "user"
 
@@ -314,3 +314,69 @@ class Store:
             return {}
         rows = self._rows(_NEIGHBORHOOD, (json.dumps(entity_ids), space, max_hops, space))
         return {r["id"]: r["hops"] for r in rows}
+
+    # --- Summaries ---------------------------------------------------------------------
+
+    def upsert_summary(self, space: str, topic: str, text: str, tokens: int, now=None) -> int:
+        with self.tx() as c:
+            c.execute(
+                "INSERT INTO summaries (space, topic, text, tokens, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(space, topic) DO UPDATE SET text = excluded.text, tokens = excluded.tokens, "
+                "updated_at = excluded.updated_at",
+                (space, topic, text, tokens, _now(now)),
+            )
+            summary_id = c.execute(
+                "SELECT id FROM summaries WHERE space = ? AND topic = ?", (space, topic)
+            ).fetchone()["id"]
+            indexed = f"{topic}: {text}"
+            index.vec_put(c, "summaries", summary_id, space, self.embed(indexed))
+            index.text_put(c, "summaries", summary_id, space, indexed)
+        return summary_id
+
+    def summaries(self, ids) -> list[Summary]:
+        return self._by_ids(Summary, "summaries", ids)
+
+    def summary(self, space: str, topic: str) -> Summary | None:
+        rows = self._rows("SELECT * FROM summaries WHERE space = ? AND topic = ?", (space, topic))
+        return from_row(Summary, rows[0]) if rows else None
+
+    # --- Procedures --------------------------------------------------------------------
+
+    def add_procedure(self, space, trigger, action, error_class, works: bool, vec=None, now=None) -> int:
+        indexed = f"When {trigger}: {action}"
+        vec = self.embed(indexed) if vec is None else vec
+        now = _now(now)
+        with self.tx() as c:
+            procedure_id = c.execute(
+                "INSERT INTO procedures (space, trigger, action, error_class, successes, failures, created_at, last_used) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (space, trigger, action, error_class, int(works), int(not works), now, now),
+            ).lastrowid
+            index.vec_put(c, "procedures", procedure_id, space, vec)
+            index.text_put(c, "procedures", procedure_id, space, indexed)
+        return procedure_id
+
+    def add_procedure_evidence(self, procedure_id: int, works: bool, now=None) -> None:
+        column = "successes" if works else "failures"
+        with self.tx() as c:
+            c.execute(
+                f"UPDATE procedures SET {column} = {column} + 1, last_used = ? WHERE id = ?", (_now(now), procedure_id)
+            )
+
+    def procedures(self, ids) -> list[Procedure]:
+        return self._by_ids(Procedure, "procedures", ids)
+
+    def nearest_procedure(self, space: str, vec) -> tuple[Procedure, float] | None:
+        hits = self.vec_search("procedures", space, vec, 1)
+        return (self.procedures([hits[0][0]])[0], hits[0][1]) if hits else None
+
+    def prune_procedures(self, unused_since: float, min_confidence: float) -> int:
+        """Forgets procedures that are both stale and not confidently established."""
+        stale = [from_row(Procedure, r) for r in self._rows("SELECT * FROM procedures WHERE last_used < ?", (unused_since,))]
+        doomed = [p.id for p in stale if p.confidence < min_confidence]
+        with self.tx() as c:
+            for procedure_id in doomed:
+                c.execute("DELETE FROM procedures WHERE id = ?", (procedure_id,))
+                index.vec_drop(c, "procedures", procedure_id)
+                index.text_drop(c, "procedures", procedure_id)
+        return len(doomed)
