@@ -13,7 +13,7 @@ Small models have small context windows, so you cannot replay a long history on 
 Requires Python 3.10 or newer.
 
 ```bash
-git clone https://github.com/meluhhan/smruti.git && cd smruti
+git clone https://github.com/wizardwithcodehazard/smruti.git && cd smruti
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 

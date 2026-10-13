@@ -17,7 +17,7 @@ That memory is a graph of entities and facts with time validity, plus dated even
 Python 3.10 or newer (macOS system Python 3.9 does not work). Use Homebrew Python or `uv`.
 
 ```bash
-git clone https://github.com/meluhhan/smruti.git && cd smruti
+git clone https://github.com/wizardwithcodehazard/smruti.git && cd smruti
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 python -m pytest -q                      # 248 pass, no downloads needed
@@ -152,4 +152,4 @@ The first run downloads the bge-small embedding model (about 130 MB). Memory liv
 
 - The project started as a coding-agent memory (anti-memories for failing shell commands, MCP tools, hooks). That engine was replaced by this design.
 - The concurrency work from the `Index` branch (write retries, queue worker) was merged into the old engine first; the rewrite superseded it.
-- The original repository is `wizardwithcodehazard/smruti`. This repository (`meluhhan/smruti`) continues from the `feature/local-memory` branch, which is now `main`.
+- This repository (`wizardwithcodehazard/smruti`) contains the neurosymbolic local memory layer on `main`.
