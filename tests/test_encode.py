@@ -40,3 +40,17 @@ def test_gate_can_be_ablated(store, config):
     for t in DISTINCT:
         enc.encode("s", "user", t)
     assert enc.encode("s", "user", "alpha bravo").stored
+
+
+def test_fact_duplicate_is_dropped_without_bumping_an_episode(store, config):
+    config.novelty_warmup = 5
+    enc = Encoder(store, config)
+    ids = [enc.encode("s", "user", t).episode_id for t in DISTINCT]
+    user = store.user_entity("s")
+    pred = store.add_predicate("s", "lives_in", "one")
+    place = store.add_entity("s", "Pune", "city")
+    store.add_fact("s", user, pred, place, None, 1.0, [ids[0]])
+    res = enc.encode("s", "user", "user lives in Pune")
+    assert not res.stored and res.episode_id is None
+    assert [e.seen_count for e in store.episodes(ids)] == [1] * 5
+    assert len(store.pending_episodes("s", 100)) == 5

@@ -56,10 +56,22 @@ def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: i
     older = list(turns[: len(turns) - len(kept)])
     kept_cost = sum(cost(message_text(t)) for t in kept)
 
+    # Exact running size of render(used): items arrive in section order, so each new section
+    # adds a title line and every line after the first adds a newline.
     used: list[MemoryItem] = []
+    chars = lines = 0
+    titled: set[str] = set()
     for item in [*core, *ranked]:
-        if cost(render(used + [item])) + kept_cost <= budget:
+        added = [f"- {item.text}"]
+        if item.section not in titled:
+            added.insert(0, f"{SECTIONS[item.section]}:")
+        if lines == 0:
+            added.insert(0, "## Memory")
+        with_item = chars + sum(len(line) for line in added) + len(added) - (lines == 0)
+        if math.ceil(with_item / chars_per_token) + kept_cost <= budget:
             used.append(item)
+            titled.add(item.section)
+            chars, lines = with_item, lines + len(added)
     memory_text = render(used)
 
     remaining = budget - cost(memory_text) - kept_cost

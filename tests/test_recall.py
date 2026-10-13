@@ -71,3 +71,31 @@ def test_recall_does_not_write(store, config):
     before = [(f.id, f.last_used) for f in store.current_facts("s")]
     Recaller(store, config).build("s", [{"role": "user", "content": "Where do I live?"}], now=9e9)
     assert [(f.id, f.last_used) for f in store.current_facts("s")] == before
+
+
+def test_recall_on_empty_space_creates_nothing(store, config):
+    out = Recaller(store, config).build("s", [{"role": "user", "content": "hello"}])
+    assert out.memory_text == ""
+    assert store.find_entity("s", "user") is None
+
+
+def test_exact_token_accounting_with_system_prompt(store, config):
+    import math
+
+    user = store.user_entity("s")
+    likes = store.add_predicate("s", "likes", "many")
+    for i in range(100):
+        store.add_fact("s", user, likes, None, f"hobby number {i} with a long description", 1.0, [i])
+    turns = [{"role": "user", "content": "what do I like?"}]
+    cpt = config.chars_per_token
+    for budget in range(150, 400, 7):
+        out = Recaller(store, config).build("s", [{"role": "system", "content": "Be brief."}, *turns], budget=budget)
+        assert out.tokens <= budget
+        expected = math.ceil(len(out.messages[0]["content"]) / cpt) + math.ceil(len(turns[0]["content"]) / cpt)
+        assert out.tokens == expected
+
+
+def test_no_user_message_skips_search(store, config):
+    build_graph(store)
+    out = Recaller(store, config).build("s", [{"role": "system", "content": "Be brief."}])
+    assert memory_lines(out.memory_text) == []

@@ -5,9 +5,11 @@ from smruti.recall.rank import recency, rrf
 
 
 def test_rrf_rewards_agreement_and_normalizes():
-    scores = rrf([1, 2, 3], [3, 1])
-    assert scores[1] == 1.0
-    assert scores[1] > scores[3] > scores[2]
+    s = rrf([1, 2, 3], [3, 1])
+    assert s[1] > s[3] > s[2]
+    assert all(0 < v <= 1 for v in s.values())
+    assert rrf([1, 2], [1, 3])[1] == pytest.approx(1.0)
+    assert rrf([1, 2], [3])[1] < 1.0  # first in only one list is not inflated to 1.0
 
 
 def test_rrf_of_nothing_is_empty():

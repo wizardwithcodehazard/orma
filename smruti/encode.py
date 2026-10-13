@@ -17,7 +17,7 @@ NOVELTY_SOURCES = ("episodes", "facts", "summaries")
 @dataclass
 class EncodeResult:
     stored: bool
-    episode_id: int
+    episode_id: int | None
     novelty: float
 
 
@@ -34,10 +34,13 @@ class Encoder:
         self.store.push_novelty(space, novelty, self.config.novelty_window)
 
         if outcome is None and self._redundant(novelty, history):
+            # Bump only the episode this turn duplicates, never an unrelated one when a
+            # fact or summary was the closest match.
             nearest = self.store.vec_search("episodes", space, vec, 1)
-            if nearest:
+            if nearest and nearest[0][1] >= max(similarities) - 1e-6:
                 self.store.bump_seen(nearest[0][0])
                 return EncodeResult(False, nearest[0][0], novelty)
+            return EncodeResult(False, None, novelty)
 
         episode_id = self.store.add_episode(space, role, text, outcome, novelty, vec, now=now)
         return EncodeResult(True, episode_id, novelty)

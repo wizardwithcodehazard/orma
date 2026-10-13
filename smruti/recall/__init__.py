@@ -12,8 +12,9 @@ from smruti.messages import message_text
 from smruti.recall.link import link_entities
 from smruti.recall.pack import MemoryItem, Packed, count_tokens, pack
 from smruti.recall.rank import recency, rrf
-from smruti.store import Store
+from smruti.store import USER_ENTITY, Store
 
+SEPARATOR = "\n\n"
 SEARCHED_KINDS = ("facts", "procedures", "summaries")
 
 
@@ -42,21 +43,28 @@ class Recaller:
         core_ids = {item.id for item in core}
         ranked = [item for item in self._ranked(space, query, now)
                   if not (item.section == "facts" and item.id in core_ids)]
-        system_cost = count_tokens(system_text, cfg.chars_per_token)
-        packed = pack(core, ranked, turns, budget - system_cost, cfg.chars_per_token, cfg.min_recent_turns)
-        return RecallResult(self._assemble(system_text, packed), packed.memory_text,
-                            packed.tokens + system_cost, packed.used)
+        # Reserve the "\n\n" joining system text and memory, then cost the real final content.
+        reserved = count_tokens(system_text, cfg.chars_per_token) + (
+            count_tokens(SEPARATOR, cfg.chars_per_token) if system_text else 0)
+        packed = pack(core, ranked, turns, budget - reserved, cfg.chars_per_token, cfg.min_recent_turns)
+        final = self._assemble(system_text, packed)
+        tokens = sum(count_tokens(message_text(m), cfg.chars_per_token) for m in final)
+        return RecallResult(final, packed.memory_text, tokens, packed.used)
 
     def _core(self, space: str) -> list[MemoryItem]:
         if not self.config.enable_core_block:
             return []
-        user_id = self.store.user_entity(space)
-        facts = [f for f in self.store.current_facts(space, subject_id=user_id)
+        user = self.store.find_entity(space, USER_ENTITY)
+        if user is None:
+            return []
+        facts = [f for f in self.store.current_facts(space, subject_id=user.id)
                  if f.confidence >= self.config.core_min_confidence]
         return [MemoryItem("core", f.id, f.text) for f in sorted(facts, key=lambda f: (f.predicate, f.id))]
 
     def _ranked(self, space: str, query: str, now: float) -> list[MemoryItem]:
         cfg = self.config
+        if not query:
+            return []
         vec = self.store.embed(query)
         fused = {
             kind: rrf([i for i, _ in self.store.vec_search(kind, space, vec, cfg.search_k)],
@@ -90,5 +98,5 @@ class Recaller:
     @staticmethod
     def _assemble(system_text: str, packed: Packed) -> list[dict]:
         parts = [p for p in (system_text, packed.memory_text) if p]
-        head = [{"role": "system", "content": "\n\n".join(parts)}] if parts else []
+        head = [{"role": "system", "content": SEPARATOR.join(parts)}] if parts else []
         return head + packed.turns
