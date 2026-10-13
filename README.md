@@ -103,6 +103,8 @@ Principles:
 - Facts have time validity. When a one-valued fact changes ("lives in Pune" to "lives in Mumbai"), the old fact is closed (it gets a `valid_to`), not deleted. `smruti facts --history` shows closed facts.
 - Events are episodic memory: the same sleep call records dated things that happened ("2026-03-07: user went to Goa with Asha") linked to the entities involved, so "what did I do last Tuesday?" can be answered after the raw turns are deleted. They are recalled as "Past events" by search over the gist and by spreading activation from their participants.
 - Recall uses spreading activation with the fan effect. Entities mentioned in the query pass activation along their facts, divided among all of an entity's facts, so a hub like `user` gives each fact a small share and a specific entity gives its few facts a lot.
+- Priming: entities activated by the last few requests stay warm (in RAM, per space, fading by half each request), so a follow-up that does not name them still reaches their facts.
+- Facts are ranked by ACT-R base-level activation: every observation adds strength that decays with age as a power law, so a fact stated often and recently outranks trivia seen once long ago. Surprising evidence (high novelty when the turn was encoded) counts more.
 - An adaptive novelty gate drops turns that add nothing new relative to what that space has recently seen. Tool turns with outcomes are always kept.
 - Extracted facts are checked against the conversation they came from: a fact whose object (or non-user subject) has words that the batch's log does not contain, for example one copied from an existing summary, is dropped. A date that is just the day the message was written does not count as a stated time.
 - Optionally (`sleep_votes` 2 or more) sleep replays each batch: facts a second, sampled extraction also produces count as one extra observation. Facts are never held back for lack of agreement. Off by default because each vote costs a full extraction.
@@ -153,7 +155,9 @@ Settings live in `SmrutiConfig` (`smruti/config.py`); pass one to `Memory(config
 | Replay and vote | `sleep_votes` (1 = no voting), `sleep_vote_temperature` (0.7), `vote_match_threshold` (0.8) |
 | Novelty gate | `novelty_percentile` (10), `novelty_warmup` (50), `novelty_window` (500) |
 | Recall | `search_k`, `max_hops`, `hop_decay`, `recency_half_life_days`, `max_candidate_facts`, `max_candidate_events`, `core_min_confidence` |
-| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall`, `enable_schema_decoding`, `enable_grounding`, `enable_events` |
+| Base-level activation | `base_level_decay` (0.5, ACT-R's d), `importance_weight` (0.5) |
+| Priming | `priming_size` (16), `priming_decay` (0.5 per request), `priming_weight` (0.5), `priming_floor` (0.01) |
+| Ablation switches (all default true) | `enable_novelty_gate`, `enable_graph`, `enable_core_block`, `enable_similarity_weighting`, `enable_episode_recall`, `enable_schema_decoding`, `enable_grounding`, `enable_events`, `enable_priming`, `enable_base_level` |
 
 The `enable_*` switches turn individual components off so their effect can be measured.
 

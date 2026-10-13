@@ -1,11 +1,13 @@
 """
 recall - Per-request context assembly with no LLM calls and no writes: fuse lexical and vector
 search (each hit weighted by how much evidence it carries: calibrated similarity, query-term
-coverage), spread activation from the cued entities (query links and search hits) along current
-facts and to the events they took part in, keep the most relevant facts and events, rank by
-relevance x recency x confidence, and pack into the token budget.
+coverage), spread activation from the cued entities (query links, search hits and entities primed by
+the last requests) along current facts and to the events they took part in, keep the most relevant
+facts and events, rank facts by relevance x base-level activation x importance x confidence (events
+without confidence), and pack into the token budget.
 """
 
+import threading
 import time
 from dataclasses import dataclass
 
@@ -14,7 +16,7 @@ from smruti.messages import message_text
 from smruti.recall.activation import merge_cues, search_cues, spread
 from smruti.recall.link import link_entities
 from smruti.recall.pack import MemoryItem, Packed, count_tokens, pack
-from smruti.recall.rank import recency, rrf, similarity_weight
+from smruti.recall.rank import base_level, importance_factor, recency, rrf, similarity_weight
 from smruti.store import USER_ENTITY, Store
 
 SEPARATOR = "\n\n"
@@ -36,9 +38,37 @@ class RecallResult:
 
 
 class Recaller:
+    """Shared by every request of a process. Holds the only recall state, priming, in RAM: per space,
+    entity id -> activation left over from recent requests (short-term, so it resets on restart)."""
+
     def __init__(self, store: Store, config: SmrutiConfig):
         self.store = store
         self.config = config
+        self._priming: dict[str, dict[int, float]] = {}
+        self._priming_lock = threading.Lock()
+
+    def primed(self, space: str) -> dict[int, float]:
+        with self._priming_lock:
+            return dict(self._priming.get(space, {}))
+
+    def _decay_priming(self, space: str) -> dict[int, float]:
+        """One request's worth of decay; returns the space's priming after it."""
+        cfg = self.config
+        with self._priming_lock:
+            decayed = {e: a * cfg.priming_decay for e, a in self._priming.get(space, {}).items()
+                       if a * cfg.priming_decay >= cfg.priming_floor}
+            self._priming[space] = decayed
+            return dict(decayed)
+
+    def _prime(self, space: str, activated: dict[int, float]) -> None:
+        """Keeps the priming_size strongest of the existing priming and this recall's entity activations."""
+        cfg = self.config
+        with self._priming_lock:
+            merged = dict(self._priming.get(space, {}))
+            for entity_id, a in activated.items():
+                merged[entity_id] = max(merged.get(entity_id, 0.0), a)
+            strongest = sorted(merged, key=lambda e: (-merged[e], e))[:cfg.priming_size]
+            self._priming[space] = {e: merged[e] for e in strongest if merged[e] >= cfg.priming_floor}
 
     def build(self, space: str, messages: list[dict], budget: int | None = None, now=None) -> RecallResult:
         cfg = self.config
@@ -51,8 +81,12 @@ class Recaller:
         core = self._core(space)
         core_ids = {item.id for item in core}
         said = {message_text(m).strip() for m in turns}
-        ranked = [item for item in self._ranked(space, query, now, said)
+        priming = self._decay_priming(space) if cfg.enable_priming else {}
+        activated: dict[int, float] = {}
+        ranked = [item for item in self._ranked(space, query, now, said, priming, activated)
                   if not (item.section == "facts" and item.id in core_ids)]
+        if cfg.enable_priming:
+            self._prime(space, activated)
         # Reserve the "\n\n" joining system text and memory, then cost the real final content.
         reserved = count_tokens(system_text, cfg.chars_per_token) + (
             count_tokens(SEPARATOR, cfg.chars_per_token) if system_text else 0)
@@ -71,7 +105,10 @@ class Recaller:
                  if f.confidence >= self.config.core_min_confidence]
         return [MemoryItem("core", f.id, f.text) for f in sorted(facts, key=lambda f: (f.predicate, f.id))]
 
-    def _ranked(self, space: str, query: str, now: float, said: frozenset[str] = frozenset()) -> list[MemoryItem]:
+    def _ranked(self, space: str, query: str, now: float, said: frozenset[str] = frozenset(),
+                priming: dict[int, float] | None = None, activated: dict[int, float] | None = None) -> list[MemoryItem]:
+        """priming adds priming_weight x its activation to the cues; activated receives the entity activations
+        (cues and what spreading reached) that drove this recall."""
         cfg = self.config
         if not query:
             return []
@@ -91,19 +128,34 @@ class Recaller:
         if cfg.enable_graph:
             cues = merge_cues(link_entities(self.store, cfg, space, query, vec, weight),
                               search_cues(hits, fused["facts"]))
-            activation, event_activation = spread(self.store, space, cues, cfg.max_hops, cfg.hop_decay,
-                                                  events=cfg.enable_events)
+            for entity_id, a in (priming or {}).items():
+                cues[entity_id] = cues.get(entity_id, 0.0) + cfg.priming_weight * a
+            activation, event_activation, entities = spread(self.store, space, cues, cfg.max_hops, cfg.hop_decay,
+                                                            events=cfg.enable_events)
+            if activated is not None:
+                activated.update(entities)
 
         def fresh(timestamp: float) -> float:
             return recency(timestamp, now, cfg.recency_half_life_days)
 
+        def strength(evidence_times: list[float], importance: float, last_used: float) -> float:
+            """Base-level activation x importance; the ablation falls back to recency of last use."""
+            if not cfg.enable_base_level:
+                return fresh(last_used)
+            return base_level(evidence_times, now, cfg.base_level_decay) * importance_factor(importance,
+                                                                                           cfg.importance_weight)
+
         # Keep only the most relevant facts and events, so a long tail of faintly activated ones cannot
         # starve procedures and summaries, which pack after them.
         relevance = top(fused["facts"], activation, cfg.max_candidate_facts)
-        facts = [(relevance[f.id] * fresh(f.last_used) * f.confidence, MemoryItem("facts", f.id, f.text))
+        facts = [(relevance[f.id] * strength(f.evidence_times, f.importance, f.last_used) * f.confidence,
+                  MemoryItem("facts", f.id, f.text))
                  for f in self.store.facts(sorted(relevance))]
+        # Events have no reinforcement: the one evidence is when sleep learned them (the ablation keeps the old
+        # recency of when they happened).
         event_relevance = top(fused.get("events", {}), event_activation, cfg.max_candidate_events)
-        events = [(event_relevance[e.id] * fresh(e.occurred_at), MemoryItem("events", e.id, e.text))
+        events = [(event_relevance[e.id] * strength([e.created_at], e.importance, e.occurred_at),
+                   MemoryItem("events", e.id, e.text))
                   for e in self.store.events(sorted(event_relevance))]
         procedures = [(fused["procedures"][p.id] * fresh(p.last_used) * p.confidence,
                        MemoryItem("procedures", p.id, p.text))

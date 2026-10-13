@@ -41,7 +41,16 @@ class SmrutiConfig:
     similarity_floor_percentile: float = 50.0
     max_candidate_facts: int = 64
     max_candidate_events: int = 16
-    recency_half_life_days: float = 14.0
+    recency_half_life_days: float = 14.0  # procedures, summaries, notes; facts and events too with enable_base_level off
+    # ACT-R base-level activation of facts and events: sum over evidence times of (age_days + 1) ** -decay.
+    base_level_decay: float = 0.5  # ACT-R's standard d
+    # Score multiplier (1 - w) + w * importance, importance = mean novelty (surprise) of the source episodes.
+    importance_weight: float = 0.5
+    # Priming (in RAM, per space): the entities the last recalls activated add to the next request's cues.
+    priming_size: int = 16  # strongest entities kept after each recall
+    priming_decay: float = 0.5  # factor applied per request in the space
+    priming_weight: float = 0.5  # cue weight per unit of priming
+    priming_floor: float = 0.01  # weaker priming is dropped
     core_min_confidence: float = 0.7
     min_recent_turns: int = 2
     recall_note_chars: int = 300  # longest pending-episode note shown in recall
@@ -80,6 +89,8 @@ class SmrutiConfig:
     enable_schema_decoding: bool = True  # constrain extraction to JSON_SCHEMA (else plain JSON mode)
     enable_grounding: bool = True  # drop extracted facts, entities and user names the batch's log does not contain
     enable_events: bool = True  # store dated events during sleep and recall them
+    enable_priming: bool = True  # recently activated entities stay warm for the next requests
+    enable_base_level: bool = True  # facts and events: base-level activation x importance (else recency of last use)
 
     @property
     def db_path(self) -> Path:

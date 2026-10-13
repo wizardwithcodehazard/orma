@@ -128,13 +128,14 @@ def test_fan_divides_activation_among_an_entitys_facts(store):
     sister = store.add_fact("s", user, store.add_predicate("s", "has_sister", "many"), asha, None, 1.0, [1])
     allergy = store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [1])
 
-    act, events = spread(store, "s", {user: 1.0}, max_hops=2, decay=0.5)
+    act, events, entities = spread(store, "s", {user: 1.0}, max_hops=2, decay=0.5)
     assert act[fillers[0]] == pytest.approx(0.1)  # user's 1.0 split over 10 facts
     assert act[allergy] == pytest.approx(0.1 * 0.5 / 2)  # Asha got 0.1, decayed, split over 2 facts
     assert act[sister] == pytest.approx(0.1 + 0.025)  # from user at step 0 and from Asha at step 1
+    assert entities == {user: pytest.approx(1.0), asha: pytest.approx(0.1)}  # the cue and what spreading reached
 
     assert events == {}
-    act, _ = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
+    act, _, _ = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
     assert act == {sister: pytest.approx(0.5), allergy: pytest.approx(0.5)}
 
 
@@ -266,9 +267,9 @@ def test_an_entitys_activation_is_shared_between_its_facts_and_events(store):
     allergy = store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [1])
     trip = store.add_event("s", "user went to Goa with Asha", MARCH_7, True, [user, asha], [1])
 
-    facts, events = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
+    facts, events, _ = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5)
     assert facts == {allergy: pytest.approx(0.5)} and events == {trip: pytest.approx(0.5)}
-    facts, events = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5, events=False)
+    facts, events, _ = spread(store, "s", {asha: 1.0}, max_hops=1, decay=0.5, events=False)
     assert facts == {allergy: pytest.approx(1.0)} and events == {}
 
 
@@ -315,3 +316,145 @@ def test_candidate_events_are_bounded(store, config):
     config.max_candidate_events = 5
     ranked = Recaller(store, config)._ranked("s", "user running", now=MARCH_7)
     assert len([item for item in ranked if item.section == "events"]) == 5
+
+
+# --- Priming -----------------------------------------------------------------------------
+
+RAVI = [{"role": "user", "content": "does Ravi still play guitar"}]
+WEATHER = [{"role": "user", "content": "what is the weather like today"}]
+
+
+def people(store, config):
+    ravi = store.add_entity("s", "Ravi", "person")
+    meera = store.add_entity("s", "Meera", "person")
+    store.add_fact("s", ravi, store.add_predicate("s", "plays", "many"), None, "guitar", 1.0, [1], now=1.0)
+    store.add_fact("s", meera, store.add_predicate("s", "works_at", "one"), None, "Infosys", 1.0, [1], now=1.0)
+    warm_up(store, config, "s")
+
+
+def test_priming_keeps_recently_activated_entities_warm(noisy_store, config):
+    people(noisy_store, config)
+    recaller = Recaller(noisy_store, config)
+    recaller.build("s", RAVI, now=1.0)
+    follow_up = recaller.build("s", WEATHER, now=1.0)  # never mentions Ravi
+    assert memory_lines(follow_up.memory_text) == ["- Ravi plays guitar"]
+    fresh = Recaller(noisy_store, config).build("s", WEATHER, now=1.0)  # a new process starts cold
+    assert memory_lines(fresh.memory_text) == []
+
+
+def test_priming_fades_over_unrelated_requests(noisy_store, config):
+    people(noisy_store, config)
+    recaller = Recaller(noisy_store, config)
+    recaller.build("s", RAVI, now=1.0)
+    strengths = []
+    for _ in range(8):
+        recaller.build("s", WEATHER, now=1.0)
+        strengths.append(max(recaller.primed("s").values(), default=0.0))
+    assert strengths == sorted(strengths, reverse=True) and strengths[0] > 0.0
+    assert recaller.primed("s") == {}
+    assert memory_lines(recaller.build("s", WEATHER, now=1.0).memory_text) == []
+
+
+def test_spaces_do_not_share_priming(noisy_store, config):
+    people(noisy_store, config)
+    recaller = Recaller(noisy_store, config)
+    recaller.build("s", RAVI, now=1.0)
+    primed = recaller.primed("s")
+    recaller.build("t", WEATHER, now=1.0)
+    assert recaller.primed("t") == {}
+    assert recaller.primed("s") == primed  # another space's requests do not decay it
+
+
+def test_priming_can_be_disabled(noisy_store, config):
+    people(noisy_store, config)
+    config.enable_priming = False
+    recaller = Recaller(noisy_store, config)
+    recaller.build("s", RAVI, now=1.0)
+    assert recaller.primed("s") == {}
+    assert memory_lines(recaller.build("s", WEATHER, now=1.0).memory_text) == []
+
+
+def test_priming_keeps_only_the_strongest_entities(store, config):
+    user = store.user_entity("s")
+    likes = store.add_predicate("s", "knows", "many")
+    for i in range(30):
+        store.add_fact("s", user, likes, store.add_entity("s", f"friend{i}", "person"), None, 1.0, [i], now=1.0)
+    config.priming_size = 4
+    recaller = Recaller(store, config)
+    recaller.build("s", [{"role": "user", "content": "who do I know"}], now=1.0)
+    assert 0 < len(recaller.primed("s")) <= 4
+
+
+def test_concurrent_builds_share_priming_safely(store, config):
+    from concurrent.futures import ThreadPoolExecutor
+
+    build_graph(store)
+    recaller = Recaller(store, config)
+    queries = ["Where do I live?", "Any gift ideas for mother?", "hello", "Nagpur weather"]
+
+    def run(i):
+        return recaller.build("st"[i % 2], [{"role": "user", "content": queries[i % 4]}], now=1.0)
+
+    with ThreadPoolExecutor(8) as pool:
+        assert all(r.messages for r in pool.map(run, range(64)))
+
+
+# --- Base-level activation and importance --------------------------------------------------
+
+DAY = 86400.0
+NOW = 1000 * DAY
+
+
+def asha_likes(store, *items):
+    """Facts "Asha likes <object>" for (object, evidence times, importance) items; returns their ids."""
+    asha = store.add_entity("s", "Asha", "person")
+    likes = store.add_predicate("s", "likes", "many")
+    ids = []
+    for object_, times, importance in items:
+        fid = store.add_fact("s", asha, likes, None, object_, times[0], [len(ids)], now=times[0],
+                             importance=importance)
+        for t in times[1:]:
+            store.reinforce_fact(fid, [100 + len(ids)], now=t)
+        ids.append(fid)
+    return ids
+
+
+def fact_order(store, config, query="what does Asha like"):
+    return [item.id for item in Recaller(store, config)._ranked("s", query, now=NOW) if item.section == "facts"]
+
+
+def test_more_evidence_outranks_a_single_observation(store, config):
+    once, thrice = asha_likes(store, ("tea", [NOW], 0.5), ("coffee", [NOW] * 3, 0.5))
+    assert fact_order(store, config) == [thrice, once]
+
+
+def test_old_trivia_ranks_below_a_fresh_fact(store, config):
+    old, fresh = asha_likes(store, ("tea", [NOW - 300 * DAY], 0.5), ("coffee", [NOW], 0.5))
+    assert fact_order(store, config) == [fresh, old]
+
+
+def test_surprising_evidence_raises_ranking(store, config):
+    dull, surprising = asha_likes(store, ("tea", [NOW], 0.1), ("coffee", [NOW], 0.9))
+    assert fact_order(store, config) == [surprising, dull]
+
+
+def test_repeated_older_evidence_beats_recency_unless_ablated(store, config):
+    repeated, fresh = asha_likes(store, ("tea", [NOW - 10 * DAY] * 3, 0.5), ("coffee", [NOW], 0.5))
+    assert fact_order(store, config) == [repeated, fresh]  # base level: 3 * 11 ** -0.5 = 0.90 > 1
+    config.enable_base_level = False  # old recency on last_used: 0.5 ** (10 / 14) = 0.61 < 1
+    assert fact_order(store, config) == [fresh, repeated]
+
+
+def test_events_rank_by_when_they_were_learned_and_their_importance(store, config):
+    user = store.user_entity("s")
+    learned_today = store.add_event("s", "user ran a marathon in Pune", NOW - 700 * DAY, True, [user], [1], now=NOW)
+    learned_long_ago = store.add_event("s", "user ran a marathon in Goa", NOW, True, [user], [2], now=NOW - 300 * DAY)
+    surprising = store.add_event("s", "user ran a marathon in Delhi", NOW, True, [user], [3], now=NOW, importance=1.0)
+
+    def order():
+        ranked = Recaller(store, config)._ranked("s", "user ran a marathon", now=NOW)
+        return [item.id for item in ranked if item.section == "events"]
+
+    assert order() == [surprising, learned_today, learned_long_ago]
+    config.enable_base_level = False  # old: recency of occurred_at, no importance
+    assert order()[-1] == learned_today

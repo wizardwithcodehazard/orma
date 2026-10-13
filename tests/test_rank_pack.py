@@ -1,7 +1,7 @@
 import pytest
 
 from smruti.recall.pack import FRAMING, MemoryItem, count_tokens, pack
-from smruti.recall.rank import recency, rrf
+from smruti.recall.rank import base_level, importance_factor, recency, rrf
 
 
 def ranked(*ids, weight=1.0):
@@ -48,6 +48,21 @@ def test_similarity_weight_is_calibrated_against_the_space_distribution():
 def test_recency_half_life():
     assert recency(0.0, 14 * 86400.0, 14.0) == pytest.approx(0.5)
     assert recency(100.0, 50.0, 14.0) == 1.0
+
+
+def test_base_level_activation_sums_power_law_decayed_evidence():
+    day, now = 86400.0, 100 * 86400.0
+    assert base_level([now], now, 0.5) == pytest.approx(1.0)  # one fresh evidence
+    assert base_level([now - 3 * day], now, 0.5) == pytest.approx(0.5)  # (3 + 1) ** -0.5: older is weaker
+    assert base_level([now, now - 3 * day], now, 0.5) == pytest.approx(1.5)  # more evidence is stronger
+    assert base_level([now + day], now, 0.5) == pytest.approx(1.0)  # a future stamp counts as fresh
+    assert base_level([], now, 0.5) == 0.0
+
+
+def test_importance_factor_blends_toward_one():
+    assert importance_factor(1.0, 0.5) == pytest.approx(1.0)
+    assert importance_factor(0.0, 0.5) == pytest.approx(0.5)
+    assert importance_factor(0.2, 0.0) == pytest.approx(1.0)  # weight 0: importance ignored
 
 
 def test_count_tokens_rounds_up():

@@ -14,3 +14,10 @@ def test_event_round_trip_and_participant_lookup(store):
     assert [e.id for e in store.batch_events("s", [1, 2])] == [goa]
     assert [i for i, _ in store.vec_search("events", "s", store.embed("baked a cake"), 1)] == [cake]
     assert [hit.id for hit in store.text_search("events", "s", "Goa", 5)] == [goa]
+
+
+def test_event_importance_defaults_to_half(store):
+    user = store.user_entity("s")
+    plain = store.add_event("s", "user baked a cake", 150.0, False, [user], [3], now=200.0)
+    surprising = store.add_event("s", "user won a prize", 150.0, False, [user], [4], now=200.0, importance=0.9)
+    assert [e.importance for e in store.events([plain, surprising])] == [0.5, 0.9]

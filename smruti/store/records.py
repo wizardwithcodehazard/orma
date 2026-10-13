@@ -61,6 +61,8 @@ class Fact:
     last_used: float
     source_episode_ids: list[int]
     valid_from_stated: bool
+    evidence_times: list[float]  # one timestamp per observation
+    importance: float  # surprise: mean novelty of the source episodes, max over batches
     subject: str
     predicate: str
     object: str
@@ -74,6 +76,7 @@ class Fact:
         values = {f.name: row[f.name] for f in fields(cls)}
         values["source_episode_ids"] = json.loads(values["source_episode_ids"])
         values["valid_from_stated"] = bool(values["valid_from_stated"])
+        values["evidence_times"] = json.loads(values["evidence_times"]) or [values["last_used"]]  # pre-migration row
         return cls(**values)
 
 
@@ -129,6 +132,7 @@ class Event:
     occurred_stated: bool
     created_at: float
     source_episode_ids: list[int]
+    importance: float  # surprise: mean novelty of the source episodes
 
     @classmethod
     def from_row(cls, row) -> "Event":

@@ -1,6 +1,8 @@
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from smruti.sleep.consolidate import Consolidator, parse_time
 from smruti.sleep.extract import parse_extraction
 from smruti.store import Episode
@@ -11,10 +13,12 @@ LIVES_PUNE = {
 }
 
 
-def apply(store, config, data, ids=(1,), now=100.0, at=None, role="user", text=None, agreed=()):
-    """text is the batch's log; by default the extraction itself, so everything in it is grounded."""
+def apply(store, config, data, ids=(1,), now=100.0, at=None, role="user", text=None, agreed=(), novelty=1.0):
+    """text is the batch's log; by default the extraction itself, so everything in it is grounded.
+    novelty is one value for every episode or a list with one per episode."""
     text = json.dumps(data) if text is None else text
-    episodes = [Episode(i, "s", role, text, None, 1.0, 1, now if at is None else at, None) for i in ids]
+    novelties = novelty if isinstance(novelty, list) else [novelty] * len(ids)
+    episodes = [Episode(i, "s", role, text, None, n, 1, now if at is None else at, None) for i, n in zip(ids, novelties)]
     return Consolidator(store, config).apply("s", parse_extraction(data), episodes, now=now, agreed=agreed)
 
 
@@ -255,6 +259,39 @@ def test_valid_from_stated_is_migrated_onto_old_databases(config, embedder):
     store.close()
 
 
+def test_evidence_and_old_databases_migrate(config, embedder):
+    from smruti.store import Store
+
+    store = Store(config, embedder)
+    user = store.user_entity("s")
+    store.add_fact("s", user, store.add_predicate("s", "lives_in", "one"), None, "Pune", 1.0, [1], now=42.0)
+    store.add_event("s", "user moved to Pune", 1.0, False, [user], [1], now=42.0)
+    for table, column in (("facts", "evidence_times"), ("facts", "importance"), ("events", "importance")):
+        store.conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+    store.close()
+    store = Store(config, embedder)
+    (fact,) = store.current_facts("s")
+    assert fact.evidence_times == [42.0] and fact.importance == 0.5  # an old row's evidence is its last use
+    assert [e.importance for e in store.batch_events("s", [1])] == [0.5]
+    store.close()
+
+
+def test_importance_is_the_batch_mean_novelty_and_reinforcement_keeps_the_max(store, config):
+    apply(store, config, LIVES_PUNE, ids=[1, 2], at=50.0, novelty=[0.2, 0.6])
+    (fact,) = store.current_facts("s")
+    assert fact.importance == pytest.approx(0.4) and fact.evidence_times == [50.0]
+    apply(store, config, LIVES_PUNE, ids=[3], at=80.0, novelty=0.1)
+    (fact,) = store.current_facts("s")
+    assert fact.importance == pytest.approx(0.4) and fact.evidence_times == [50.0, 80.0]
+    apply(store, config, LIVES_PUNE, ids=[4], at=90.0, novelty=[None])  # unknown novelty counts as 0.5
+    assert store.current_facts("s")[0].importance == pytest.approx(0.5)
+
+
+def test_agreed_fact_records_two_evidences_at_the_batch_time(store, config):
+    apply(store, config, LIVES_PUNE, ids=[1], at=50.0, agreed={0})
+    assert store.current_facts("s")[0].evidence_times == [50.0, 50.0]
+
+
 def test_user_names_attach_facts_to_user_entity(store, config):
     apply(store, config, {
         "user_names": ["Sahil"],
@@ -407,3 +444,9 @@ def test_events_can_be_disabled(store, config):
     config.enable_events = False
     report = apply(store, config, GOA_TRIP)
     assert report.events_added == 0 and store.stats("s")["events"] == 0
+
+
+def test_event_importance_is_the_batch_mean_novelty(store, config):
+    apply(store, config, GOA_TRIP, ids=[1, 2], now=MARCH_10 + 3600, at=MARCH_10, novelty=[0.9, 0.3])
+    (event,) = store.batch_events("s", [1, 2])
+    assert event.importance == pytest.approx(0.6)

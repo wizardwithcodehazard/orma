@@ -306,9 +306,9 @@ class Store:
 
     def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None,
                  valid_to=None, vec=None,
-                 valid_from_stated: bool = False, support: int = 1) -> int:
-        """Inserts a fact with support observations (one by default: confidence 1/2); current unless valid_to
-        is given.
+                 valid_from_stated: bool = False, support: int = 1, importance: float = 0.5) -> int:
+        """Inserts a fact with support observations (one by default: confidence 1/2), each evidenced at now;
+        current unless valid_to is given.
         Pass a precomputed vec (of the rendered text) to keep inference out of the caller's transaction."""
         subject = self.entity(subject_id).name
         predicate = self.predicate(predicate_id).name
@@ -316,12 +316,14 @@ class Store:
         text = fact_text(subject, predicate, object_)
         vec = self.embed(text) if vec is None else vec  # inference stays outside the lock and transaction
         with self.tx() as c:
+            now = _now(now)
             fact_id = c.execute(
                 "INSERT INTO facts (space, subject_id, predicate_id, object_id, object_value, confidence, support, "
-                "valid_from, valid_to, last_used, source_episode_ids, valid_from_stated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (space, subject_id, predicate_id, object_id, object_value, support / (support + 1), support, valid_from, valid_to, _now(now),
-                 json.dumps(sorted(set(source_episode_ids))), int(valid_from_stated)),
+                "valid_from, valid_to, last_used, source_episode_ids, valid_from_stated, evidence_times, importance) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (space, subject_id, predicate_id, object_id, object_value, support / (support + 1), support, valid_from, valid_to, now,
+                 json.dumps(sorted(set(source_episode_ids))), int(valid_from_stated), json.dumps([now] * support),
+                 importance),
             ).lastrowid
             if valid_to is None:  # closed facts stay out of the search indexes
                 index.vec_put(c, "facts", fact_id, space, vec)
@@ -353,15 +355,22 @@ class Store:
             params.append(subject_id)
         return [Fact.from_row(r) for r in self._rows(sql + " ORDER BY f.valid_from, f.id", params)]
 
-    def reinforce_fact(self, fact_id: int, source_episode_ids, now=None, count: int = 1) -> None:
-        """count more independent observations: support + count, confidence = support / (support + 1)."""
+    def reinforce_fact(self, fact_id: int, source_episode_ids, now=None, count: int = 1,
+                       importance: float | None = None) -> None:
+        """count more independent observations, each evidenced at now: support + count, confidence =
+        support / (support + 1). Importance becomes the larger of the old and the given one."""
+        now = _now(now)
         with self.tx() as c:
-            row = c.execute("SELECT support, source_episode_ids FROM facts WHERE id = ?", (fact_id,)).fetchone()
+            row = c.execute("SELECT * FROM facts WHERE id = ?", (fact_id,)).fetchone()
             support = row["support"] + count
             sources = sorted(set(json.loads(row["source_episode_ids"])) | set(source_episode_ids))
+            evidence = (json.loads(row["evidence_times"]) or [row["last_used"]]) + [now] * count
+            importance = row["importance"] if importance is None else max(row["importance"], importance)
             c.execute(
-                "UPDATE facts SET support = ?, confidence = ?, source_episode_ids = ?, last_used = ? WHERE id = ?",
-                (support, support / (support + 1), json.dumps(sources), _now(now), fact_id),
+                "UPDATE facts SET support = ?, confidence = ?, source_episode_ids = ?, last_used = ?, "
+                "evidence_times = ?, importance = ? WHERE id = ?",
+                (support, support / (support + 1), json.dumps(sources), now, json.dumps(evidence), importance,
+                 fact_id),
             )
 
     def close_fact(self, fact_id: int, valid_to: float) -> None:
@@ -380,15 +389,16 @@ class Store:
     # --- Events ------------------------------------------------------------------------
 
     def add_event(self, space: str, gist: str, occurred_at: float, occurred_stated: bool, participant_ids,
-                  source_episode_ids, vec=None, now=None) -> int:
+                  source_episode_ids, vec=None, now=None, importance: float = 0.5) -> int:
         """Inserts a dated event linked to its participant entities. Pass a precomputed vec (of the gist) to
         keep inference out of the caller's transaction."""
         vec = self.embed(gist) if vec is None else vec  # inference stays outside the lock and transaction
         with self.tx() as c:
             event_id = c.execute(
-                "INSERT INTO events (space, gist, occurred_at, occurred_stated, created_at, source_episode_ids) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (space, gist, occurred_at, int(occurred_stated), _now(now), json.dumps(sorted(set(source_episode_ids)))),
+                "INSERT INTO events (space, gist, occurred_at, occurred_stated, created_at, source_episode_ids, "
+                "importance) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (space, gist, occurred_at, int(occurred_stated), _now(now), json.dumps(sorted(set(source_episode_ids))),
+                 importance),
             ).lastrowid
             c.executemany("INSERT OR IGNORE INTO event_participants (event_id, entity_id) VALUES (?, ?)",
                           [(event_id, entity_id) for entity_id in participant_ids])

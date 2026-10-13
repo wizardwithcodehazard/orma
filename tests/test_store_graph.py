@@ -41,6 +41,7 @@ def test_reinforce_then_close_fact(store):
     (fact,) = store.current_facts("s")
     assert fact.support == 2 and fact.confidence == pytest.approx(2 / 3)
     assert fact.source_episode_ids == [1, 2] and fact.last_used == 20.0
+    assert fact.evidence_times == [pytest.approx(fact.evidence_times[0]), 20.0] and fact.importance == 0.5
     store.close_fact(fid, valid_to=30.0)
     assert store.current_facts("s") == []
     (old,) = store.fact_history("s")
@@ -87,3 +88,16 @@ def test_aliases_resolve_in_find_entity_and_are_listed(store):
     assert store.find_entity("s", " sahil ").id == user
     assert store.find_entity("t", "sahil") is None
     assert store.aliases(user) == ["sahil"]
+
+
+def test_facts_keep_every_evidence_time_and_the_highest_importance(store):
+    user = store.user_entity("s")
+    likes = store.add_predicate("s", "likes", "many")
+    fid = store.add_fact("s", user, likes, None, "tea", 1.0, [1], now=10.0, support=2, importance=0.3)
+    store.reinforce_fact(fid, [2], now=20.0, count=2, importance=0.8)
+    store.reinforce_fact(fid, [3], now=30.0, importance=0.1)
+    (fact,) = store.current_facts("s")
+    assert fact.evidence_times == [10.0, 10.0, 20.0, 20.0, 30.0] and fact.support == 5
+    assert fact.importance == 0.8 and fact.last_used == 30.0
+    store.reinforce_fact(fid, [4], now=40.0)  # no importance given: unchanged
+    assert store.current_facts("s")[0].importance == 0.8

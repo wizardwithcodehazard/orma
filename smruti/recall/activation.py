@@ -30,8 +30,9 @@ def merge_cues(*cue_sets: dict[int, float]) -> dict[int, float]:
 
 
 def spread(store: Store, space: str, cues: dict[int, float], max_hops: int, decay: float,
-           events: bool = True) -> tuple[dict[int, float], dict[int, float]]:
-    """Activation of current facts and of events after max_hops steps from the cues, as (facts, events).
+           events: bool = True) -> tuple[dict[int, float], dict[int, float], dict[int, float]]:
+    """Activation of current facts, of events and of entities after max_hops steps from the cues, as
+    (facts, events, entities); an entity's activation is its cue weight or the amount spreading carried to it.
     At step s each frontier entity e with activation a gives every incident fact and every event it took
     part in a * decay**s / fan(e), where fan(e) counts both; a fact's other endpoint entity carries that
     amount into the next frontier, while events are leaves. Entities are visited once, so activation never
@@ -39,6 +40,7 @@ def spread(store: Store, space: str, cues: dict[int, float], max_hops: int, deca
     activation: dict[int, float] = defaultdict(float)
     event_activation: dict[int, float] = defaultdict(float)
     frontier, visited = dict(cues), set(cues)
+    entity_activation = dict(cues)
     for step in range(max_hops):
         if not frontier:
             break
@@ -62,5 +64,6 @@ def spread(store: Store, space: str, cues: dict[int, float], max_hops: int, deca
                 if other is not None and other not in visited:
                     following[other] += amount
         visited |= following.keys()
+        entity_activation.update(following)
         frontier = following
-    return dict(activation), dict(event_activation)
+    return dict(activation), dict(event_activation), entity_activation

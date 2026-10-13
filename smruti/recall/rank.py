@@ -35,6 +35,17 @@ def similarity_weight(novelty_scores: list[float], percentile: float, warmup: in
     return lambda sim: min(1.0, max(0.0, (sim - floor) / (1.0 - floor)))
 
 
+def base_level(evidence_times, now: float, decay: float) -> float:
+    """ACT-R base-level activation (as strength, not its log): sum over evidence times t of
+    (age_days(t) + 1) ** -decay. One fresh evidence gives 1; each older or extra one adds less."""
+    return sum((max(0.0, now - t) / 86400.0 + 1.0) ** -decay for t in evidence_times)
+
+
+def importance_factor(importance: float, weight: float) -> float:
+    """Blend toward 1: with weight w, importance 0 scores 1 - w and importance 1 scores 1."""
+    return (1.0 - weight) + weight * importance
+
+
 def recency(last_used: float, now: float, half_life_days: float) -> float:
     """Exponential decay with the given half-life; never above 1."""
     age_days = max(0.0, now - last_used) / 86400.0

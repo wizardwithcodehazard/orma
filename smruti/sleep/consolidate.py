@@ -58,6 +58,12 @@ def utc_day(stamp: float):
     return datetime.fromtimestamp(stamp, timezone.utc).date()
 
 
+def surprise(episodes) -> float:
+    """Importance of what a batch yields: the mean novelty its episodes had when encoded (unknown: 0.5)."""
+    novelties = [0.5 if e.novelty is None else e.novelty for e in episodes]
+    return sum(novelties) / len(novelties) if novelties else 0.5
+
+
 class Consolidator:
     def __init__(self, store: Store, config: SmrutiConfig):
         self.store = store
@@ -72,6 +78,7 @@ class Consolidator:
         episode_ids = [e.id for e in episodes]
         default_time = min((e.created_at for e in episodes), default=now)
         evidence_time = max((e.created_at for e in episodes), default=now)  # recency follows the evidence, not the sleep
+        importance = surprise(episodes)
         days = {utc_day(e.created_at) for e in episodes}
         touched: set[int] = set()
         report = ConsolidationReport()
@@ -88,9 +95,10 @@ class Consolidator:
 
         for index, fact in sorted(facts, key=start):
             self._fact(space, fact, entities, resolved, episode_ids, default_time, days, now, evidence_time, report,
-                       agreed=index in agreed)
+                       agreed=index in agreed, importance=importance)
         for event in events if self.config.enable_events else []:
-            self._event(space, event, entities, resolved, episode_ids, default_time, days, now, evidence_time, report)
+            self._event(space, event, entities, resolved, episode_ids, default_time, days, now, evidence_time, report,
+                        importance)
         # Procedures come from tool turns; chat alone yields junk "lessons".
         for procedure in extraction.procedures if any(e.role == "tool" for e in episodes) else []:
             self._procedure(space, procedure, episode_ids, touched, evidence_time, report)
@@ -186,7 +194,7 @@ class Consolidator:
         return known.id if known is not None else None
 
     def _fact(self, space, fact: ExtractedFact, types, resolved, episode_ids, default_time, days, now, evidence_time,
-              report, agreed: bool = False) -> int:
+              report, agreed: bool = False, importance: float = 0.5) -> int:
         """Adds or reinforces the fact (an agreed fact counts as two observations); returns the id of the
         graph fact it landed on."""
         subject_id = resolved.get(fact.subject.lower()) or self._entity(space, fact.subject, types.get(fact.subject), now)
@@ -219,7 +227,7 @@ class Consolidator:
         report.facts_agreed += int(agreed)
         match = next((f for f in current if same(f, fuzzy=True)), None)
         if match is not None:
-            self.store.reinforce_fact(match.id, episode_ids, evidence_time, count=observations)
+            self.store.reinforce_fact(match.id, episode_ids, evidence_time, count=observations, importance=importance)
             report.facts_reinforced += 1
             return match.id
 
@@ -243,13 +251,13 @@ class Consolidator:
                         closed += 1
             fact_id = self.store.add_fact(space, subject_id, predicate_id, object_id, object_value, valid_from,
                                           episode_ids, now=evidence_time, valid_to=valid_to, vec=vec,
-                                          valid_from_stated=stated, support=observations)
+                                          valid_from_stated=stated, support=observations, importance=importance)
         report.facts_closed += closed
         report.facts_added += 1
         return fact_id
 
     def _event(self, space, event: ExtractedEvent, types, resolved, episode_ids, default_time, days, now,
-               evidence_time, report) -> None:
+               evidence_time, report, importance: float) -> None:
         """Records the event unless this batch already recorded a near-identical one (a retry, or the same
         event extracted twice)."""
         vec = self.store.embed(event.gist)
@@ -260,7 +268,7 @@ class Consolidator:
                         for name in event.participants]
         stated = self._stated_time(event, days)
         self.store.add_event(space, event.gist, default_time if stated is None else stated, stated is not None,
-                             participants, episode_ids, vec=vec, now=evidence_time)
+                             participants, episode_ids, vec=vec, now=evidence_time, importance=importance)
         report.events_added += 1
 
     def _procedure(self, space: str, procedure: ExtractedProcedure, episode_ids, touched: set[int],

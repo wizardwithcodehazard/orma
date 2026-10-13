@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS facts (
     valid_to REAL,
     last_used REAL NOT NULL,
     source_episode_ids TEXT NOT NULL DEFAULT '[]',
-    valid_from_stated INTEGER NOT NULL DEFAULT 0
+    valid_from_stated INTEGER NOT NULL DEFAULT 0,
+    evidence_times TEXT NOT NULL DEFAULT '[]',
+    importance REAL NOT NULL DEFAULT 0.5
 );
 CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(space, subject_id, valid_to);
 CREATE INDEX IF NOT EXISTS idx_facts_object ON facts(space, object_id, valid_to);
@@ -102,7 +104,8 @@ CREATE TABLE IF NOT EXISTS events (
     occurred_at REAL NOT NULL,
     occurred_stated INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
-    source_episode_ids TEXT NOT NULL DEFAULT '[]'
+    source_episode_ids TEXT NOT NULL DEFAULT '[]',
+    importance REAL NOT NULL DEFAULT 0.5
 );
 CREATE INDEX IF NOT EXISTS idx_events_sources ON events(space, source_episode_ids);
 
@@ -136,12 +139,21 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the first release: (table, column, declaration), added to older databases on open.
+MIGRATIONS = (
+    ("procedures", "source_episode_ids", "TEXT NOT NULL DEFAULT '[]'"),
+    ("facts", "valid_from_stated", "INTEGER NOT NULL DEFAULT 0"),
+    ("facts", "evidence_times", "TEXT NOT NULL DEFAULT '[]'"),  # empty: read as [last_used]
+    ("facts", "importance", "REAL NOT NULL DEFAULT 0.5"),
+    ("events", "importance", "REAL NOT NULL DEFAULT 0.5"),
+)
+
+
 def init_schema(conn: sqlite3.Connection, dim: int) -> None:
     conn.executescript(SCHEMA)
-    if "source_episode_ids" not in {r["name"] for r in conn.execute("PRAGMA table_info(procedures)")}:
-        conn.execute("ALTER TABLE procedures ADD COLUMN source_episode_ids TEXT NOT NULL DEFAULT '[]'")
-    if "valid_from_stated" not in {r["name"] for r in conn.execute("PRAGMA table_info(facts)")}:
-        conn.execute("ALTER TABLE facts ADD COLUMN valid_from_stated INTEGER NOT NULL DEFAULT 0")
+    for table, column, declaration in MIGRATIONS:
+        if column not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
     row = conn.execute("SELECT value FROM meta WHERE key = 'embedding_dim'").fetchone()
     if row is None:
         conn.execute("INSERT INTO meta (key, value) VALUES ('embedding_dim', ?)", (str(dim),))
