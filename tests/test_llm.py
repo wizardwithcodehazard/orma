@@ -102,3 +102,13 @@ def test_json_schema_rejected_with_4xx_falls_back_to_json_object_and_is_remember
 def test_json_schema_server_error_is_not_a_fallback():
     with pytest.raises(LLMError):
         client(lambda request: httpx.Response(500, text="boom")).chat_json([], schema=SCHEMA)
+
+
+def test_auth_or_model_errors_do_not_disable_schema_decoding():
+    def handler(request):
+        return httpx.Response(401, json={"error": "bad key"})
+
+    c = client(handler)
+    with pytest.raises(LLMError):
+        c.chat_json([], schema={"type": "object"})
+    assert c.json_schema_supported is True

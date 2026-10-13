@@ -11,6 +11,10 @@ import httpx
 RETRY_REMINDER = {"role": "user", "content": "Return only a valid JSON object."}
 
 
+# Statuses a runtime returns for a request shape it does not support
+SCHEMA_UNSUPPORTED_STATUSES = {400, 422}
+
+
 class LLMError(RuntimeError):
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
@@ -79,8 +83,8 @@ class LLMClient:
             try:
                 return self.chat(messages, model=model, temperature=temperature, response_format=response_format)
             except LLMError as exc:
-                if exc.status is None or not 400 <= exc.status < 500:
-                    raise
+                if exc.status not in SCHEMA_UNSUPPORTED_STATUSES:
+                    raise  # auth, unknown model, server errors: not a json_schema problem
                 self.json_schema_supported = False
         return self.chat(messages, model=model, json_mode=True, temperature=temperature)
 
