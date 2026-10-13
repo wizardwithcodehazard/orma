@@ -9,6 +9,7 @@ without confidence), and pack into the token budget.
 
 import threading
 import time
+from datetime import datetime
 from dataclasses import dataclass
 
 from smruti.config import SmrutiConfig
@@ -90,7 +91,8 @@ class Recaller:
         # Reserve the "\n\n" joining system text and memory, then cost the real final content.
         reserved = count_tokens(system_text, cfg.chars_per_token) + (
             count_tokens(SEPARATOR, cfg.chars_per_token) if system_text else 0)
-        packed = pack(core, ranked, turns, budget - reserved, cfg.chars_per_token, cfg.min_recent_turns)
+        today = datetime.fromtimestamp(now).date().isoformat()  # local calendar date of the request
+        packed = pack(core, ranked, turns, budget - reserved, cfg.chars_per_token, cfg.min_recent_turns, today)
         final = self._assemble(system_text, packed)
         tokens = sum(count_tokens(message_text(m), cfg.chars_per_token) for m in final)
         return RecallResult(final, packed.memory_text, tokens, packed.used)

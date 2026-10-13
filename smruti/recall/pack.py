@@ -42,10 +42,15 @@ class Packed:
     tokens: int = 0
 
 
-def render(items: list[MemoryItem]) -> str:
+def framing(today: str = "") -> str:
+    """The framing line; today's date lets the model reason about when remembered events happened."""
+    return f"{FRAMING} Today is {today}." if today else FRAMING
+
+
+def render(items: list[MemoryItem], today: str = "") -> str:
     if not items:
         return ""
-    lines = ["## Memory", FRAMING]
+    lines = ["## Memory", framing(today)]
     for section, title in SECTIONS.items():
         texts = [item.text for item in items if item.section == section]
         if texts:
@@ -54,7 +59,7 @@ def render(items: list[MemoryItem]) -> str:
     return "\n".join(lines)
 
 
-def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: int) -> Packed:
+def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: int, today: str = "") -> Packed:
     def cost(text: str) -> int:
         return count_tokens(text, chars_per_token)
 
@@ -72,13 +77,13 @@ def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: i
         if item.section not in titled:
             added.insert(0, f"{SECTIONS[item.section]}:")
         if lines == 0:
-            added[:0] = ["## Memory", FRAMING]
+            added[:0] = ["## Memory", framing(today)]
         with_item = chars + sum(len(line) for line in added) + len(added) - (lines == 0)
         if math.ceil(with_item / chars_per_token) + kept_cost <= budget:
             used.append(item)
             titled.add(item.section)
             chars, lines = with_item, lines + len(added)
-    memory_text = render(used)
+    memory_text = render(used, today)
 
     remaining = budget - cost(memory_text) - kept_cost
     extra: list[dict] = []

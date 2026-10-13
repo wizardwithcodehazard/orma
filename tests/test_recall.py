@@ -55,7 +55,9 @@ def test_core_block_holds_confident_user_facts(store, config):
     store.reinforce_fact(ids["lives"], [2])
     store.reinforce_fact(ids["lives"], [3])  # support 3 -> confidence 0.75
     text = Recaller(store, config).build("s", [{"role": "user", "content": "hello"}]).memory_text
-    assert text.startswith("## Memory\n" + FRAMING + "\nKnown facts about the user:\n- user lives in Pune")
+    lines = text.splitlines()
+    assert lines[0] == "## Memory" and lines[1].startswith(FRAMING)
+    assert lines[2:4] == ["Known facts about the user:", "- user lives in Pune"]
     assert text.count("user lives in Pune") == 1
 
 
@@ -458,3 +460,12 @@ def test_events_rank_by_when_they_were_learned_and_their_importance(store, confi
     assert order() == [surprising, learned_today, learned_long_ago]
     config.enable_base_level = False  # old: recency of occurred_at, no importance
     assert order()[-1] == learned_today
+
+
+def test_memory_block_states_todays_date(store, config):
+    from datetime import datetime
+
+    build_graph(store)
+    now = datetime(2026, 10, 13, 12, 0).timestamp()
+    text = Recaller(store, config).build("s", [{"role": "user", "content": "hello"}], now=now).memory_text
+    assert "Today is 2026-10-13." in text.splitlines()[1]
