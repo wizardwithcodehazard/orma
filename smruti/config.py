@@ -49,6 +49,10 @@ class SmrutiConfig:
     sleep_idle_seconds: float = 120.0
     sleep_batch_episodes: int = 12
     sleep_max_attempts: int = 3
+    sleep_prompt_tokens: int = 3000
+    sleep_max_episode_chars: int = 1500
+    sleep_context_predicates: int = 30
+    sleep_lease_seconds: float = 600.0
     entity_merge_threshold: float = 0.85
     predicate_merge_threshold: float = 0.8
     procedure_merge_threshold: float = 0.85
@@ -62,6 +66,7 @@ class SmrutiConfig:
     enable_graph: bool = True
     enable_core_block: bool = True
     enable_similarity_weighting: bool = True
+    enable_episode_recall: bool = True
 
     @property
     def db_path(self) -> Path:

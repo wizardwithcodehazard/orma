@@ -80,8 +80,8 @@ def test_similar_entities_merge_only_when_types_match(store, config):
 def test_procedures_accumulate_evidence(store, config):
     proc = {"procedures": [{"trigger": "npm run build fails with missing vite", "action": "npm install vite",
                             "polarity": "works"}]}
-    apply(store, config, proc)
-    report = apply(store, config, proc)
+    apply(store, config, proc, ids=[1])
+    report = apply(store, config, proc, ids=[2])
     assert report.procedures_reinforced == 1
     found, _ = store.nearest_procedure("s", store.embed("When npm run build fails with missing vite: npm install vite"))
     assert found.successes == 2
@@ -161,3 +161,59 @@ def test_entity_literal_flip_reinforces(store, config):
     apply(store, config, LIVES_PUNE, ids=[2])
     (fact,) = store.current_facts("s")
     assert fact.support == 2 and len(store.fact_history("s")) == 1
+
+
+PROC = {"procedures": [{"trigger": "npm run build fails with missing vite", "action": "npm install vite",
+                        "polarity": "works"}]}
+PROC_QUERY = "When npm run build fails with missing vite: npm install vite"
+
+
+def test_procedure_evidence_is_idempotent_per_batch(store, config):
+    apply(store, config, PROC, ids=[1, 2])
+    apply(store, config, PROC, ids=[1, 2])  # retry of the same batch
+    found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
+    assert found.successes == 1 and found.source_episode_ids == [1, 2]
+    apply(store, config, PROC, ids=[3])  # a new batch is new evidence
+    found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
+    assert found.successes == 2 and found.source_episode_ids == [1, 2, 3]
+
+
+def test_similar_procedures_in_one_batch_both_count(store, config):
+    both = {"procedures": PROC["procedures"] + [dict(PROC["procedures"][0], polarity="fails")]}
+    apply(store, config, both, ids=[1])
+    found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
+    assert (found.successes, found.failures) == (1, 1)
+
+
+def test_close_and_insert_of_a_fact_are_atomic(store, config):
+    apply(store, config, LIVES_PUNE, now=100.0)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("insert failed")
+
+    store.add_fact = boom
+    try:
+        apply(store, config, lives("Bangalore"), ids=[2], now=200.0)
+    except RuntimeError:
+        pass
+    assert [f.object for f in store.current_facts("s")] == ["Pune"]  # the close was rolled back
+
+
+def test_fact_is_embedded_before_the_transaction(store, config):
+    apply(store, config, LIVES_PUNE)
+    in_tx = []
+    real = store.embed
+    store.embed = lambda text: (in_tx.append(store.conn.in_transaction), real(text))[1]
+    apply(store, config, lives("Bangalore"), ids=[2], now=200.0)
+    assert in_tx and not any(in_tx)
+
+
+def test_recency_is_evidence_time_not_sleep_time(store, config):
+    apply(store, config, {**LIVES_PUNE, **PROC}, ids=[1], now=500.0, at=50.0)
+    (fact,) = store.current_facts("s")
+    assert fact.last_used == 50.0
+    apply(store, config, {**LIVES_PUNE, **PROC}, ids=[2], now=900.0, at=80.0)
+    (fact,) = store.current_facts("s")
+    assert fact.last_used == 80.0
+    found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
+    assert found.last_used == 80.0

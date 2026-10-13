@@ -31,7 +31,6 @@ class Encoder:
         similarities = [sim for kind in NOVELTY_SOURCES for _, sim in self.store.vec_search(kind, space, vec, 1)]
         novelty = 1.0 - max(similarities, default=0.0)
         history = self.store.novelty_scores(space)
-        self.store.push_novelty(space, novelty, self.config.novelty_window)
 
         if outcome is None and self._redundant(novelty, history):
             # Bump only the episode this turn duplicates, never an unrelated one when a
@@ -43,6 +42,10 @@ class Encoder:
             return EncodeResult(False, None, novelty)
 
         episode_id = self.store.add_episode(space, role, text, outcome, novelty, vec, now=now)
+        if similarities:
+            # Only stored turns that found a neighbour sample the similarity distribution recall calibrates
+            # against: dropped near-duplicates would inflate it, and an empty space has no neighbour to score.
+            self.store.push_novelty(space, novelty, self.config.novelty_window)
         return EncodeResult(True, episode_id, novelty)
 
     def _redundant(self, novelty: float, history: list[float]) -> bool:

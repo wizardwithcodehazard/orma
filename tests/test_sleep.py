@@ -66,3 +66,57 @@ def test_unexpected_extract_or_apply_error_counts_as_failed_attempt(store, confi
     sleeper.consolidator.apply = boom
     assert sleeper.run("s").failed_batches == 1
     assert store.pending_episodes("s", 10) == []
+
+
+def test_second_sleeper_does_nothing_while_the_lease_is_held(store, config, fake_llm):
+    Encoder(store, config).encode("s", "user", "I live in Pune")
+    assert store.acquire_sleep_lease("s", "someone-else", ttl=600, now=__import__("time").time())
+    llm = fake_llm([PUNE])
+    report = Sleeper(store, config, llm).run("s")
+    assert report.batches == 0 and llm.calls == []
+    assert len(store.pending_episodes("s", 10)) == 1
+    store.release_sleep_lease("s", "someone-else")
+    assert Sleeper(store, config, llm).run("s").batches == 1
+    assert store.acquire_sleep_lease("s", "next", ttl=600, now=__import__("time").time())  # released afterwards
+
+
+def test_batches_respect_the_prompt_token_budget(store, config, fake_llm):
+    config.sleep_prompt_tokens = 30
+    config.sleep_max_episode_chars = 1000
+    enc = Encoder(store, config)
+    for text in ["aa " * 20, "bb " * 20, "cc " * 20]:  # ~60 chars = ~18 tokens each
+        enc.encode("s", "user", text)
+    llm = fake_llm([{"facts": []}] * 3)
+    report = Sleeper(store, config, llm).run("s")
+    assert (report.batches, report.episodes) == (3, 3)  # one per batch, none over budget
+    for call in llm.calls:
+        log = call[1]["content"].split("<log>\n")[1].split("\n</log>")[0]
+        assert len(log) <= config.sleep_prompt_tokens * config.chars_per_token
+
+
+def test_oversized_episode_is_truncated_to_the_budget(store, config, fake_llm):
+    config.sleep_prompt_tokens = 20
+    Encoder(store, config).encode("s", "tool", "x" * 5000)
+    llm = fake_llm([{"facts": []}])
+    assert Sleeper(store, config, llm).run("s").episodes == 1
+    log = llm.calls[0][1]["content"].split("<log>\n")[1].split("\n</log>")[0]
+    assert 0 < len(log) <= 20 * config.chars_per_token
+
+
+def test_episode_char_cap_is_configurable(store, config, fake_llm):
+    config.sleep_max_episode_chars = 10
+    Encoder(store, config).encode("s", "user", "y" * 100)
+    llm = fake_llm([{"facts": []}])
+    Sleeper(store, config, llm).run("s")
+    content = llm.calls[0][1]["content"]
+    assert "y" * 10 in content and "y" * 11 not in content
+
+
+def test_context_lists_only_the_nearest_predicates(store, config, fake_llm):
+    config.sleep_context_predicates = 1
+    for name in ["lives_in", "works_at", "likes"]:
+        store.add_predicate("s", name, "one")
+    Encoder(store, config).encode("s", "user", "where does the user work, works at")
+    llm = fake_llm([{"facts": []}])
+    Sleeper(store, config, llm).run("s")
+    assert "KNOWN PREDICATES: works_at\n" in llm.calls[0][1]["content"]

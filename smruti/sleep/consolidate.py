@@ -13,6 +13,7 @@ from smruti.config import SmrutiConfig
 from smruti.recall.pack import count_tokens
 from smruti.sleep.extract import ExtractedFact, ExtractedProcedure, Extraction
 from smruti.store import USER_ENTITY, Store
+from smruti.store.records import fact_text
 
 
 @dataclass
@@ -57,12 +58,14 @@ class Consolidator:
         now = time.time() if now is None else now
         episode_ids = [e.id for e in episodes]
         default_time = min((e.created_at for e in episodes), default=now)
+        evidence_time = max((e.created_at for e in episodes), default=now)  # recency follows the evidence, not the sleep
+        touched: set[int] = set()
         report = ConsolidationReport()
         resolved = {name.lower(): self._entity(space, name, type_, now) for name, type_ in extraction.entities.items()}
         for fact in sorted(extraction.facts, key=lambda f: parse_time(f.time, default_time)):
-            self._fact(space, fact, extraction.entities, resolved, episode_ids, default_time, now, report)
+            self._fact(space, fact, extraction.entities, resolved, episode_ids, default_time, now, evidence_time, report)
         for procedure in extraction.procedures:
-            self._procedure(space, procedure, now, report)
+            self._procedure(space, procedure, episode_ids, touched, evidence_time, report)
         for topic, text in extraction.summaries.items():
             self._summary(space, topic, text, now)
             report.summaries_updated += 1
@@ -102,7 +105,8 @@ class Consolidator:
         known = self.store.find_entity(space, name)
         return known.id if known is not None else None
 
-    def _fact(self, space, fact: ExtractedFact, types, resolved, episode_ids, default_time, now, report) -> None:
+    def _fact(self, space, fact: ExtractedFact, types, resolved, episode_ids, default_time, now, evidence_time,
+              report) -> None:
         subject_id = resolved.get(fact.subject.lower()) or self._entity(space, fact.subject, types.get(fact.subject), now)
         object_id = self._object_entity(space, fact.object, resolved, now)
         object_value = None if object_id is not None else fact.object
@@ -120,33 +124,47 @@ class Consolidator:
             return  # this batch already contributed this fact (retry or duplicate)
         match = next((f for f in current if same(f)), None)
         if match is not None:
-            self.store.reinforce_fact(match.id, episode_ids, now)
+            self.store.reinforce_fact(match.id, episode_ids, evidence_time)
             report.facts_reinforced += 1
             return
 
         valid_from = parse_time(fact.time, default_time)
-        valid_to = None
-        if self.store.predicate(predicate_id).cardinality == "one":
-            later = [old.valid_from for old in current if old.valid_from > valid_from]
-            if later:
-                valid_to = min(later)  # historical: the existing newer fact stays current
-            else:
-                for old in current:
-                    self.store.close_fact(old.id, max(valid_from, old.valid_from))
-                    report.facts_closed += 1
-        self.store.add_fact(space, subject_id, predicate_id, object_id, object_value, valid_from, episode_ids,
-                            now=now, valid_to=valid_to)
+        text = fact_text(self.store.entity(subject_id).name, self.store.predicate(predicate_id).name,
+                         self.store.entity(object_id).name if object_id else object_value)
+        vec = self.store.embed(text)  # inference before the lock, so the transaction below stays short
+        with self.store.tx():  # close + insert together: a reader never sees a one-valued relation without a value
+            valid_to = None
+            closed = 0
+            if self.store.predicate(predicate_id).cardinality == "one":
+                later = [old.valid_from for old in current if old.valid_from > valid_from]
+                if later:
+                    valid_to = min(later)  # historical: the existing newer fact stays current
+                else:
+                    for old in current:
+                        self.store.close_fact(old.id, max(valid_from, old.valid_from))
+                        closed += 1
+            self.store.add_fact(space, subject_id, predicate_id, object_id, object_value, valid_from, episode_ids,
+                                now=evidence_time, valid_to=valid_to, vec=vec)
+        report.facts_closed += closed
         report.facts_added += 1
 
-    def _procedure(self, space: str, procedure: ExtractedProcedure, now: float, report) -> None:
+    def _procedure(self, space: str, procedure: ExtractedProcedure, episode_ids, touched: set[int],
+                   evidence_time: float, report) -> None:
         vec = self.store.embed(f"When {procedure.trigger}: {procedure.action}")
         nearest = self.store.nearest_procedure(space, vec)
         if nearest is not None and nearest[1] >= self.config.procedure_merge_threshold:
-            self.store.add_procedure_evidence(nearest[0].id, procedure.works, now)
+            found = nearest[0]
+            # Idempotent per batch: skip when an earlier apply of this batch already counted here (a procedure
+            # touched earlier in this same apply may still take further evidence from the batch).
+            if found.id not in touched and set(episode_ids) <= set(found.source_episode_ids):
+                return
+            self.store.add_procedure_evidence(found.id, procedure.works, evidence_time, episode_ids)
+            touched.add(found.id)
             report.procedures_reinforced += 1
         else:
-            self.store.add_procedure(space, procedure.trigger, procedure.action, procedure.error_class or None,
-                                     procedure.works, vec=vec, now=now)
+            touched.add(self.store.add_procedure(space, procedure.trigger, procedure.action,
+                                                 procedure.error_class or None, procedure.works, vec=vec,
+                                                 now=evidence_time, source_episode_ids=episode_ids))
             report.procedures_added += 1
 
     def _summary(self, space: str, topic: str, text: str, now: float) -> None:

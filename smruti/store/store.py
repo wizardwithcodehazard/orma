@@ -123,6 +123,16 @@ class Store:
         )
         return [from_row(Episode, r) for r in rows]
 
+    def pending_by_ids(self, space: str, ids) -> list[Episode]:
+        """The given episodes that are still unconsolidated in the space, in the order given."""
+        ids = list(ids)
+        if not ids:
+            return []
+        rows = {r["id"]: r for r in self._rows(
+            f"SELECT * FROM episodes WHERE space = ? AND consolidated_at IS NULL AND id IN ({_placeholders(ids)})",
+            [space, *ids])}
+        return [from_row(Episode, rows[i]) for i in ids if i in rows]
+
     def pending_stats(self) -> list[tuple[str, int, float]]:
         """(space, pending count, newest pending created_at) for every space with pending episodes."""
         rows = self._rows(
@@ -162,6 +172,25 @@ class Store:
                 index.text_drop(c, "episodes", episode_id)
         return len(ids)
 
+    # --- Sleep lease -------------------------------------------------------------------
+
+    def acquire_sleep_lease(self, space: str, holder: str, ttl: float, now: float) -> bool:
+        """Takes (or renews) the space's sleep lease unless another holder's is still valid."""
+        with self.tx() as c:
+            row = c.execute("SELECT holder, expires_at FROM sleep_leases WHERE space = ?", (space,)).fetchone()
+            if row is not None and row["holder"] != holder and row["expires_at"] > now:
+                return False
+            c.execute(
+                "INSERT INTO sleep_leases (space, holder, expires_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(space) DO UPDATE SET holder = excluded.holder, expires_at = excluded.expires_at",
+                (space, holder, now + ttl),
+            )
+            return True
+
+    def release_sleep_lease(self, space: str, holder: str) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM sleep_leases WHERE space = ? AND holder = ?", (space, holder))
+
     # --- Novelty statistics ------------------------------------------------------------
 
     def novelty_scores(self, space: str) -> list[float]:
@@ -181,9 +210,14 @@ class Store:
 
     def user_entity(self, space: str, now=None) -> int:
         """The entity for the person chatting; created on first use."""
+        sql = "SELECT id FROM entities WHERE space = ? AND name = ?"
+        rows = self._rows(sql, (space, USER_ENTITY))
+        if rows:
+            return rows[0]["id"]
+        vec = self.embed(USER_ENTITY)  # inference stays outside the lock
         with self.lock:
-            rows = self._rows("SELECT id FROM entities WHERE space = ? AND name = ?", (space, USER_ENTITY))
-            return rows[0]["id"] if rows else self.add_entity(space, USER_ENTITY, "person", now=now)
+            rows = self._rows(sql, (space, USER_ENTITY))
+            return rows[0]["id"] if rows else self.add_entity(space, USER_ENTITY, "person", vec=vec, now=now)
 
     def add_entity(self, space: str, name: str, type_: str, vec=None, now=None) -> int:
         vec = self.embed(name) if vec is None else vec
@@ -250,13 +284,14 @@ class Store:
     # --- Facts -------------------------------------------------------------------------
 
     def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None,
-                 valid_to=None) -> int:
-        """Inserts a fact with one observation of support (confidence 1/2); current unless valid_to is given."""
+                 valid_to=None, vec=None) -> int:
+        """Inserts a fact with one observation of support (confidence 1/2); current unless valid_to is given.
+        Pass a precomputed vec (of the rendered text) to keep inference out of the caller's transaction."""
         subject = self.entity(subject_id).name
         predicate = self.predicate(predicate_id).name
         object_ = self.entity(object_id).name if object_id else object_value
         text = fact_text(subject, predicate, object_)
-        vec = self.embed(text)  # inference stays outside the lock and transaction
+        vec = self.embed(text) if vec is None else vec  # inference stays outside the lock and transaction
         with self.tx() as c:
             fact_id = c.execute(
                 "INSERT INTO facts (space, subject_id, predicate_id, object_id, object_value, confidence, support, "
@@ -346,25 +381,30 @@ class Store:
 
     # --- Procedures --------------------------------------------------------------------
 
-    def add_procedure(self, space, trigger, action, error_class, works: bool, vec=None, now=None) -> int:
+    def add_procedure(self, space, trigger, action, error_class, works: bool, vec=None, now=None,
+                      source_episode_ids=()) -> int:
         indexed = f"When {trigger}: {action}"
         vec = self.embed(indexed) if vec is None else vec
         now = _now(now)
         with self.tx() as c:
             procedure_id = c.execute(
-                "INSERT INTO procedures (space, trigger, action, error_class, successes, failures, created_at, last_used) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (space, trigger, action, error_class, int(works), int(not works), now, now),
+                "INSERT INTO procedures (space, trigger, action, error_class, successes, failures, created_at, last_used, "
+                "source_episode_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (space, trigger, action, error_class, int(works), int(not works), now, now,
+                 json.dumps(sorted(set(source_episode_ids)))),
             ).lastrowid
             index.vec_put(c, "procedures", procedure_id, space, vec)
             index.text_put(c, "procedures", procedure_id, space, indexed)
         return procedure_id
 
-    def add_procedure_evidence(self, procedure_id: int, works: bool, now=None) -> None:
+    def add_procedure_evidence(self, procedure_id: int, works: bool, now=None, source_episode_ids=()) -> None:
         column = "successes" if works else "failures"
         with self.tx() as c:
+            row = c.execute("SELECT source_episode_ids FROM procedures WHERE id = ?", (procedure_id,)).fetchone()
+            sources = sorted(set(json.loads(row["source_episode_ids"])) | set(source_episode_ids))
             c.execute(
-                f"UPDATE procedures SET {column} = {column} + 1, last_used = ? WHERE id = ?", (_now(now), procedure_id)
+                f"UPDATE procedures SET {column} = {column} + 1, last_used = ?, source_episode_ids = ? WHERE id = ?",
+                (_now(now), json.dumps(sources), procedure_id),
             )
 
     def procedures(self, ids) -> list[Procedure]:

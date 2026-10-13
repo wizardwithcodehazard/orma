@@ -3,6 +3,7 @@ embed.py - Text embeddings, the neural similarity primitive used for novelty, en
 and retrieval. Vectors are L2-normalized float32, so cosine similarity is a dot product.
 """
 
+import threading
 from typing import Protocol
 
 import numpy as np
@@ -38,12 +39,15 @@ class FastEmbedder:
         self.model_name = model_name
         self.dim = dim
         self._model = None
+        self._load_lock = threading.Lock()
 
     def embed(self, texts: list[str]) -> np.ndarray:
         if not texts:
             return np.zeros((0, self.dim), dtype=np.float32)
         if self._model is None:
-            from fastembed import TextEmbedding
+            with self._load_lock:
+                if self._model is None:
+                    from fastembed import TextEmbedding
 
-            self._model = TextEmbedding(model_name=self.model_name)
+                    self._model = TextEmbedding(model_name=self.model_name)
         return normalize(np.asarray(list(self._model.embed(texts))))

@@ -196,3 +196,38 @@ def test_candidate_facts_are_bounded(store, config):
     ranked = Recaller(store, config)._ranked("s", "tell me about user stuff", now=1.0)
     facts = [item for item in ranked if item.section == "facts"]
     assert 0 < len(facts) <= config.max_candidate_facts
+
+
+def test_pending_episodes_are_recalled_before_sleep(store, config):
+    from smruti.encode import Encoder
+
+    Encoder(store, config).encode("s", "user", "my sister Asha is allergic to peanuts", now=1.0)
+    result = Recaller(store, config).build("s", [{"role": "user", "content": "what is Asha allergic to"}], now=1.0)
+    assert "Recent notes:" in result.memory_text
+    assert "- my sister Asha is allergic to peanuts" in result.memory_text
+
+    config.enable_episode_recall = False
+    ablated = Recaller(store, config).build("s", [{"role": "user", "content": "what is Asha allergic to"}], now=1.0)
+    assert ablated.memory_text == ""
+
+
+def test_consolidated_episodes_and_current_turns_are_not_recalled_as_notes(store, config):
+    from smruti.encode import Encoder
+
+    a = Encoder(store, config).encode("s", "user", "my sister Asha is allergic to peanuts", now=1.0).episode_id
+    Encoder(store, config).encode("s", "user", "Asha plays the violin on weekends", now=1.0)
+    store.mark_consolidated([a], 2.0)
+    query = [{"role": "user", "content": "Asha plays the violin on weekends"}]
+    assert Recaller(store, config).build("s", query, now=1.0).memory_text == ""  # b is in the request itself
+    other = [{"role": "user", "content": "what does Asha play or eat, peanuts violin"}]
+    text = Recaller(store, config).build("s", other, now=1.0).memory_text
+    assert "violin on weekends" in text and "allergic" not in text
+
+
+def test_notes_pack_after_summaries(store, config):
+    from smruti.encode import Encoder
+
+    store.upsert_summary("s", "asha", "Asha is a sister who is allergic", 8, now=1.0)
+    Encoder(store, config).encode("s", "user", "Asha is allergic to peanuts", now=1.0)
+    text = Recaller(store, config).build("s", [{"role": "user", "content": "Asha allergic"}], now=1.0).memory_text
+    assert text.index("Background:") < text.index("Recent notes:")

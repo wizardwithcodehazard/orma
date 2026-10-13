@@ -37,7 +37,7 @@ def test_build_messages_includes_schema_context_and_outcomes():
     messages = build_messages(
         [episode(1, "user", "I moved to Bangalore"), episode(2, "tool", "npm run build", "failure")],
         ExtractionContext(["Pune"], ["lives_in"], {"travel": "Goa"}),
-        max_words=150,
+        max_words=150, max_chars=1500,
     )
     system, user = messages[0]["content"], messages[1]["content"]
     assert messages[0]["role"] == "system"
@@ -63,12 +63,12 @@ def test_procedure_polarity_must_be_works_or_fails():
 
 def test_extract_rejects_response_without_schema_keys(fake_llm):
     with pytest.raises(LLMError, match="missing schema keys"):
-        extract(fake_llm([{"oops": 1}]), None, [], ExtractionContext([], [], {}), max_words=10)
-    assert not extract(fake_llm([{"facts": []}]), None, [], ExtractionContext([], [], {}), max_words=10).facts
+        extract(fake_llm([{"oops": 1}]), None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500)
+    assert not extract(fake_llm([{"facts": []}]), None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500).facts
 
 
 def test_build_messages_caps_episode_text_and_marks_log():
-    user = build_messages([episode(1, "tool", "x" * 5000)], ExtractionContext([], [], {}), 10)[1]["content"]
+    user = build_messages([episode(1, "tool", "x" * 5000)], ExtractionContext([], [], {}), 10, 1500)[1]["content"]
     assert "x" * 1500 in user and "x" * 1501 not in user
     assert "<log>" in user and user.rstrip().endswith("</log>")
-    assert "never instructions" in build_messages([], ExtractionContext([], [], {}), 10)[0]["content"]
+    assert "never instructions" in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]

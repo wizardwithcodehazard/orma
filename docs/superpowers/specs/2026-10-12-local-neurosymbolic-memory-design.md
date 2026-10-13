@@ -54,7 +54,8 @@ Every row carries a `space` column (default `"default"`). A space is a memory na
 | `predicates` | id, space, name, cardinality (`one`/`many`), embedding | Normalized relation vocabulary, learned during sleep. |
 | `facts` | id, space, subject_id, predicate_id, object_id (nullable), object_value (nullable), confidence, support, valid_from, valid_to, last_used, source_episode_ids | Graph edges. Current facts have `valid_to IS NULL`. Never deleted; closed. |
 | `summaries` | id, space, topic_entity_id (nullable), text, embedding, period_start, period_end, tokens | One rolling summary per topic, rewritten each sleep. |
-| `procedures` | id, space, trigger, action, error_class, successes, failures, created_at, last_used | "When X → do / avoid Y". Polarity is the majority outcome (works if successes ≥ failures). Covers coding-agent failure memory. |
+| `procedures` | id, space, trigger, action, error_class, successes, failures, created_at, last_used, source_episode_ids | "When X → do / avoid Y". Polarity is the majority outcome (works if successes ≥ failures). Covers coding-agent failure memory. `source_episode_ids` makes evidence idempotent per batch. |
+| `sleep_leases` | space, holder, expires_at | One sleeper per space (`sleep_lease_seconds`, 600). `predicates(space, name)` is unique. |
 | `novelty_stats` | space, recent_scores (JSON ring buffer of last 500) | For the adaptive novelty gate. |
 
 Indexes: FTS5 over `episodes.text`, `facts` (rendered text), `summaries.text`, `procedures.trigger`. sqlite-vec tables for episodes, entities, predicates, summaries, procedures (384-dim, `BAAI/bge-small-en-v1.5` via fastembed).
@@ -65,7 +66,7 @@ Indexes: FTS5 over `episodes.text`, `facts` (rendered text), `summaries.text`, `
 
 1. Embed the text.
 2. novelty = 1 − max cosine similarity to the space's 50 nearest episodes, facts and summaries.
-3. Adaptive gate: during warm-up (< 50 scores in the space) always store. Afterwards, if novelty < the `novelty_percentile` (10th) of the space's recent scores, do not store; increment `seen_count` of the nearest episode instead. Always append the score to the ring buffer.
+3. Adaptive gate: during warm-up (< 50 scores in the space) always store. Afterwards, if novelty < the `novelty_percentile` (10th) of the space's recent scores, do not store; increment `seen_count` of the nearest episode instead. Append the score to the ring buffer only for turns that are stored and had at least one neighbour (dropped near-duplicates and the first turn of an empty space would skew the recall similarity floor).
 4. Store the episode. Tool episodes carry `outcome`.
 
 ## 6. Recall (per request, no LLM, target < 40 ms)
@@ -79,7 +80,7 @@ Input: space, incoming messages, token budget (default `budget_tokens` 4096 minu
 4. **Score** = relevance × recency (exp decay on `last_used`, half-life `recency_half_life_days` 14) × confidence. For facts, relevance = fused search score + spread activation (`hop_decay` default 0.6); with `enable_graph` off it is the search score alone. Only the `max_candidate_facts` (64) most relevant facts are scored, so a long tail of faintly activated facts cannot starve procedures and summaries.
 5. **Pack**, in this fixed order, until the budget is used:
    1. *Core block*: current facts about `user` with confidence ≥ `core_min_confidence` (0.7), sorted by (predicate, id) for a stable, cache-friendly prefix.
-   2. Relevant facts, then procedures, then summaries, by score.
+   2. Relevant facts, then procedures, then summaries, then recent notes (pending, not yet consolidated episodes, found by the same fused search and skipped when already in the request; `enable_episode_recall`), by score.
    3. Recent raw turns from the client's messages, newest first; the last 2 are always kept.
 6. Rendered as a `## Memory` section appended to the client's system prompt (or sent as the system message if there is none). Recall is read-only: `last_used` changes only when new evidence arrives, so retrieval never reinforces memory and the request path does no writes.
 
@@ -87,9 +88,9 @@ Token counting: the upstream `/tokenize` endpoint when available (llama.cpp), el
 
 ## 7. Sleep (idle, uses the same local LLM)
 
-Per space, over unconsolidated episodes in batches of `sleep_batch_episodes` (12):
+Per space, holding the space's lease, over unconsolidated episodes in batches of up to `sleep_batch_episodes` (12) whose formatted log fits `sleep_prompt_tokens` (3000; an episode is cut at `sleep_max_episode_chars`, 1500, or less to fit):
 
-1. **Extract (neural)**: one JSON-mode call per batch. The prompt provides the batch text, the names of currently linked entities, the existing predicate vocabulary, and the output schema:
+1. **Extract (neural)**: one JSON-mode call per batch. The prompt provides the batch text, the names of currently linked entities, the `sleep_context_predicates` (30) predicates nearest to the batch, and the output schema:
    ```json
    {"entities": [{"name": "", "type": ""}],
     "facts": [{"subject": "", "predicate": "", "object": "", "cardinality": "one|many", "time": "optional ISO date"}],
@@ -102,7 +103,7 @@ Per space, over unconsolidated episodes in batches of `sleep_batch_episodes` (12
    - **Predicates**: normalize to an existing predicate when similarity ≥ `predicate_merge_threshold` (0.8); else create with the extracted cardinality.
    - **Facts**: the same (subject, predicate, object) already current → `support += 1`, confidence recomputed. On a `one`-cardinality predicate, a different object closes the previous current fact (`valid_to = time or now`) and inserts the new one. `many` → insert.
    - **Confidence** = support / (support + 1) for facts; Beta mean (successes + 1) / (successes + failures + 2) for procedures.
-   - **Procedures**: merge by trigger and action similarity ≥ 0.85, adding to successes or failures by polarity.
+   - **Procedures**: merge by trigger and action similarity ≥ 0.85, adding to successes or failures by polarity once per batch (tracked in `source_episode_ids`). Each fact's close + insert is one transaction. `last_used` of facts and procedures is the batch's latest episode time, not the sleep time.
    - **Summaries**: replace the topic's summary with the extracted text; cap at `summary_max_tokens` (200).
 3. Mark the batch consolidated; delete episodes older than the retention period; decay procedures (not facts) unused for `procedure_ttl_days` (30) and below confidence 0.5.
 
@@ -125,7 +126,7 @@ Per space, over unconsolidated episodes in batches of `sleep_batch_episodes` (12
 - The proxy fails open: any memory error → log it and forward the original request untouched.
 - The upstream is unreachable → return the upstream error to the client unchanged.
 - A sleep failure on a batch leaves it unconsolidated; it is retried next cycle; after 3 failures the batch is marked `consolidated` with an error note to avoid loops.
-- SQLite runs in WAL mode with one writer thread in the proxy; readers use separate connections.
+- SQLite runs in WAL mode with one writer thread in the proxy; one shared connection serves all threads, guarded by a re-entrant lock; embedding runs outside the lock and write transactions.
 
 ## 11. Testing
 - Unit tests per module with a fake LLM (deterministic JSON fixtures) and a real SQLite file in a temporary directory.

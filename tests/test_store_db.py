@@ -95,3 +95,22 @@ def test_index_functions_reject_unknown_kind(conn):
         index.text_search(conn, "bogus", "a", "x", 1)
     with pytest.raises(ValueError):
         index.text_put(conn, "predicates", 1, "a", "x")  # predicates have no text index
+
+
+def test_existing_database_gains_procedure_sources_column(tmp_path):
+    c = connect(tmp_path / "old.db")
+    init_schema(c, 4)
+    c.execute("ALTER TABLE procedures DROP COLUMN source_episode_ids")
+    init_schema(c, 4)
+    c.execute("INSERT INTO procedures (space, trigger, action, created_at, last_used) VALUES ('s', 't', 'a', 1, 1)")
+    assert c.execute("SELECT source_episode_ids FROM procedures").fetchone()[0] == "[]"
+    c.close()
+
+
+def test_predicate_names_are_unique_per_space(store):
+    import sqlite3
+
+    store.add_predicate("s", "lives_in", "one")
+    store.add_predicate("t", "lives_in", "one")
+    with pytest.raises(sqlite3.IntegrityError):
+        store.add_predicate("s", "lives_in", "one")

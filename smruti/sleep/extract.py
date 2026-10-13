@@ -72,9 +72,6 @@ class ExtractionContext:
     summaries: dict[str, str]
 
 
-MAX_EPISODE_CHARS = 1500
-
-
 def _text(value) -> str:
     if isinstance(value, (int, float, bool)):
         return str(value)
@@ -109,27 +106,27 @@ def parse_extraction(data: dict) -> Extraction:
     return out
 
 
-def _format_episode(episode) -> str:
+def format_episode(episode, max_chars: int) -> str:
     outcome = f" [outcome: {episode.outcome}]" if episode.outcome else ""
-    return f"[{episode.role}]{outcome} {episode.text[:MAX_EPISODE_CHARS]}"
+    return f"[{episode.role}]{outcome} {episode.text[:max_chars]}"
 
 
-def build_messages(episodes, context: ExtractionContext, max_words: int) -> list[dict]:
+def build_messages(episodes, context: ExtractionContext, max_words: int, max_chars: int) -> list[dict]:
     summaries = "\n".join(f"- {topic}: {text}" for topic, text in context.summaries.items()) or "(none)"
     known = (
         f"KNOWN ENTITIES: {', '.join(context.entities) or '(none)'}\n"
         f"KNOWN PREDICATES: {', '.join(context.predicates) or '(none)'}\n"
         f"EXISTING SUMMARIES:\n{summaries}"
     )
-    log = "\n".join(_format_episode(e) for e in episodes)
+    log = "\n".join(format_episode(e, max_chars) for e in episodes)
     return [
         {"role": "system", "content": INSTRUCTIONS.format(schema=json.dumps(SCHEMA, indent=1), max_words=max_words)},
         {"role": "user", "content": f"{known}\n\n<log>\n{log}\n</log>"},
     ]
 
 
-def extract(llm, model, episodes, context: ExtractionContext, max_words: int) -> Extraction:
-    data = llm.chat_json(build_messages(episodes, context, max_words), model=model)
+def extract(llm, model, episodes, context: ExtractionContext, max_words: int, max_chars: int) -> Extraction:
+    data = llm.chat_json(build_messages(episodes, context, max_words, max_chars), model=model)
     if not any(key in data for key in SCHEMA):
         raise LLMError("extraction missing schema keys")
     return parse_extraction(data)

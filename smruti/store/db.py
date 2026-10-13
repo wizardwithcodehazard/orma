@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS predicates (
     name TEXT NOT NULL,
     cardinality TEXT NOT NULL CHECK (cardinality IN ('one', 'many'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_predicates_name ON predicates(space, name);
 
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY,
@@ -82,8 +83,11 @@ CREATE TABLE IF NOT EXISTS procedures (
     successes INTEGER NOT NULL DEFAULT 0,
     failures INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
-    last_used REAL NOT NULL
+    last_used REAL NOT NULL,
+    source_episode_ids TEXT NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS sleep_leases (space TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at REAL NOT NULL);
 
 CREATE TABLE IF NOT EXISTS novelty_stats (space TEXT PRIMARY KEY, scores TEXT NOT NULL);
 """
@@ -108,6 +112,8 @@ def connect(path: Path) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection, dim: int) -> None:
     conn.executescript(SCHEMA)
+    if "source_episode_ids" not in {r["name"] for r in conn.execute("PRAGMA table_info(procedures)")}:
+        conn.execute("ALTER TABLE procedures ADD COLUMN source_episode_ids TEXT NOT NULL DEFAULT '[]'")
     row = conn.execute("SELECT value FROM meta WHERE key = 'embedding_dim'").fetchone()
     if row is None:
         conn.execute("INSERT INTO meta (key, value) VALUES ('embedding_dim', ?)", (str(dim),))

@@ -44,7 +44,8 @@ class Recaller:
 
         core = self._core(space)
         core_ids = {item.id for item in core}
-        ranked = [item for item in self._ranked(space, query, now)
+        said = {message_text(m).strip() for m in turns}
+        ranked = [item for item in self._ranked(space, query, now, said)
                   if not (item.section == "facts" and item.id in core_ids)]
         # Reserve the "\n\n" joining system text and memory, then cost the real final content.
         reserved = count_tokens(system_text, cfg.chars_per_token) + (
@@ -64,7 +65,7 @@ class Recaller:
                  if f.confidence >= self.config.core_min_confidence]
         return [MemoryItem("core", f.id, f.text) for f in sorted(facts, key=lambda f: (f.predicate, f.id))]
 
-    def _ranked(self, space: str, query: str, now: float) -> list[MemoryItem]:
+    def _ranked(self, space: str, query: str, now: float, said: frozenset[str] = frozenset()) -> list[MemoryItem]:
         cfg = self.config
         if not query:
             return []
@@ -75,7 +76,7 @@ class Recaller:
             kind: rrf([(i, weight(sim)) for i, sim in self.store.vec_search(kind, space, vec, cfg.search_k)],
                       [(hit.id, hit.query_coverage) for hit in self.store.text_search(kind, space, query, cfg.search_k)],
                       k=cfg.rrf_k)
-            for kind in SEARCHED_KINDS
+            for kind in SEARCHED_KINDS + (("episodes",) if cfg.enable_episode_recall else ())
         }
         hits = self.store.facts(sorted(fused["facts"]))
         activation: dict[int, float] = {}
@@ -100,9 +101,13 @@ class Recaller:
                       for p in self.store.procedures(sorted(fused["procedures"]))]
         summaries = [(fused["summaries"][s.id] * fresh(s.updated_at), MemoryItem("summaries", s.id, f"{s.topic}: {s.text}"))
                      for s in self.store.summaries(sorted(fused["summaries"]))]
+        # Pending episodes carry what no sleep has consolidated yet; turns already in this request are skipped.
+        episodes = [(fused["episodes"][e.id] * fresh(e.created_at), MemoryItem("episodes", e.id, e.text))
+                    for e in self.store.pending_by_ids(space, sorted(fused.get("episodes", ())))
+                    if e.text.strip() not in said]
 
         ordered: list[MemoryItem] = []
-        for group in (facts, procedures, summaries):
+        for group in (facts, procedures, summaries, episodes):
             ordered.extend(item for _, item in sorted(group, key=lambda pair: (-pair[0], pair[1].id)))
         return ordered
 

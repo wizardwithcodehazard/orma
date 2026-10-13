@@ -30,24 +30,26 @@ class Memory:
         self.llm = llm or (LLMClient(upstream, model=model) if upstream else None)
         self.model = model
 
-    def build_context(self, messages: list[dict], space: str = "default", budget: int | None = None) -> list[dict]:
+    def build_context(self, messages: list[dict], space: str = "default", budget: int | None = None,
+                      now=None) -> list[dict]:
         """The messages to send upstream: memory merged into the system prompt, trimmed to budget."""
-        return self.recaller.build(space, messages, budget).messages
+        return self.recaller.build(space, messages, budget, now=now).messages
 
-    def observe(self, role: str, text: str, space: str = "default", outcome: str | None = None) -> EncodeResult:
-        return self.encoder.encode(space, role, text, outcome)
+    def observe(self, role: str, text: str, space: str = "default", outcome: str | None = None,
+                now=None) -> EncodeResult:
+        return self.encoder.encode(space, role, text, outcome, now=now)
 
-    def chat(self, messages: list[dict], space: str = "default") -> str:
+    def chat(self, messages: list[dict], space: str = "default", now=None) -> str:
         llm = self._require_llm()
-        reply = llm.chat(self.build_context(messages, space), model=self.model)
+        reply = llm.chat(self.build_context(messages, space, now=now), model=self.model)
         user_text = next((message_text(m) for m in reversed(messages) if m.get("role") == "user"), "")
         if user_text:
-            self.observe("user", user_text, space)
-        self.observe("assistant", reply, space)
+            self.observe("user", user_text, space, now=now)
+        self.observe("assistant", reply, space, now=now)
         return reply
 
-    def sleep(self, space: str = "default") -> SleepReport:
-        return Sleeper(self.store, self.config, self._require_llm(), self.model).run(space)
+    def sleep(self, space: str = "default", now=None) -> SleepReport:
+        return Sleeper(self.store, self.config, self._require_llm(), self.model).run(space, now)
 
     def facts(self, entity: str | None = None, space: str = "default", include_closed: bool = False) -> list[Fact]:
         subject_id = None
@@ -60,10 +62,10 @@ class Memory:
             return self.store.fact_history(space, subject_id)
         return self.store.current_facts(space, subject_id=subject_id)
 
-    def forget(self, fact_id: int) -> bool:
-        """Ends a fact's validity now; returns False if it was not current."""
+    def forget(self, fact_id: int, space: str = "default") -> bool:
+        """Ends a fact's validity now; returns False if it is not a current fact of the space."""
         found = self.store.facts([fact_id])
-        if not found or found[0].valid_to is not None:
+        if not found or found[0].space != space or found[0].valid_to is not None:
             return False
         self.store.close_fact(fact_id, time.time())
         return True

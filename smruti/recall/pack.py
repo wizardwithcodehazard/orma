@@ -14,6 +14,7 @@ SECTIONS = {
     "facts": "Relevant facts",
     "procedures": "Lessons from past actions",
     "summaries": "Background",
+    "episodes": "Recent notes",
 }
 
 

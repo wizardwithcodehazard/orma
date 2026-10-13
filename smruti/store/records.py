@@ -9,6 +9,8 @@ def fact_text(subject: str, predicate: str, object_: str) -> str:
 
 
 def from_row(cls, row):
+    if hasattr(cls, "from_row"):
+        return cls.from_row(row)
     return cls(**{f.name: row[f.name] for f in fields(cls)})
 
 
@@ -93,6 +95,13 @@ class Procedure:
     failures: int
     created_at: float
     last_used: float
+    source_episode_ids: list[int]
+
+    @classmethod
+    def from_row(cls, row) -> "Procedure":
+        values = {f.name: row[f.name] for f in fields(cls)}
+        values["source_episode_ids"] = json.loads(values["source_episode_ids"])
+        return cls(**values)
 
     @property
     def works(self) -> bool:
