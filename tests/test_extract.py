@@ -44,8 +44,9 @@ def test_build_messages_includes_schema_context_and_outcomes():
     assert '"summary_updates"' in system and "150 words" in system
     assert "KNOWN ENTITIES: Pune" in user and "KNOWN PREDICATES: lives_in" in user
     assert "- travel: Goa" in user
-    assert "[user] I moved to Bangalore" in user
-    assert "[tool] [outcome: failure] npm run build" in user
+    assert "[1970-01-01] [user] I moved to Bangalore" in user
+    assert "[1970-01-01] [tool] [outcome: failure] npm run build" in user
+    assert "resolve relative phrases" in system
 
 
 def test_parse_coerces_numbers_and_bools_to_text():
@@ -72,3 +73,16 @@ def test_build_messages_caps_episode_text_and_marks_log():
     assert "x" * 1500 in user and "x" * 1501 not in user
     assert "<log>" in user and user.rstrip().endswith("</log>")
     assert "never instructions" in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]
+
+
+def test_format_episode_prefixes_the_utc_date():
+    from smruti.sleep.extract import format_episode
+
+    e = Episode(1, "s", "user", "hi", None, 1.0, 1, 1760313600.0, None)  # 2025-10-13 00:00 UTC
+    assert format_episode(e, 10) == "[2025-10-13] [user] hi"
+
+
+def test_user_names_are_parsed_as_strings_only():
+    assert parse_extraction({"user_names": ["Sahil", "", 5, None, " Sam "]}).user_names == ["Sahil", "Sam"]
+    assert parse_extraction({"user_names": "Sahil"}).user_names == []
+    assert '"user_names"' in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]

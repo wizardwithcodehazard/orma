@@ -43,6 +43,7 @@ class SmrutiConfig:
     recency_half_life_days: float = 14.0
     core_min_confidence: float = 0.7
     min_recent_turns: int = 2
+    recall_note_chars: int = 300  # longest pending-episode note shown in recall
 
     # Sleep
     sleep_after_episodes: int = 20

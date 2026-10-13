@@ -32,6 +32,8 @@ def proxy(
     from smruti.serve.proxy import create_app
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     memory = _memory(upstream, model)
     typer.echo(f"smruti proxy on http://{host}:{port}/v1 -> {upstream} (memory: {memory.config.db_path})")
     app_ = create_app(memory, upstream, default_space=space, sleep_poll_seconds=sleep_poll or None)

@@ -15,3 +15,7 @@ def test_data_dir_comes_from_env(monkeypatch, tmp_path):
 def test_data_dir_falls_back_to_home(monkeypatch):
     monkeypatch.delenv("SMRUTI_DIR", raising=False)
     assert SmrutiConfig().data_dir == Path.home() / ".smruti"
+
+
+def test_recall_note_chars_default():
+    assert SmrutiConfig().recall_note_chars == 300

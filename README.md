@@ -102,7 +102,7 @@ Principles:
 - Facts have time validity. When a one-valued fact changes ("lives in Pune" to "lives in Mumbai"), the old fact is closed (it gets a `valid_to`), not deleted. `smruti facts --history` shows closed facts.
 - Recall uses spreading activation with the fan effect. Entities mentioned in the query pass activation along their facts, divided among all of an entity's facts, so a hub like `user` gives each fact a small share and a specific entity gives its few facts a lot.
 - An adaptive novelty gate drops turns that add nothing new relative to what that space has recently seen. Tool turns with outcomes are always kept.
-- Tool calls and results become procedures ("when X, doing Y fails" or "works") that are recalled as lessons next time.
+- Only tool calls and results become procedures ("when X, doing Y fails" or "works") that are recalled as lessons next time.
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

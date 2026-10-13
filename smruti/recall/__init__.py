@@ -102,14 +102,19 @@ class Recaller:
         summaries = [(fused["summaries"][s.id] * fresh(s.updated_at), MemoryItem("summaries", s.id, f"{s.topic}: {s.text}"))
                      for s in self.store.summaries(sorted(fused["summaries"]))]
         # Pending episodes carry what no sleep has consolidated yet; turns already in this request are skipped.
-        episodes = [(fused["episodes"][e.id] * fresh(e.created_at), MemoryItem("episodes", e.id, e.text))
+        # Only what the user or a tool said: assistant replies are long and still reach sleep.
+        episodes = [(fused["episodes"][e.id] * fresh(e.created_at), MemoryItem("episodes", e.id, self._note(e.text)))
                     for e in self.store.pending_by_ids(space, sorted(fused.get("episodes", ())))
-                    if e.text.strip() not in said]
+                    if e.role in ("user", "tool") and e.text.strip() not in said]
 
         ordered: list[MemoryItem] = []
         for group in (facts, procedures, summaries, episodes):
             ordered.extend(item for _, item in sorted(group, key=lambda pair: (-pair[0], pair[1].id)))
         return ordered
+
+    def _note(self, text: str) -> str:
+        limit = self.config.recall_note_chars
+        return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "…"
 
     @staticmethod
     def _assemble(system_text: str, packed: Packed) -> list[dict]:

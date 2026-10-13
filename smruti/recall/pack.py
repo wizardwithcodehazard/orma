@@ -18,6 +18,10 @@ SECTIONS = {
 }
 
 
+FRAMING = ("Things remembered from earlier conversations with this user (the person you are talking to). "
+           "Use them when relevant; do not mention this list.")
+
+
 def count_tokens(text: str, chars_per_token: float) -> int:
     return math.ceil(len(text) / chars_per_token)
 
@@ -40,7 +44,7 @@ class Packed:
 def render(items: list[MemoryItem]) -> str:
     if not items:
         return ""
-    lines = ["## Memory"]
+    lines = ["## Memory", FRAMING]
     for section, title in SECTIONS.items():
         texts = [item.text for item in items if item.section == section]
         if texts:
@@ -67,7 +71,7 @@ def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: i
         if item.section not in titled:
             added.insert(0, f"{SECTIONS[item.section]}:")
         if lines == 0:
-            added.insert(0, "## Memory")
+            added[:0] = ["## Memory", FRAMING]
         with_item = chars + sum(len(line) for line in added) + len(added) - (lines == 0)
         if math.ceil(with_item / chars_per_token) + kept_cost <= budget:
             used.append(item)

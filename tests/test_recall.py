@@ -1,6 +1,7 @@
 import pytest
 
 from smruti.recall import Recaller
+from smruti.recall.pack import FRAMING
 
 
 def build_graph(store):
@@ -26,7 +27,7 @@ def test_memory_is_appended_to_the_system_prompt(store, config):
         "s", [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "Where should I travel?"}]
     )
     assert out.messages[0]["role"] == "system"
-    assert out.messages[0]["content"].startswith("Be brief.\n\n## Memory")
+    assert out.messages[0]["content"].startswith("Be brief.\n\n## Memory\n" + FRAMING)
     assert "- user lives in Pune" in out.memory_text
     assert out.messages[-1] == {"role": "user", "content": "Where should I travel?"}
 
@@ -54,7 +55,7 @@ def test_core_block_holds_confident_user_facts(store, config):
     store.reinforce_fact(ids["lives"], [2])
     store.reinforce_fact(ids["lives"], [3])  # support 3 -> confidence 0.75
     text = Recaller(store, config).build("s", [{"role": "user", "content": "hello"}]).memory_text
-    assert text.startswith("## Memory\nKnown facts about the user:\n- user lives in Pune")
+    assert text.startswith("## Memory\n" + FRAMING + "\nKnown facts about the user:\n- user lives in Pune")
     assert text.count("user lives in Pune") == 1
 
 
@@ -112,7 +113,7 @@ def test_hub_fan_does_not_drown_cue_related_facts(store, config):
     store.add_fact("s", user, store.add_predicate("s", "has_sister", "many"), asha, None, 1.0, [100], now=1.0)
     store.add_fact("s", asha, store.add_predicate("s", "is_allergic_to", "many"), None, "peanuts", 1.0, [101], now=1.0)
     out = Recaller(store, config).build(
-        "s", [{"role": "user", "content": "I'm baking cookies for my sister, any ideas?"}], budget=80, now=1.0)
+        "s", [{"role": "user", "content": "I'm baking cookies for my sister, any ideas?"}], budget=120, now=1.0)
     assert 3 <= len(memory_lines(out.memory_text)) <= 6
     assert "- Asha is allergic to peanuts" in out.memory_text
 
@@ -231,3 +232,23 @@ def test_notes_pack_after_summaries(store, config):
     Encoder(store, config).encode("s", "user", "Asha is allergic to peanuts", now=1.0)
     text = Recaller(store, config).build("s", [{"role": "user", "content": "Asha allergic"}], now=1.0).memory_text
     assert text.index("Background:") < text.index("Recent notes:")
+
+
+def test_notes_skip_assistant_episodes_and_cap_length(store, config):
+    from smruti.encode import Encoder
+
+    config.recall_note_chars = 40
+    Encoder(store, config).encode("s", "assistant", "Asha peanuts allergy: here is a long reply about it", now=1.0)
+    Encoder(store, config).encode("s", "user", "Asha is allergic to peanuts and also to many other things", now=1.0)
+    text = Recaller(store, config).build("s", [{"role": "user", "content": "Asha allergic peanuts"}], now=1.0).memory_text
+    notes = memory_lines(text)
+    assert len(notes) == 1 and "long reply" not in text
+    assert len(notes[0]) - 2 == 40 and notes[0].endswith("…") and notes[0].startswith("- Asha is allergic")
+
+
+def test_tool_episodes_are_recalled_as_notes(store, config):
+    from smruti.encode import Encoder
+
+    Encoder(store, config).encode("s", "tool", "pytest passed for Asha module", now=1.0)
+    text = Recaller(store, config).build("s", [{"role": "user", "content": "Asha pytest module"}], now=1.0).memory_text
+    assert "- pytest passed for Asha module" in text

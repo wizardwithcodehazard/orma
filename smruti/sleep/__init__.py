@@ -97,7 +97,10 @@ class Sleeper:
     def _context(self, space: str, batch) -> ExtractionContext:
         cfg = self.config
         vec = self.store.embed(" ".join(e.text for e in batch))
-        entities = [entity.name for entity, _ in self.store.nearest_entities(space, vec, 20)]
+        entities = []
+        for entity, _ in self.store.nearest_entities(space, vec, 20):
+            aliases = self.store.aliases(entity.id)
+            entities.append(f"{entity.name} (also called: {', '.join(aliases)})" if aliases else entity.name)
         predicates = [p.name for p, _ in self.store.nearest_predicates(space, vec, cfg.sleep_context_predicates)]
         summary_ids = [i for i, _ in self.store.vec_search("summaries", space, vec, 3)]
         summaries = {s.topic: s.text for s in self.store.summaries(summary_ids)}

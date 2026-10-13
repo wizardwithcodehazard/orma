@@ -10,8 +10,8 @@ LIVES_PUNE = {
 }
 
 
-def apply(store, config, data, ids=(1,), now=100.0, at=None):
-    episodes = [Episode(i, "s", "user", "t", None, 1.0, 1, now if at is None else at, None) for i in ids]
+def apply(store, config, data, ids=(1,), now=100.0, at=None, role="user"):
+    episodes = [Episode(i, "s", role, "t", None, 1.0, 1, now if at is None else at, None) for i in ids]
     return Consolidator(store, config).apply("s", parse_extraction(data), episodes, now=now)
 
 
@@ -80,8 +80,8 @@ def test_similar_entities_merge_only_when_types_match(store, config):
 def test_procedures_accumulate_evidence(store, config):
     proc = {"procedures": [{"trigger": "npm run build fails with missing vite", "action": "npm install vite",
                             "polarity": "works"}]}
-    apply(store, config, proc, ids=[1])
-    report = apply(store, config, proc, ids=[2])
+    apply(store, config, proc, ids=[1], role="tool")
+    report = apply(store, config, proc, ids=[2], role="tool")
     assert report.procedures_reinforced == 1
     found, _ = store.nearest_procedure("s", store.embed("When npm run build fails with missing vite: npm install vite"))
     assert found.successes == 2
@@ -169,18 +169,18 @@ PROC_QUERY = "When npm run build fails with missing vite: npm install vite"
 
 
 def test_procedure_evidence_is_idempotent_per_batch(store, config):
-    apply(store, config, PROC, ids=[1, 2])
-    apply(store, config, PROC, ids=[1, 2])  # retry of the same batch
+    apply(store, config, PROC, ids=[1, 2], role="tool")
+    apply(store, config, PROC, ids=[1, 2], role="tool")  # retry of the same batch
     found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
     assert found.successes == 1 and found.source_episode_ids == [1, 2]
-    apply(store, config, PROC, ids=[3])  # a new batch is new evidence
+    apply(store, config, PROC, ids=[3], role="tool")  # a new batch is new evidence
     found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
     assert found.successes == 2 and found.source_episode_ids == [1, 2, 3]
 
 
 def test_similar_procedures_in_one_batch_both_count(store, config):
     both = {"procedures": PROC["procedures"] + [dict(PROC["procedures"][0], polarity="fails")]}
-    apply(store, config, both, ids=[1])
+    apply(store, config, both, ids=[1], role="tool")
     found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
     assert (found.successes, found.failures) == (1, 1)
 
@@ -209,11 +209,64 @@ def test_fact_is_embedded_before_the_transaction(store, config):
 
 
 def test_recency_is_evidence_time_not_sleep_time(store, config):
-    apply(store, config, {**LIVES_PUNE, **PROC}, ids=[1], now=500.0, at=50.0)
+    apply(store, config, {**LIVES_PUNE, **PROC}, ids=[1], now=500.0, at=50.0, role="tool")
     (fact,) = store.current_facts("s")
     assert fact.last_used == 50.0
-    apply(store, config, {**LIVES_PUNE, **PROC}, ids=[2], now=900.0, at=80.0)
+    apply(store, config, {**LIVES_PUNE, **PROC}, ids=[2], now=900.0, at=80.0, role="tool")
     (fact,) = store.current_facts("s")
     assert fact.last_used == 80.0
     found, _ = store.nearest_procedure("s", store.embed(PROC_QUERY))
     assert found.last_used == 80.0
+
+
+DAY = 86400.0
+
+
+def test_move_stated_before_inferred_fact_supersedes_it(store, config):
+    apply(store, config, lives("Pune"), ids=[1], now=100 * DAY, at=100 * DAY)  # no date: inferred valid_from
+    apply(store, config, lives("Bangalore", "1970-03-01"), ids=[2], now=200 * DAY, at=200 * DAY)
+    assert [f.object for f in store.current_facts("s")] == ["Bangalore"]
+    pune = [f for f in store.fact_history("s") if f.object == "Pune"][0]
+    assert pune.valid_to == 100 * DAY and not pune.valid_from_stated
+    (bangalore,) = store.current_facts("s")
+    assert bangalore.valid_from_stated
+
+
+def test_backdating_needs_both_times_stated(store, config):
+    apply(store, config, lives("Bangalore", "2026-06-01"), ids=[1])
+    apply(store, config, lives("Pune"), ids=[2], at=5.0)  # inferred time earlier than a stated fact
+    assert [f.object for f in store.current_facts("s")] == ["Pune"]
+
+
+def test_valid_from_stated_is_migrated_onto_old_databases(config, embedder):
+    from smruti.store import Store
+
+    store = Store(config, embedder)
+    store.conn.execute("ALTER TABLE facts DROP COLUMN valid_from_stated")
+    store.close()
+    store = Store(config, embedder)
+    user = store.user_entity("s")
+    lives_in = store.add_predicate("s", "lives_in", "one")
+    store.add_fact("s", user, lives_in, None, "Pune", 1.0, [1], valid_from_stated=True)
+    assert store.current_facts("s")[0].valid_from_stated is True
+    store.close()
+
+
+def test_user_names_attach_facts_to_user_entity(store, config):
+    apply(store, config, {
+        "user_names": ["Sahil"],
+        "entities": [{"name": "Sahil", "type": "person"}, {"name": "Pune", "type": "city"}],
+        "facts": [{"subject": "Sahil", "predicate": "lives_in", "object": "Pune", "cardinality": "one"}],
+    })
+    user = store.user_entity("s")
+    assert [(f.subject_id, f.text) for f in store.current_facts("s")] == [(user, "user lives in Pune")]
+    assert store.find_entity("s", "sahil").id == user
+    apply(store, config, {"facts": [{"subject": "SAHIL", "predicate": "likes", "object": "tea", "cardinality": "many"}]},
+          ids=[2])
+    assert {f.subject_id for f in store.current_facts("s")} == {user}
+
+
+def test_procedures_need_a_tool_episode_in_the_batch(store, config):
+    report = apply(store, config, PROC, ids=[1], role="user")
+    assert report.procedures_added == 0 and store.nearest_procedure("s", store.embed(PROC_QUERY)) is None
+    assert apply(store, config, PROC, ids=[2], role="tool").procedures_added == 1

@@ -30,7 +30,7 @@ class ConsolidationReport:
             setattr(self, f.name, getattr(self, f.name) + getattr(other, f.name))
 
 
-def parse_time(value: str, default: float) -> float:
+def parse_time(value: str, default: float | None) -> float | None:
     if not value:
         return default
     value = value.strip()
@@ -61,10 +61,15 @@ class Consolidator:
         evidence_time = max((e.created_at for e in episodes), default=now)  # recency follows the evidence, not the sleep
         touched: set[int] = set()
         report = ConsolidationReport()
+        user_id = self.store.user_entity(space, now) if extraction.user_names else None
+        for name in extraction.user_names:  # aliases first, so every name below resolves to the user
+            if name.lower() != USER_ENTITY:
+                self.store.add_alias(space, name, user_id)
         resolved = {name.lower(): self._entity(space, name, type_, now) for name, type_ in extraction.entities.items()}
         for fact in sorted(extraction.facts, key=lambda f: parse_time(f.time, default_time)):
             self._fact(space, fact, extraction.entities, resolved, episode_ids, default_time, now, evidence_time, report)
-        for procedure in extraction.procedures:
+        # Procedures come from tool turns; chat alone yields junk "lessons".
+        for procedure in extraction.procedures if any(e.role == "tool" for e in episodes) else []:
             self._procedure(space, procedure, episode_ids, touched, evidence_time, report)
         for topic, text in extraction.summaries.items():
             self._summary(space, topic, text, now)
@@ -128,7 +133,9 @@ class Consolidator:
             report.facts_reinforced += 1
             return
 
-        valid_from = parse_time(fact.time, default_time)
+        stated_time = parse_time(fact.time, None)
+        stated = stated_time is not None
+        valid_from = default_time if stated_time is None else stated_time
         text = fact_text(self.store.entity(subject_id).name, self.store.predicate(predicate_id).name,
                          self.store.entity(object_id).name if object_id else object_value)
         vec = self.store.embed(text)  # inference before the lock, so the transaction below stays short
@@ -136,7 +143,8 @@ class Consolidator:
             valid_to = None
             closed = 0
             if self.store.predicate(predicate_id).cardinality == "one":
-                later = [old.valid_from for old in current if old.valid_from > valid_from]
+                # Back-dating only compares two stated times; an inferred time is just when it was first seen.
+                later = [old.valid_from for old in current if stated and old.valid_from_stated and old.valid_from > valid_from]
                 if later:
                     valid_to = min(later)  # historical: the existing newer fact stays current
                 else:
@@ -144,7 +152,8 @@ class Consolidator:
                         self.store.close_fact(old.id, max(valid_from, old.valid_from))
                         closed += 1
             self.store.add_fact(space, subject_id, predicate_id, object_id, object_value, valid_from, episode_ids,
-                                now=evidence_time, valid_to=valid_to, vec=vec)
+                                now=evidence_time, valid_to=valid_to, vec=vec,
+                                valid_from_stated=stated)
         report.facts_closed += closed
         report.facts_added += 1
 

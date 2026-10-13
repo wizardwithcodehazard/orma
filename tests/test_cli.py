@@ -43,3 +43,23 @@ def test_recall_prints_the_memory_block(seeded):
 def test_stats_prints_json(seeded):
     data = json.loads(runner.invoke(cli.app, ["stats"]).output)
     assert data["space"] == "default" and data["current_facts"] == 1
+
+
+def test_proxy_quiets_http_client_loggers(seeded, monkeypatch):
+    import logging
+    import sys
+    import types
+
+    import smruti.serve.proxy as proxy_module
+
+    monkeypatch.setitem(sys.modules, "uvicorn", types.SimpleNamespace(run=lambda *a, **k: None))
+    monkeypatch.setattr(proxy_module, "create_app", lambda *a, **k: object())
+    saved = {name: logging.getLogger(name).level for name in ("httpx", "httpcore", "smruti")}
+    try:
+        runner.invoke(cli.app, ["proxy"])
+        assert logging.getLogger("httpx").level == logging.WARNING
+        assert logging.getLogger("httpcore").level == logging.WARNING
+        assert logging.getLogger("smruti").level == saved["smruti"]
+    finally:
+        for name, level in saved.items():
+            logging.getLogger(name).setLevel(level)

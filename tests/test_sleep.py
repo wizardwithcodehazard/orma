@@ -120,3 +120,11 @@ def test_context_lists_only_the_nearest_predicates(store, config, fake_llm):
     llm = fake_llm([{"facts": []}])
     Sleeper(store, config, llm).run("s")
     assert "KNOWN PREDICATES: works_at\n" in llm.calls[0][1]["content"]
+
+
+def test_known_entities_show_aliases(store, config, fake_llm):
+    store.add_alias("s", "Sahil", store.user_entity("s"))
+    Encoder(store, config).encode("s", "user", "hello there")
+    llm = fake_llm([{"facts": []}])
+    Sleeper(store, config, llm).run("s")
+    assert "user (also called: sahil)" in llm.calls[0][1]["content"]

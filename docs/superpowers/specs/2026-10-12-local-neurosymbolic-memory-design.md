@@ -52,7 +52,7 @@ Every row carries a `space` column (default `"default"`). A space is a memory na
 | `episodes` | id, space, role (`user`/`assistant`/`tool`), text, outcome (`null`/`success`/`failure`), embedding, novelty, seen_count, created_at, consolidated_at | Raw turns. Deleted `episode_retention_days` (7) after consolidation. |
 | `entities` | id, space, name, type, embedding, mention_count, last_seen | Graph nodes. The `user` entity (the person chatting) always exists. |
 | `predicates` | id, space, name, cardinality (`one`/`many`), embedding | Normalized relation vocabulary, learned during sleep. |
-| `facts` | id, space, subject_id, predicate_id, object_id (nullable), object_value (nullable), confidence, support, valid_from, valid_to, last_used, source_episode_ids | Graph edges. Current facts have `valid_to IS NULL`. Never deleted; closed. |
+| `facts` | id, space, subject_id, predicate_id, object_id (nullable), object_value (nullable), confidence, support, valid_from, valid_to, last_used, source_episode_ids, valid_from_stated | Graph edges. `valid_from_stated` is 1 when the extractor gave the date, 0 when `valid_from` was inferred from episode time. Current facts have `valid_to IS NULL`. Never deleted; closed. |
 | `summaries` | id, space, topic_entity_id (nullable), text, embedding, period_start, period_end, tokens | One rolling summary per topic, rewritten each sleep. |
 | `procedures` | id, space, trigger, action, error_class, successes, failures, created_at, last_used, source_episode_ids | "When X → do / avoid Y". Polarity is the majority outcome (works if successes ≥ failures). Covers coding-agent failure memory. `source_episode_ids` makes evidence idempotent per batch. |
 | `sleep_leases` | space, holder, expires_at | One sleeper per space (`sleep_lease_seconds`, 600). `predicates(space, name)` is unique. |
@@ -92,18 +92,20 @@ Per space, holding the space's lease, over unconsolidated episodes in batches of
 
 1. **Extract (neural)**: one JSON-mode call per batch. The prompt provides the batch text, the names of currently linked entities, the `sleep_context_predicates` (30) predicates nearest to the batch, and the output schema:
    ```json
-   {"entities": [{"name": "", "type": ""}],
+   {"user_names": ["names the person chatting uses for themself"],
+    "entities": [{"name": "", "type": ""}],
     "facts": [{"subject": "", "predicate": "", "object": "", "cardinality": "one|many", "time": "optional ISO date"}],
     "procedures": [{"trigger": "", "action": "", "polarity": "works|fails", "error_class": ""}],
     "summary_updates": [{"topic": "", "text": ""}]}
    ```
-   Invalid JSON is retried once at temperature 0, then the batch is skipped and left unconsolidated.
+   Each log line is prefixed with its episode date (`[YYYY-MM-DD] [role] ...`) so relative times resolve. Invalid JSON is retried once at temperature 0, then the batch is skipped and left unconsolidated.
 2. **Consolidate (symbolic)**:
+   - **User names**: `user_names` are stored as lowercased aliases of the `user` entity (table `entity_aliases`) before anything else in the batch is resolved; aliases are checked before name or similarity matching, so "Sahil" resolves to `user`.
    - **Entities**: merge into an existing entity when embedding similarity ≥ `entity_merge_threshold` (0.85) and the type matches; else create.
    - **Predicates**: normalize to an existing predicate when similarity ≥ `predicate_merge_threshold` (0.8); else create with the extracted cardinality.
-   - **Facts**: the same (subject, predicate, object) already current → `support += 1`, confidence recomputed. On a `one`-cardinality predicate, a different object closes the previous current fact (`valid_to = time or now`) and inserts the new one. `many` → insert.
+   - **Facts**: the same (subject, predicate, object) already current → `support += 1`, confidence recomputed. On a `one`-cardinality predicate, a different object closes the previous current fact (`valid_to = time or now`) and inserts the new one. `many` → insert. A new fact is inserted already closed (historical) only when its time and the current fact's `valid_from` were both stated; otherwise the newer observation supersedes: the old fact closes at max(new, old `valid_from`) and the new one is current.
    - **Confidence** = support / (support + 1) for facts; Beta mean (successes + 1) / (successes + failures + 2) for procedures.
-   - **Procedures**: merge by trigger and action similarity ≥ 0.85, adding to successes or failures by polarity once per batch (tracked in `source_episode_ids`). Each fact's close + insert is one transaction. `last_used` of facts and procedures is the batch's latest episode time, not the sleep time.
+   - **Procedures**: ignored unless the batch contains a `tool` episode; merge by trigger and action similarity ≥ 0.85, adding to successes or failures by polarity once per batch (tracked in `source_episode_ids`). Each fact's close + insert is one transaction. `last_used` of facts and procedures is the batch's latest episode time, not the sleep time.
    - **Summaries**: replace the topic's summary with the extracted text; cap at `summary_max_tokens` (200).
 3. Mark the batch consolidated; delete episodes older than the retention period; decay procedures (not facts) unused for `procedure_ttl_days` (30) and below confidence 0.5.
 

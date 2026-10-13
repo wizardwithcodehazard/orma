@@ -78,3 +78,12 @@ def test_nearest_predicate(store):
     predicate, sim = store.nearest_predicate("s", store.embed("lives in"))
     assert predicate.id == lives and predicate.cardinality == "one" and sim == pytest.approx(1.0)
     assert [p.name for p in store.predicates("s")] == ["lives_in"]
+
+
+def test_aliases_resolve_in_find_entity_and_are_listed(store):
+    user = store.user_entity("s")
+    store.add_alias("s", "Sahil", user)
+    store.add_alias("s", "SAHIL", store.add_entity("s", "Other", "person"))  # first writer keeps the alias
+    assert store.find_entity("s", " sahil ").id == user
+    assert store.find_entity("t", "sahil") is None
+    assert store.aliases(user) == ["sahil"]

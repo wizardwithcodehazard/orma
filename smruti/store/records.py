@@ -59,6 +59,7 @@ class Fact:
     valid_to: float | None
     last_used: float
     source_episode_ids: list[int]
+    valid_from_stated: bool
     subject: str
     predicate: str
     object: str
@@ -71,6 +72,7 @@ class Fact:
     def from_row(cls, row) -> "Fact":
         values = {f.name: row[f.name] for f in fields(cls)}
         values["source_episode_ids"] = json.loads(values["source_episode_ids"])
+        values["valid_from_stated"] = bool(values["valid_from_stated"])
         return cls(**values)
 
 

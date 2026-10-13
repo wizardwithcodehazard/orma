@@ -241,7 +241,22 @@ class Store:
         found = self._by_ids(Entity, "entities", [entity_id])
         return found[0] if found else None
 
+    def add_alias(self, space: str, alias: str, entity_id: int) -> None:
+        """Another name for an entity (stored lowercased); the first entity to claim an alias keeps it."""
+        with self.tx() as c:
+            c.execute("INSERT OR IGNORE INTO entity_aliases (space, alias, entity_id) VALUES (?, ?, ?)",
+                      (space, alias.strip().lower(), entity_id))
+
+    def aliases(self, entity_id: int) -> list[str]:
+        return [r["alias"] for r in self._rows(
+            "SELECT alias FROM entity_aliases WHERE entity_id = ? ORDER BY alias", (entity_id,))]
+
     def find_entity(self, space: str, name: str) -> Entity | None:
+        aliased = self._rows(
+            "SELECT e.* FROM entity_aliases a JOIN entities e ON e.id = a.entity_id WHERE a.space = ? AND a.alias = ?",
+            (space, name.strip().lower()))
+        if aliased:
+            return from_row(Entity, aliased[0])
         rows = self._rows(
             "SELECT * FROM entities WHERE space = ? AND lower(name) = lower(?) ORDER BY id LIMIT 1",
             (space, name.strip()),
@@ -284,7 +299,8 @@ class Store:
     # --- Facts -------------------------------------------------------------------------
 
     def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None,
-                 valid_to=None, vec=None) -> int:
+                 valid_to=None, vec=None,
+                 valid_from_stated: bool = False) -> int:
         """Inserts a fact with one observation of support (confidence 1/2); current unless valid_to is given.
         Pass a precomputed vec (of the rendered text) to keep inference out of the caller's transaction."""
         subject = self.entity(subject_id).name
@@ -295,9 +311,10 @@ class Store:
         with self.tx() as c:
             fact_id = c.execute(
                 "INSERT INTO facts (space, subject_id, predicate_id, object_id, object_value, confidence, support, "
-                "valid_from, valid_to, last_used, source_episode_ids) VALUES (?, ?, ?, ?, ?, 0.5, 1, ?, ?, ?, ?)",
+                "valid_from, valid_to, last_used, source_episode_ids, valid_from_stated) "
+                "VALUES (?, ?, ?, ?, ?, 0.5, 1, ?, ?, ?, ?, ?)",
                 (space, subject_id, predicate_id, object_id, object_value, valid_from, valid_to, _now(now),
-                 json.dumps(sorted(set(source_episode_ids)))),
+                 json.dumps(sorted(set(source_episode_ids))), int(valid_from_stated)),
             ).lastrowid
             if valid_to is None:  # closed facts stay out of the search indexes
                 index.vec_put(c, "facts", fact_id, space, vec)

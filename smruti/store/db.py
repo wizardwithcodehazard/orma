@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS entities (
 );
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(space, name);
 
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    space TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    entity_id INTEGER NOT NULL REFERENCES entities(id),
+    PRIMARY KEY (space, alias)
+);
+
 CREATE TABLE IF NOT EXISTS predicates (
     id INTEGER PRIMARY KEY,
     space TEXT NOT NULL,
@@ -59,7 +66,8 @@ CREATE TABLE IF NOT EXISTS facts (
     valid_from REAL NOT NULL,
     valid_to REAL,
     last_used REAL NOT NULL,
-    source_episode_ids TEXT NOT NULL DEFAULT '[]'
+    source_episode_ids TEXT NOT NULL DEFAULT '[]',
+    valid_from_stated INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(space, subject_id, valid_to);
 CREATE INDEX IF NOT EXISTS idx_facts_object ON facts(space, object_id, valid_to);
@@ -114,6 +122,8 @@ def init_schema(conn: sqlite3.Connection, dim: int) -> None:
     conn.executescript(SCHEMA)
     if "source_episode_ids" not in {r["name"] for r in conn.execute("PRAGMA table_info(procedures)")}:
         conn.execute("ALTER TABLE procedures ADD COLUMN source_episode_ids TEXT NOT NULL DEFAULT '[]'")
+    if "valid_from_stated" not in {r["name"] for r in conn.execute("PRAGMA table_info(facts)")}:
+        conn.execute("ALTER TABLE facts ADD COLUMN valid_from_stated INTEGER NOT NULL DEFAULT 0")
     row = conn.execute("SELECT value FROM meta WHERE key = 'embedding_dim'").fetchone()
     if row is None:
         conn.execute("INSERT INTO meta (key, value) VALUES ('embedding_dim', ?)", (str(dim),))

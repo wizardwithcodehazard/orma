@@ -1,6 +1,6 @@
 import pytest
 
-from smruti.recall.pack import MemoryItem, count_tokens, pack
+from smruti.recall.pack import FRAMING, MemoryItem, count_tokens, pack
 from smruti.recall.rank import recency, rrf
 
 
@@ -62,7 +62,7 @@ def test_pack_keeps_last_turns_and_respects_budget():
     assert packed.turns == turns[-2:]
     assert packed.tokens <= 100
     assert 0 < len(packed.used) < 50
-    assert packed.memory_text.startswith("## Memory\nRelevant facts:\n- fact number 0")
+    assert packed.memory_text.startswith(f"## Memory\n{FRAMING}\nRelevant facts:\n- fact number 0")
 
 
 def test_pack_orders_sections_and_adds_older_turns_when_room():
@@ -79,3 +79,10 @@ def test_pack_orders_sections_and_adds_older_turns_when_room():
 def test_pack_without_memory_has_no_header():
     packed = pack([], [], [{"role": "user", "content": "hi"}], 100, 3.5, 2)
     assert packed.memory_text == "" and packed.used == []
+
+
+def test_pack_token_count_is_exact_with_the_framing_line():
+    items = [MemoryItem("facts", i, f"fact number {i}") for i in range(50)]
+    for budget in range(10, 120, 7):
+        packed = pack([], items, [], budget=budget, chars_per_token=3.5, min_recent=0)
+        assert packed.tokens == count_tokens(packed.memory_text, 3.5) <= budget
