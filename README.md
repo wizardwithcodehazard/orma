@@ -73,6 +73,14 @@ OpenCode (`opencode.json`, check OpenCode's docs for the current format):
 
 Memory spaces keep users or projects apart. A request picks its space with the `X-Smruti-Space` header, or else the request's `user` field; otherwise the proxy's `--space` default (`default`) is used.
 
+Notes on the proxy:
+
+- Pass `--model` to choose the model used for sleep. Otherwise the first model a client requests is adopted, which may be a small helper model.
+- Send `X-Smruti-Skip: 1` on requests that should not touch memory (chat titles, autocomplete, other helper calls). They get no recall, are not recorded, and the header is not forwarded.
+- Chat requests must be `application/json`; anything else gets a 415. This blocks cross-site form posts from poisoning memory.
+- Secrets (API keys, bearer tokens, private keys, `password=` style values) are masked before anything is stored, and tool output is capped at `max_tool_chars` (4000).
+- Only `/v1` paths are proxied; Ollama's native `/api` is not. Clients running in a browser that call the proxy directly are not supported (no CORS headers).
+
 ## How it works
 
 ```

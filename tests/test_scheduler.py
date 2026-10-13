@@ -1,3 +1,5 @@
+import time
+
 from smruti import Memory
 from smruti.serve.scheduler import SleepScheduler
 
@@ -38,4 +40,35 @@ def test_start_and_stop(config, embedder, fake_llm):
     scheduler.start()
     scheduler.stop()
     assert not scheduler.running
+    mem.close()
+
+
+def test_run_once_survives_due_spaces_failing(config, embedder, fake_llm, monkeypatch):
+    mem = Memory(config=config, embedder=embedder, llm=fake_llm(), model="m")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mem, "due_spaces", boom)
+    assert SleepScheduler(mem, poll_seconds=60).run_once() == []
+    mem.close()
+
+
+def test_loop_survives_exceptions(config, embedder, fake_llm, monkeypatch):
+    mem = Memory(config=config, embedder=embedder, llm=fake_llm(), model="m")
+    scheduler = SleepScheduler(mem, poll_seconds=0.01)
+    calls = []
+
+    def boom(now=None):
+        calls.append(1)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(scheduler, "run_once", boom)
+    scheduler.start()
+    deadline = time.monotonic() + 5
+    while len(calls) < 3 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert len(calls) >= 3
+    assert scheduler.running
+    scheduler.stop()
     mem.close()

@@ -7,8 +7,37 @@ JSON responses or accumulated from SSE streams as they pass through.
 
 import codecs
 import json
+import re
 
 from smruti.messages import message_text
+
+
+_REDACTED = "[REDACTED]"
+_SECRET_PATTERNS = [  # matched by format only
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL), _REDACTED),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), _REDACTED),
+    (re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE), f"Bearer {_REDACTED}"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), _REDACTED),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"), _REDACTED),
+    (re.compile(r"((?:password|passwd|secret|token|api[_-]?key)\s*=\s*)[^\s&\"']+", re.IGNORECASE),
+     rf"\1{_REDACTED}"),
+]
+_TRUNCATED = "…[truncated]…"
+
+
+def mask_secrets(text: str) -> str:
+    """Replaces credentials (recognised by their format) with [REDACTED] before text is stored."""
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def cap_text(text: str, limit: int) -> str:
+    """Keeps the head and tail of text longer than limit, with a marker in between."""
+    if len(text) <= limit:
+        return text
+    head = limit // 2
+    return text[:head] + _TRUNCATED + text[len(text) - (limit - head):]
 
 
 def _call_label(call: dict) -> str:
@@ -56,11 +85,13 @@ class StreamAccumulator:
             if not line.startswith("data:") or line == "data: [DONE]":
                 continue
             try:
-                delta = json.loads(line[5:])["choices"][0].get("delta") or {}
-            except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+                choices = json.loads(line[5:])["choices"]
+                deltas = [c.get("delta") or {} for c in choices if c.get("index", 0) == 0]
+            except (ValueError, KeyError, TypeError, AttributeError):
                 continue
-            if isinstance(delta.get("content"), str):
-                self._parts.append(delta["content"])
+            for delta in deltas:
+                if isinstance(delta.get("content"), str):
+                    self._parts.append(delta["content"])
 
     @property
     def text(self) -> str:

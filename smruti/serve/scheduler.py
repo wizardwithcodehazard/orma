@@ -26,7 +26,12 @@ class SleepScheduler:
         if self.memory.llm is None or self.memory.model is None:
             return []  # the model is learned from the first proxied request
         done = []
-        for space in self.memory.due_spaces(now):
+        try:
+            due = self.memory.due_spaces(now)
+        except Exception:
+            logger.exception("checking for due spaces failed; will retry")
+            return done
+        for space in due:
             try:
                 self.memory.sleep(space, now=now)
                 done.append(space)
@@ -46,4 +51,7 @@ class SleepScheduler:
 
     def _loop(self) -> None:
         while not self._stop.wait(self.poll_seconds):
-            self.run_once()
+            try:
+                self.run_once()
+            except Exception:
+                logger.exception("sleep iteration failed; will retry")

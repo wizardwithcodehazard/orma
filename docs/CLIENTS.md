@@ -58,6 +58,14 @@ Smruti talks to any OpenAI-compatible runtime. Pass its `/v1` base URL with `--u
 
 The ports are each runtime's usual defaults; adjust them to your setup. Sleep uses the model named in client requests, or the one you pass with `--model`.
 
+## Requirements and limits
+
+- Use `--model` to pick the sleep model; otherwise the first model a client requests is used, which may be a small helper model.
+- Add the header `X-Smruti-Skip: 1` to title-generation, autocomplete and other helper requests. They get no recall, are not recorded, and the header is not forwarded upstream.
+- Chat requests must have `Content-Type: application/json` (other types get a 415).
+- Secrets are masked before storing (API keys, bearer tokens, AWS and GitHub tokens, private keys, `password=`/`api_key=` values), and tool output is truncated to `max_tool_chars` (default 4000).
+- Browser-direct clients are not supported (the proxy sends no CORS headers). Only `/v1` paths are proxied, so Ollama's native `/api` endpoints are not.
+
 ## Memory spaces
 
 A space is an isolated memory. Use one per user or project. The proxy picks the space from, in order: the `X-Smruti-Space` header, the request body's `user` field, the `--space` option (default `default`).

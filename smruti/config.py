@@ -51,6 +51,7 @@ class SmrutiConfig:
     sleep_max_attempts: int = 3
     sleep_prompt_tokens: int = 3000
     sleep_max_episode_chars: int = 1500
+    max_tool_chars: int = 4000  # tool output kept per recorded turn (head and tail)
     sleep_context_predicates: int = 30
     sleep_lease_seconds: float = 600.0
     entity_merge_threshold: float = 0.85
