@@ -30,6 +30,7 @@ class ConsolidationReport:
     facts_ungrounded: int = 0  # dropped: not grounded in the batch's log
     events_added: int = 0
     events_ungrounded: int = 0  # dropped: a participant not grounded in the batch's log, or none at all
+    aliases_rejected: int = 0  # user names not recorded: related to the user by a fact, or already another entity
 
     def merge(self, other: "ConsolidationReport") -> None:
         for f in fields(self):
@@ -83,6 +84,7 @@ class Consolidator:
         touched: set[int] = set()
         report = ConsolidationReport()
         user_names, entities, facts, events = self._grounded(space, extraction, episodes, report)
+        user_names = self._acceptable_user_names(space, user_names, facts, report)
         user_id = self.store.user_entity(space, now) if user_names else None
         for name in user_names:  # aliases first, so every name below resolves to the user
             if name.lower() != USER_ENTITY:
@@ -151,6 +153,26 @@ class Consolidator:
             else:
                 report.events_ungrounded += 1
         return user_names, entities, facts, events
+
+    def _acceptable_user_names(self, space: str, names: list[str], facts, report) -> list[str]:
+        """Symbolic guards on the model's claim that a name is the user's own. Rejected: a name this extraction
+        relates by a fact to the user or to an already accepted user name (a person is not related to themself),
+        and a name that already resolves to a different, non-user entity (an existing person keeps their identity)."""
+        user = self.store.find_entity(space, USER_ENTITY)
+        accepted: list[str] = []
+        for name in names:
+            lower = name.lower()
+            if lower == USER_ENTITY:
+                continue
+            selves = {USER_ENTITY} | {a.lower() for a in accepted}
+            related = any((f.subject.lower() == lower and f.object.lower() in selves)
+                          or (f.object.lower() == lower and f.subject.lower() in selves) for _, f in facts)
+            existing = self.store.find_entity(space, name)
+            if related or (existing is not None and (user is None or existing.id != user.id)):
+                report.aliases_rejected += 1
+            else:
+                accepted.append(name)
+        return accepted
 
     @staticmethod
     def _stated_time(item: ExtractedFact | ExtractedEvent, days) -> float | None:

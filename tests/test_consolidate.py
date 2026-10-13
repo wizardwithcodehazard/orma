@@ -292,9 +292,9 @@ def test_agreed_fact_records_two_evidences_at_the_batch_time(store, config):
     assert store.current_facts("s")[0].evidence_times == [50.0, 50.0]
 
 
-def test_user_names_attach_facts_to_user_entity(store, config):
+def test_user_name_attaches_facts_to_user_entity(store, config):
     apply(store, config, {
-        "user_names": ["Sahil"],
+        "user_name": "Sahil",
         "entities": [{"name": "Sahil", "type": "person"}, {"name": "Pune", "type": "city"}],
         "facts": [{"subject": "Sahil", "predicate": "lives_in", "object": "Pune", "cardinality": "one"}],
     })
@@ -304,6 +304,57 @@ def test_user_names_attach_facts_to_user_entity(store, config):
     apply(store, config, {"facts": [{"subject": "SAHIL", "predicate": "likes", "object": "tea", "cardinality": "many"}]},
           ids=[2])
     assert {f.subject_id for f in store.current_facts("s")} == {user}
+
+
+SISTER_FACTS = [
+    {"subject": "Sahil", "predicate": "cooks_for", "object": "Asha", "cardinality": "many"},
+    {"subject": "Asha", "predicate": "is_allergic_to", "object": "peanuts", "cardinality": "many"},
+]
+SISTER_LOG = "Hi! I'm Sahil. I cook for my sister Asha. Asha is allergic to peanuts."
+
+
+def test_other_people_mentioned_stay_separate_entities(store, config):
+    report = apply(store, config, {
+        "user_name": "Sahil",
+        "entities": [{"name": "Sahil", "type": "person"}, {"name": "Asha", "type": "person"}],
+        "facts": SISTER_FACTS,
+    }, text=SISTER_LOG)
+    user = store.user_entity("s")
+    assert report.aliases_rejected == 0 and store.aliases(user) == ["sahil"]
+    assert store.find_entity("s", "Asha").id != user
+    assert {f.text for f in store.current_facts("s")} == {"user cooks for Asha", "Asha is allergic to peanuts"}
+
+
+def test_user_name_related_to_the_user_by_a_fact_is_rejected(store, config):
+    report = apply(store, config, {
+        "user_name": "Asha",  # the model wrongly picked the sister
+        "entities": [{"name": "Asha", "type": "person"}],
+        "facts": [{"subject": "user", "predicate": "sister_of", "object": "Asha", "cardinality": "many"},
+                  SISTER_FACTS[1]],
+    }, text=SISTER_LOG)
+    assert report.aliases_rejected == 1 and store.aliases(store.user_entity("s")) == []
+    assert store.find_entity("s", "Asha").id != store.user_entity("s")
+    assert "Asha is allergic to peanuts" in {f.text for f in store.current_facts("s")}
+
+
+def test_user_name_related_to_another_accepted_name_is_rejected(store, config):
+    data = {"entities": [{"name": "Sahil", "type": "person"}, {"name": "Asha", "type": "person"}],
+            "facts": [SISTER_FACTS[0]]}
+    extraction = parse_extraction({**data, "user_name": "Sahil"})
+    extraction.user_names.append("Asha")  # e.g. a vote that unioned a wrong name from another pass
+    report = Consolidator(store, config).apply("s", extraction, [
+        Episode(1, "s", "user", SISTER_LOG, None, 1, 1, 100.0, None)], now=100.0)
+    assert report.aliases_rejected == 1 and store.aliases(store.user_entity("s")) == ["sahil"]
+
+
+def test_existing_entity_is_not_converted_to_a_user_alias(store, config):
+    apply(store, config, {"entities": [{"name": "Asha", "type": "person"}],
+                          "facts": [SISTER_FACTS[1]]}, ids=[1], text=SISTER_LOG)
+    asha = store.find_entity("s", "Asha").id
+    report = apply(store, config, {"user_name": "Asha"}, ids=[2], text="I'm Asha")
+    assert report.aliases_rejected == 1
+    assert store.find_entity("s", "Asha").id == asha != store.user_entity("s")
+    assert store.aliases(store.user_entity("s")) == []
 
 
 def test_procedures_need_a_tool_episode_in_the_batch(store, config):
@@ -341,15 +392,15 @@ def test_grounding_uses_the_index_stemmer_and_checks_non_user_subjects(store, co
     assert [f.text for f in store.current_facts("s")] == ["Asha is allergic to peanut"]
 
 
-def test_user_names_and_entities_must_be_grounded(store, config):
-    apply(store, config, {"user_names": ["Sahil", "Sam"], "entities": [{"name": "Goa", "type": "city"}]},
+def test_user_name_and_entities_must_be_grounded(store, config):
+    apply(store, config, {"user_name": "Sam", "entities": [{"name": "Goa", "type": "city"}]},
           text="hi, I'm Sahil")
-    assert store.aliases(store.user_entity("s")) == ["sahil"]
+    assert store.aliases(store.user_entity("s")) == []
     assert store.find_entity("s", "Goa") is None
 
 
 def test_known_user_alias_subject_needs_no_mention(store, config):
-    apply(store, config, {"user_names": ["Sahil"]}, ids=[1], text="I'm Sahil")
+    apply(store, config, {"user_name": "Sahil"}, ids=[1], text="I'm Sahil")
     report = apply(store, config, {"facts": [
         {"subject": "Sahil", "predicate": "likes", "object": "tea", "cardinality": "many"}]}, ids=[2], text="I like tea")
     assert report.facts_ungrounded == 0
@@ -424,7 +475,7 @@ def test_events_with_ungrounded_or_no_participants_are_dropped(store, config):
 
 
 def test_known_user_alias_participant_needs_no_mention(store, config):
-    apply(store, config, {"user_names": ["Sahil"]}, ids=[1], text="I'm Sahil")
+    apply(store, config, {"user_name": "Sahil"}, ids=[1], text="I'm Sahil")
     report = apply(store, config, trip(gist="Sahil went to Goa", participants=["Sahil", "Goa"]), ids=[2],
                    text="I went to Goa")
     assert report.events_added == 1

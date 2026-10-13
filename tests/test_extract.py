@@ -82,16 +82,17 @@ def test_format_episode_prefixes_the_utc_date():
     assert format_episode(e, 10) == "[2025-10-13] [user] hi"
 
 
-def test_user_names_are_parsed_as_strings_only():
-    assert parse_extraction({"user_names": ["Sahil", "", 5, None, " Sam "]}).user_names == ["Sahil", "Sam"]
-    assert parse_extraction({"user_names": "Sahil"}).user_names == []
-    assert '"user_names"' in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]
+def test_user_name_is_a_single_string():
+    assert parse_extraction({"user_name": " Sahil "}).user_names == ["Sahil"]
+    for bad in ("", "  ", None, ["Sahil", "Asha"]):  # a list is the old, misattribution-prone shape
+        assert parse_extraction({"user_name": bad}).user_names == []
+    assert '"user_name"' in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]
 
 
 def test_json_schema_mirrors_the_prompt_schema_and_validates_an_extraction():
     jsonschema = pytest.importorskip("jsonschema")
     assert set(JSON_SCHEMA["required"]) == set(JSON_SCHEMA["properties"]) == set(SCHEMA)
-    sample = {"user_names": ["Sam"], "entities": [{"name": "Pune", "type": "city"}],
+    sample = {"user_name": "Sam", "entities": [{"name": "Pune", "type": "city"}],
               "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one", "time": ""}],
               "procedures": [{"trigger": "t", "action": "a", "polarity": "fails", "error_class": ""}],
               "events": [{"gist": "user moved to Pune", "time": "2026-03-01", "participants": ["user", "Pune"]}],
