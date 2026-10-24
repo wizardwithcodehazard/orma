@@ -72,3 +72,18 @@ def test_loop_survives_exceptions(config, embedder, fake_llm, monkeypatch):
     assert scheduler.running
     scheduler.stop()
     mem.close()
+
+
+def test_flush_consolidates_any_pending_space(config, embedder, fake_llm):
+    config.sleep_after_episodes = 99  # not due by count
+    config.sleep_idle_seconds = 9999  # not due by idle time
+    mem = Memory(config=config, embedder=embedder, llm=fake_llm([{"states": [], "events": []}]), model="m")
+    mem.observe("user", "hello world", space="test_space")
+    scheduler = SleepScheduler(mem, poll_seconds=60)
+    # run_once should be empty because not due
+    assert scheduler.run_once() == []
+    # flush flushes unconditionally
+    assert scheduler.flush() == ["test_space"]
+    assert mem.store.pending_episodes("test_space", 10) == []
+    mem.close()
+

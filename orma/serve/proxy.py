@@ -186,6 +186,10 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             yield
         finally:
             if scheduler is not None:
+                try:
+                    await run_in_threadpool(scheduler.flush)
+                except Exception:
+                    pass
                 scheduler.stop()
             await client.aclose()
             await root_client.aclose()
