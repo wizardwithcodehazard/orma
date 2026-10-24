@@ -70,15 +70,14 @@ flowchart TD
 ### 1. Installation
 
 ```bash
+# Option A: Install from PyPI
+pip install orma-ai
+
+# Option B: Install editable from source
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
 python -m venv .venv
-
-# On Linux/macOS:
 source .venv/bin/activate
-# On Windows PowerShell:
-# .venv\Scripts\Activate.ps1
-
 pip install -e ".[dev]"
 ```
 
@@ -96,7 +95,7 @@ ollama pull llama3.2:3b
 
 Start the Orma proxy:
 ```bash
-python -m smruti proxy --model llama3.2:3b
+orma proxy --model llama3.2:3b
 # Listening on http://127.0.0.1:8080 (forwarding upstream to http://localhost:11434/v1)
 ```
 
@@ -117,17 +116,17 @@ curl http://localhost:8080/v1/chat/completions \
 
 ```bash
 # Add a quick note or document
-python -m smruti add "My dentist is Dr. Rao in Kothrud."
-python -m smruti add docs/notes.md
+orma add "My dentist is Dr. Rao in Kothrud."
+orma add docs/notes.md
 
 # Search memory
-python -m smruti search "Where is my dentist?"
+orma search "Where is my dentist?"
 
 # View active facts & history
-python -m smruti facts --history
+orma facts --history
 
 # Trigger background sleep manually
-python -m smruti sleep --model llama3.2:3b
+orma sleep --model llama3.2:3b
 ```
 
 ---
@@ -135,9 +134,9 @@ python -m smruti sleep --model llama3.2:3b
 ## Python SDK
 
 ```python
-from smruti import Memory
+from orma import Memory
 
-# Initialize memory (default SQLite db: ~/.smruti/memory.db or SMRUTI_DIR)
+# Initialize memory (default SQLite db: ~/.orma/memory.db or ORMA_DIR)
 mem = Memory(upstream="http://localhost:11434/v1", model="llama3.2:3b")
 
 # Add memories directly
