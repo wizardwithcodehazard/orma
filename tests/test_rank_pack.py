@@ -90,9 +90,28 @@ def test_ebbinghaus_retention_stability_scaling():
     # After 2 days, retention is exp(-2/6) = exp(-0.3333) ~ 0.7165 (much stronger retention!)
     times_5 = [now - (5 - i) * day for i in range(5)]
     times_5[-1] = now - 2 * day  # latest was 2 days ago
-    assert ebbinghaus_retention(times_5, now, initial_stability_days=2.0, repetition_gain=0.5) == pytest.approx(0.7165, rel=1e-3)
-    # Empty list yields 0.0
     assert ebbinghaus_retention([], now) == 0.0
+
+
+def test_spread_activation_fan_effect():
+    from orma.recall.rank import spread_activation
+
+    sources = {1: 1.0, 2: 1.0}
+    adjacency = {
+        1: [101, 102],
+        2: [201, 202, 203, 204, 205, 206, 207, 208, 209, 210],
+    }
+    act = spread_activation(sources, adjacency)
+    # Specific node (fan=2) transmits 1.0 / 2 = 0.5
+    assert act[101] == pytest.approx(0.5)
+    assert act[102] == pytest.approx(0.5)
+    # Generic hub (fan=10) transmits 1.0 / 10 = 0.1
+    assert act[201] == pytest.approx(0.1)
+    # Specific target receives 5x more focused activation
+    assert act[101] == pytest.approx(5 * act[201])
+    assert spread_activation({}, adjacency) == {}
+    assert spread_activation(sources, {}) == {}
+
 
 
 

@@ -17,7 +17,7 @@ from orma import clock
 from orma.config import SmrutiConfig
 from orma.messages import message_text
 from orma.recall.pack import MemoryItem, Packed, pack
-from orma.recall.rank import base_level, ebbinghaus_retention, hawkes_burst, rrf, similarity_weight, use_weight
+from orma.recall.rank import base_level, ebbinghaus_retention, hawkes_burst, rrf, similarity_weight, spread_activation, use_weight
 from orma.store import USER_ENTITY, Event, Sentence, State, Store
 from orma.text import count_tokens
 
@@ -90,12 +90,37 @@ class Recaller:
         hits = self.store.text_search("states", space, query, cfg.search_k)
         scores = {hit.id: hit.query_coverage for hit in hits if hit.query_coverage > 0}
         matched = sorted(self.store.states(scores), key=lambda st: (-scores[st.id], st.id))[:cfg.max_query_states]
-        named = [st for entity in self.store.entities_named_in(space, query)
-                 for st in self.store.current_states(space, entity.id)]
+        named_entities = self.store.entities_named_in(space, query)
+        if cfg.enable_spreading_activation:
+            named = self._spread_activation_states(space, named_entities, cfg.activation_min_threshold)
+        else:
+            named = [st for entity in named_entities for st in self.store.current_states(space, entity.id)]
         states = {st.id: st for st in self._user_states(space) + matched + named}
         result.states = list(states.values())
         result.outdated = self._outdated(space, [s.id for s, _ in result.passages])
         return result
+
+    def _spread_activation_states(self, space: str, entities: list, min_activation: float = 0.05) -> list[State]:
+        """Spreading activation with the Fan Effect: each source entity divides its activation
+        across its outgoing states (1 / fan). Specific entities with small fan transmit high activation."""
+        if not entities:
+            return []
+        source_weights = {e.id: 1.0 for e in entities}
+        adjacency: dict[int, list[int]] = {}
+        state_by_id: dict[int, State] = {}
+
+        for e in entities:
+            cur = self.store.current_states(space, e.id)
+            adjacency[e.id] = [st.id for st in cur]
+            for st in cur:
+                state_by_id[st.id] = st
+
+        activations = spread_activation(source_weights, adjacency)
+        ranked = sorted(
+            [state_by_id[sid] for sid, act in activations.items() if act >= min_activation],
+            key=lambda st: (-activations[st.id], st.id)
+        )
+        return ranked
 
     def _user_states(self, space: str) -> list[State]:
         user = self.store.find_entity(space, USER_ENTITY)

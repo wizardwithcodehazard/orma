@@ -52,6 +52,7 @@ class OrmaConfig:
     max_passages: int = 12
     max_events: int = 6
     max_query_states: int = 8  # states of others matched by the query (the user's own states are always shown)
+    activation_min_threshold: float = 0.05  # minimum spreading activation score for associated states
     state_budget_share: float = 0.25  # "Now true" takes at most this share of the budget
     min_recent_turns: int = 2
     recall_roles: tuple[str, ...] = ("user", "note", "document", "tool")  # whose sentences recall shows
@@ -82,6 +83,7 @@ class OrmaConfig:
     enable_base_level: bool = True  # rank by recency and frequency of use (ACT-R); off = by match alone
     enable_hawkes: bool = True  # temporal self-exciting burst intensity for conversational momentum
     enable_ebbinghaus: bool = True  # spaced repetition memory stability scaling
+    enable_spreading_activation: bool = True  # ACT-R associative spreading activation with Fan Effect
     enable_schema_decoding: bool = True  # constrain extraction to the JSON schema (else plain JSON mode)
     enable_grounding: bool = True  # a state's value must be in (or paraphrased by) the line it cites
     enable_date_phrases: bool = True  # resolve date words ("last Saturday") against when they were said (else ISO only)

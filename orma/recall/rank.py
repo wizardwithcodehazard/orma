@@ -70,3 +70,21 @@ def use_weight(strength: float, weight: float) -> float:
     among relevant memories but never bury an old relevant one under fresh irrelevant ones."""
     return (1.0 - weight) + weight * min(strength, 1.0)
 
+
+def spread_activation(source_weights: dict[int, float], adjacency: dict[int, list[int]]) -> dict[int, float]:
+    """Spreading activation with the ACT-R Fan Effect.
+    Each source node spreads weight / fan to its adjacent target nodes.
+    Specific nodes with small fan transmit high activation; broad hubs transmit diluted activation.
+    """
+    activated: dict[int, float] = {}
+    for node, weight in source_weights.items():
+        neighbors = adjacency.get(node, [])
+        if not neighbors:
+            continue
+        fan = len(neighbors)
+        edge_energy = weight / max(1, fan)
+        for neighbor in neighbors:
+            activated[neighbor] = activated.get(neighbor, 0.0) + edge_energy
+    return activated
+
+
