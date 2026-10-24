@@ -71,3 +71,20 @@ def test_proxy_quiets_http_client_loggers(seeded, monkeypatch):
     finally:
         for name, level in saved.items():
             logging.getLogger(name).setLevel(level)
+
+
+def test_proxy_open_and_up_command(seeded, monkeypatch):
+    import sys
+    import types
+    import orma.serve.proxy as proxy_module
+
+    opened_urls = []
+    monkeypatch.setitem(sys.modules, "uvicorn", types.SimpleNamespace(run=lambda *a, **k: None))
+    monkeypatch.setattr(proxy_module, "create_app", lambda *a, **k: object())
+    monkeypatch.setattr("webbrowser.open", lambda url: opened_urls.append(url))
+
+    # Invoke up command
+    res = runner.invoke(cli.app, ["up"])
+    assert res.exit_code == 0
+    assert "Web UI available at: http://127.0.0.1:8080/#/" in res.output
+

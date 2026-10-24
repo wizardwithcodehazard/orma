@@ -78,8 +78,11 @@ def proxy(
                    "with a stronger model."),
     space: str = typer.Option("default", help="Memory space for requests that name none."),
     sleep_poll: float = typer.Option(30.0, help="Seconds between background sleep checks; 0 disables."),
+    open_browser: bool = typer.Option(False, "--open", "-o", help="Open the Web UI in your browser automatically."),
 ):
     """Run the memory proxy; point any OpenAI-compatible client at http://HOST:PORT/v1."""
+    import threading
+    import webbrowser
     import uvicorn
 
     from orma.serve.proxy import create_app
@@ -89,12 +92,41 @@ def proxy(
         logging.getLogger(noisy).setLevel(logging.WARNING)
     memory = _memory(sleep_upstream or upstream, model)
     sleeps_on = f", sleep -> {sleep_upstream}" if sleep_upstream else ""
-    typer.echo(f"smruti proxy on http://{host}:{port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})")
+    ui_url = f"http://{host}:{port}/#/"
+    typer.echo(f"orma proxy on http://{host}:{port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})")
+    typer.echo(f"Web UI available at: {ui_url}")
+
+    if open_browser:
+        threading.Timer(0.8, lambda: webbrowser.open(ui_url)).start()
+
     app_ = create_app(memory, upstream, default_space=space, sleep_poll_seconds=sleep_poll or None)
     try:
         uvicorn.run(app_, host=host, port=port, log_level="warning")
     finally:
         memory.close()
+
+
+@app.command()
+def up(
+    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    host: str = typer.Option("127.0.0.1", help="Interface to listen on."),
+    port: int = typer.Option(8080, help="Port to listen on."),
+    model: str | None = typer.Option(None, help="Model for sleep consolidation."),
+    sleep_upstream: str | None = typer.Option(None, help="Base URL for sleep consolidation."),
+    space: str = typer.Option("default", help="Memory space."),
+    sleep_poll: float = typer.Option(30.0, help="Seconds between background sleep checks; 0 disables."),
+):
+    """Start the Orma proxy and open the Web UI in your browser immediately."""
+    proxy(
+        upstream=upstream,
+        host=host,
+        port=port,
+        model=model,
+        sleep_upstream=sleep_upstream,
+        space=space,
+        sleep_poll=sleep_poll,
+        open_browser=True,
+    )
 
 
 def _report(report) -> str:
