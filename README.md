@@ -2,26 +2,42 @@
 
 > **Orma** *(Dravidian / Malayalam for "memory" or "recollection")* is an episode-first, zero-latency long-term memory layer built specifically for local, open-weight LLMs (3B–8B models on consumer 8–16 GB laptops).
 
+[![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-182%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen.svg)](tests/)
 
-Orma runs as an **OpenAI-compatible proxy** in front of Ollama, llama.cpp, LM Studio, or vLLM. It also ships a fast CLI and an embedded Python SDK. Everything runs locally inside SQLite with `sqlite-vec` and fast local embeddings—**no external servers, no cloud API keys, and zero data loss.**
+Orma can be used in two ways:
+1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
+2. **As an OpenAI-compatible proxy (`orma proxy` or `orma up`)** that transparently adds long-term memory to any LLM tool, client, or framework with zero code changes.
+
+Everything runs locally in SQLite with `sqlite-vec` and fast on-device embeddings—**no external servers, no cloud API keys, and zero data loss.**
 
 ---
 
-## Why Orma?
+## Why Orma vs. Mem0 & Cognee?
 
 Most agent memory frameworks (like Mem0 or Cognee) were designed for massive cloud models (GPT-4o, Claude 3.5 Sonnet) and enterprise graph databases:
-1. **They freeze chat turns:** Calling an LLM synchronously on every `add()` causes 5–15 second freezes on local laptops.
-2. **They hallucinate graphs:** 3B models struggle with complex entity-relation extraction and invert relationships or emit malformed JSON.
-3. **They permanently corrupt facts:** Prompting a 3B model with `DELETE / UPDATE` leads to destructive, irreversible overwrites.
+1. **They freeze chat turns:** Calling an LLM synchronously on every `add()` causes 5–15 second freezes on local machines.
+2. **They hallucinate graphs:** 3B models struggle with complex entity-relation extraction and emit malformed JSON or inverted relations.
+3. **They permanently corrupt facts:** Prompting small models with destructive `DELETE / UPDATE` instructions leads to accidental data loss.
 
 ### The Orma Approach
 * **Episodes are the memory:** Every conversation turn, document, or tool log is kept in full in an append-only log and indexed into sentences immediately.
 * **Zero LLM calls on recall:** Recall runs in `< 25ms` using hybrid vector search (sqlite-vec) + BM25 full-text search (FTS5) with bounded recency boosting (ACT-R).
 * **Sleep consolidates state asynchronously:** While the machine is idle, a background worker uses the local model to extract single-valued current states (`now true`) and dated events citing exact line numbers.
 * **Deterministic code guards:** Time resolution, pronoun carry-over (*anuvṛtti*), and contradiction resolution are handled in verified Python code, not by trusting small model arithmetic.
+
+| Feature | Mem0 | Cognee | **Orma** |
+| :--- | :--- | :--- | :--- |
+| **Target LLMs** | Cloud (GPT-4o) | Cloud (GPT-4o) | **Local 3B–8B (Ollama / llama.cpp)** |
+| **Python SDK** | `Memory()` | `cognee.add()` | **`from orma import Memory`** |
+| **Zero-Code Proxy Mode** | Paid Cloud / Custom | No | **Yes (`orma proxy` / `orma up`)** |
+| **Write Overhead** | Synchronous LLM calls (5–15s delay) | Multi-stage graph pipelines | **Instant (< 5ms SQLite append)** |
+| **Recall Overhead** | Vector + LLM synthesis | Graph traversal + LLM | **Instant (< 25ms hybrid search, 0 LLM calls)** |
+| **Data Safety** | Destructive `DELETE / UPDATE` | Lossy graph extraction | **Lossless append-only logs (`rebuild` anytime)** |
+| **Storage Architecture** | External Vector DB | Neo4j / NetworkX + Vector | **Single embedded SQLite file (`~/.orma/memory.db`)** |
+| **Hallucination Protection** | Relies on LLM accuracy | Relies on Pydantic output | **Line citations + deterministic Python guards** |
 
 ---
 
@@ -31,7 +47,7 @@ Most agent memory frameworks (like Mem0 or Cognee) were designed for massive clo
 
 ```mermaid
 flowchart LR
-    User["User / Chat Client"] -->|"1. Chat Request"| Proxy["Orma Proxy (Port 8080)"]
+    User["User / Chat Client / SDK"] -->|"1. Chat Request"| Proxy["Orma Proxy or SDK"]
     Proxy -->|"2. Hybrid Query"| Store[("SQLite + sqlite-vec + FTS5")]
     Store -->|"3. Match Sentences & Current States"| Ranker["Ranker & Budget Packer"]
     Ranker -->|"4. Injects Memory Block"| Upstream["Local LLM (Ollama / llama.cpp)"]
@@ -61,111 +77,176 @@ flowchart TD
 
 ---
 
-## Quickstart
-
-### Prerequisites
-* Python 3.10+
-* [Ollama](https://ollama.ai) or [llama.cpp](https://github.com/ggerganov/llama.cpp)
-
-### 1. Installation
+## Installation
 
 ```bash
-# Option A: Install from PyPI
 pip install orma-ai
+```
 
-# Option B: Install editable from source
+Or install from source for development:
+```bash
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
-python -m venv .venv
-source .venv/bin/activate
 pip install -e ".[dev]"
-```
-
-Run tests to verify the setup (182 tests run deterministically with zero downloads in ~17s):
-```bash
-python -m pytest -q
-```
-
-### 2. Run the Proxy
-
-Pull a lightweight model in Ollama:
-```bash
-ollama pull llama3.2:3b
-```
-
-Start the Orma proxy:
-```bash
-orma proxy --model llama3.2:3b
-# Listening on http://127.0.0.1:8080 (forwarding upstream to http://localhost:11434/v1)
-```
-
-Point any OpenAI-compatible client (Open WebUI, Continue.dev, Cursor, or Curl) to `http://localhost:8080/v1`:
-
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "llama3.2:3b",
-    "messages": [
-      {"role": "user", "content": "I live in Pune and work on compilers."}
-    ]
-  }'
-```
-
-### 3. Inspect Memory
-
-```bash
-# Add a quick note or document
-orma add "My dentist is Dr. Rao in Kothrud."
-orma add docs/notes.md
-
-# Search memory
-orma search "Where is my dentist?"
-
-# View active facts & history
-orma facts --history
-
-# Trigger background sleep manually
-orma sleep --model llama3.2:3b
+python -m pytest -q  # 192 tests pass locally
 ```
 
 ---
 
-## Python SDK
+## Usage Option 1: Python SDK (Direct In-Code Integration)
+
+Use the Python SDK to embed Orma directly into your agents, pipelines, or web applications:
 
 ```python
 from orma import Memory
 
-# Initialize memory (default SQLite db: ~/.orma/memory.db or ORMA_DIR)
-mem = Memory(upstream="http://localhost:11434/v1", model="llama3.2:3b")
+# 1. Initialize memory (defaults to ~/.orma/memory.db)
+mem = Memory(
+    upstream="http://localhost:11434/v1",  # Ollama or llama.cpp endpoint
+    model="llama3.2:3b"                     # Model for background sleep consolidation
+)
 
-# Add memories directly
-mem.add("I moved from Pune to Bangalore last week.", role="user")
-mem.add_file("project_notes.txt")
+# 2. Add memories, documents, or ongoing chat turns
+mem.add("I work as a backend engineer and I live in Pune.")
+mem.add_file("project_notes.md")
 
-# Build context for an outgoing prompt (hybrid search + current states)
-messages = mem.build_context([
-    {"role": "user", "content": "Where do I currently live?"}
-])
+# Record chat interactions
+mem.observe(role="user", text="I moved from Pune to Bangalore last week.")
+mem.observe(role="assistant", text="Congratulations on the move to Bangalore!")
 
-# Stream or call your model
-reply = mem.chat([{"role": "user", "content": "Where do I live?"}])
-print(reply)
+# 3. Retrieve formatted context for prompt injection
+messages = [{"role": "user", "content": "Where do I currently live?"}]
+prompt_messages = mem.build_context(messages)
+# prompt_messages contains a system prompt with current facts, outdated facts marked, and relevant quotes!
 
-# Background consolidation
-mem.sleep()
+# 4. Search memory directly
+results = mem.search("Where is my home?")
+for state in results.states:
+    print(state.text)  # "user · home city: Bangalore"
 
-# Rebuild all memory from scratch using a stronger model if needed
-# mem.rebuild()
+# 5. Background consolidation (extracts facts and closes outdated ones)
+report = mem.sleep()
+print(report)
 
 mem.close()
 ```
 
 ---
 
+## Usage Option 2: Zero-Code Proxy (OpenAI SDK, LangChain, Cursor, Open WebUI)
+
+Start Orma as a local proxy:
+```bash
+# With Ollama
+orma proxy --model llama3.2:3b
+
+# Or with llama.cpp
+orma proxy --upstream http://127.0.0.1:9931 --model "Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M"
+```
+
+Then point any client to `http://localhost:8080/v1`:
+
+### With the Official OpenAI Python Client:
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="none"
+)
+
+response = client.chat.completions.create(
+    model="llama3.2:3b",
+    messages=[{"role": "user", "content": "What is my job and where do I live?"}]
+)
+print(response.choices[0].message.content)
+```
+
+### With LangChain:
+```python
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="none",
+    model="llama3.2:3b"
+)
+```
+
+### With Open WebUI, AnythingLLM, or Cursor:
+* Set OpenAI Base URL to: `http://localhost:8080/v1`
+* Set API Key to: `none`
+
+---
+
+## Usage Option 3: One-Command Web UI (`orma up`)
+
+If you are using llama.cpp or Ollama with a browser web UI, run:
+
+```bash
+orma up --upstream http://127.0.0.1:9931 --model "Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M"
+```
+
+This immediately:
+1. Starts the Orma memory proxy on port 8080.
+2. Automatically opens your default web browser to `http://127.0.0.1:8080/#/`.
+3. Passes through the web UI frontend while transparently routing all chat completions through Orma's memory layer.
+
+---
+
+## Multi-User & Multi-Tenant Isolation
+
+Orma supports isolated memory spaces out of the box so multiple users or agent sessions don't contaminate each other's memories:
+
+* **In Python SDK:**
+  ```python
+  mem.add("Alice likes green tea.", space="user_alice")
+  context = mem.build_context(messages, space="user_alice")
+  ```
+* **In HTTP Requests / Proxies:**
+  Pass the `x-orma-space` header or `"user"` field:
+  ```bash
+  curl http://localhost:8080/v1/chat/completions \
+    -H "x-orma-space: user_123" \
+    -H "Content-Type: application/json" \
+    -d '{"messages": [{"role": "user", "content": "Who am I?"}]}'
+  ```
+
+---
+
+## CLI Reference
+
+Orma provides a command-line tool for managing your memory:
+
+```bash
+# Add a note or document
+orma add "My dentist is Dr. Rao in Kothrud."
+orma add docs/handbook.md
+
+# Search memory
+orma search "dentist"
+
+# Inspect active facts and outdated history
+orma facts --history
+
+# Preview the exact prompt block that would be injected
+orma recall "Who is my dentist?"
+
+# Manually trigger sleep consolidation
+orma sleep --model llama3.2:3b
+
+# Forget a specific fact
+orma forget 12
+
+# Database statistics
+orma stats
+```
+
+---
+
 ## Memory Prompt Output Format
 
-When Orma recalls memories, it packs them into a tight token budget injected into the system prompt:
+When Orma recalls memories, it packs them into a token-budgeted block injected into the system prompt:
 
 ```markdown
 ## Memory
@@ -184,24 +265,12 @@ Events:
 
 ---
 
-## Comparison: Orma vs. Mem0 & Cognee
-
-| Feature | Mem0 | Cognee | **Orma** |
-| :--- | :--- | :--- | :--- |
-| **Target LLMs** | Cloud (GPT-4o) | Cloud (GPT-4o) | **Local 3B–8B (Ollama / llama.cpp)** |
-| **Write Overhead** | Synchronous LLM calls (5–15s delay) | Multi-stage graph pipelines | **Instant (< 5ms SQLite append)** |
-| **Recall Overhead** | Vector + LLM synthesis | Graph traversal + LLM | **Instant (< 25ms hybrid search, 0 LLM calls)** |
-| **Data Safety** | Destructive `DELETE / UPDATE` | Lossy graph extraction | **Lossless append-only logs (`rebuild` anytime)** |
-| **Hallucination Protection** | Relies on LLM accuracy | Relies on Pydantic output | **Line citations + deterministic Python guards** |
-
----
-
 ## Configuration & Ablation Switches
 
-Orma comes with built-in ablation switches in `smruti/config.py` to evaluate every mechanism against raw episodic baselines:
+Orma comes with built-in ablation switches in [orma/config.py](file:///c:/Users/Sahil/Desktop/memory_layer/smruti/orma/config.py) to evaluate every mechanism against raw episodic baselines:
 
 * `enable_semantic`: Toggle state and event extraction (off = pure episodic sentence search baseline).
-* `enable_novelty_gate`: Drops near-duplicate records ($\ge 0.97$ cosine similarity).
+* `enable_novelty_gate`: Drops near-duplicate records (>= 0.97 cosine similarity).
 * `enable_similarity_weighting`: Calibrates vector similarity against adaptive space noise floor.
 * `enable_base_level`: Enables ACT-R recency and repetition boost.
 
