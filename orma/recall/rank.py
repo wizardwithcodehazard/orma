@@ -40,7 +40,19 @@ def base_level(times, now: float, decay: float) -> float:
     return sum((max(0.0, now - t) / 86400.0 + 1.0) ** -decay for t in times)
 
 
+def hawkes_burst(times, now: float, alpha: float = 0.4, half_life_seconds: float = 1800.0) -> float:
+    """Transient self-exciting burst intensity using an exponential Hawkes kernel.
+    Recent accesses within the conversational half-life produce an excitation surge
+    that decays exponentially back to baseline.
+    """
+    if not times:
+        return 0.0
+    beta = 0.69314718056 / max(1.0, half_life_seconds)  # ln(2) / half_life
+    return float(sum(alpha * np.exp(-beta * max(0.0, now - t)) for t in times if now >= t))
+
+
 def use_weight(strength: float, weight: float) -> float:
     """A bounded boost for strength: (1 - weight) + weight * min(strength, 1), so recency and repetition rank
     among relevant memories but never bury an old relevant one under fresh irrelevant ones."""
     return (1.0 - weight) + weight * min(strength, 1.0)
+

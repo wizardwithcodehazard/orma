@@ -61,6 +61,23 @@ def test_use_weight_is_a_bounded_boost():
     assert use_weight(5.0, 0.3) == pytest.approx(1.0)  # strength beyond one adds nothing
 
 
+def test_hawkes_burst_temporal_excitation():
+    from orma.recall.rank import hawkes_burst
+
+    now = 10000.0
+    # Fresh event gets full alpha amplitude
+    assert hawkes_burst([now], now, alpha=0.4, half_life_seconds=1800.0) == pytest.approx(0.4)
+    # Event at exactly half-life (1800s ago) gets alpha * 0.5
+    assert hawkes_burst([now - 1800.0], now, alpha=0.4, half_life_seconds=1800.0) == pytest.approx(0.2)
+    # Event 2 half-lives ago (3600s ago) gets alpha * 0.25
+    assert hawkes_burst([now - 3600.0], now, alpha=0.4, half_life_seconds=1800.0) == pytest.approx(0.1)
+    # Event far in the past (1 day ago) decays to near-zero
+    assert hawkes_burst([now - 86400.0], now, alpha=0.4, half_life_seconds=1800.0) < 1e-6
+    # Empty list yields 0.0
+    assert hawkes_burst([], now) == 0.0
+
+
+
 def item(section, i, text, order=0.0):
     return MemoryItem(section, i, text, order)
 

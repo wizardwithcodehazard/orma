@@ -17,7 +17,7 @@ from orma import clock
 from orma.config import SmrutiConfig
 from orma.messages import message_text
 from orma.recall.pack import MemoryItem, Packed, pack
-from orma.recall.rank import base_level, rrf, similarity_weight, use_weight
+from orma.recall.rank import base_level, hawkes_burst, rrf, similarity_weight, use_weight
 from orma.store import USER_ENTITY, Event, Sentence, State, Store
 from orma.text import count_tokens
 
@@ -65,8 +65,11 @@ class Recaller:
                        k=cfg.rrf_k)
 
         def strength(times: list[float]) -> float:
-            return use_weight(base_level(times, now, cfg.base_level_decay), cfg.use_weight) if cfg.enable_base_level \
-                else 1.0
+            if not cfg.enable_base_level:
+                return 1.0
+            act_r = base_level(times, now, cfg.base_level_decay)
+            burst = hawkes_burst(times, now, cfg.hawkes_alpha, cfg.hawkes_half_life_seconds) if cfg.enable_hawkes else 0.0
+            return use_weight(act_r + burst, cfg.use_weight)
 
         scores = fused("sentences")
         passages = [(s, scores[s.id] * strength([s.created_at])) for s in self.store.sentences(scores)
