@@ -16,7 +16,8 @@ SECTIONS = {
 }
 
 FRAMING = ("What you remember about the person you are talking to, from earlier conversations, notes and "
-           "documents. Use it when relevant; do not mention this list. A line marked [outdated] was true when "
+           "documents. Answer directly using these facts and statements without asking the user to re-confirm details "
+           "already provided here; do not mention this list. A line marked [outdated] was true when "
            "it was said and has changed since.")
 
 
