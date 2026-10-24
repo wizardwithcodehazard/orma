@@ -1,6 +1,6 @@
 import pytest
 
-from smruti.encode import Encoder
+from orma.encode import Encoder
 
 DISTINCT = ["alpha bravo", "charlie delta", "echo foxtrot", "golf hotel", "india juliet"]
 

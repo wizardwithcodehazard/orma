@@ -1,7 +1,7 @@
 import pytest
 
-from smruti.llm import LLMError
-from smruti.sleep.extract import (
+from orma.llm import LLMError
+from orma.sleep.extract import (
     INSTRUCTIONS,
     JSON_SCHEMA,
     SCHEMA,
@@ -11,7 +11,7 @@ from smruti.sleep.extract import (
     format_line,
     parse_extraction,
 )
-from smruti.store import Sentence
+from orma.store import Sentence
 
 
 def sentence(i, text, role="user", speaker="user", at=1760290200.0):

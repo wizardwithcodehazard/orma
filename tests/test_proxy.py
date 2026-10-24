@@ -4,8 +4,8 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from smruti import Memory
-from smruti.serve.proxy import create_app
+from orma import Memory
+from orma.serve.proxy import create_app
 
 
 class Upstream:
@@ -69,13 +69,13 @@ def test_injects_memory_and_records_the_exchange(memory, seed_state):
 def test_space_comes_from_header_then_user_field(memory):
     up = Upstream()
     with client(memory, up) as c:
-        c.post("/v1/chat/completions", headers={"X-Smruti-Space": "work"},
+        c.post("/v1/chat/completions", headers={"X-Orma-Space": "work"},
                json={"model": "m", "messages": [{"role": "user", "content": "a"}]})
         c.post("/v1/chat/completions", json={"model": "m", "user": "alice",
                                              "messages": [{"role": "user", "content": "b"}]})
     assert texts(memory, "work") == [("user", "a"), ("assistant", "Hello!")]
     assert texts(memory, "alice") == [("user", "b"), ("assistant", "Hello!")]
-    assert "x-smruti-space" not in up.requests[0]["headers"]
+    assert "x-orma-space" not in up.requests[0]["headers"]
 
 
 def test_tool_results_are_recorded_once(memory):
@@ -182,12 +182,12 @@ def test_new_turns_failure_does_not_break_the_request(memory):
 def test_skip_header_means_no_recall_no_record_no_model(memory):
     up = Upstream()
     with client(memory, up) as c:
-        r = c.post("/v1/chat/completions", headers={"x-smruti-skip": "1"},
+        r = c.post("/v1/chat/completions", headers={"x-orma-skip": "1"},
                    json={"model": "title-model", "messages": [{"role": "user", "content": "Title?"}]})
         assert r.status_code == 200
-        assert "x-smruti-skip" not in up.requests[0]["headers"]
+        assert "x-orma-skip" not in up.requests[0]["headers"]
         assert up.requests[0]["body"]["messages"] == [{"role": "user", "content": "Title?"}]
-        c.post("/v1/chat/completions", headers={"X-Smruti-Skip": "0"},
+        c.post("/v1/chat/completions", headers={"X-Orma-Skip": "0"},
                json={"model": "real", "messages": [{"role": "user", "content": "kept"}]})
     assert texts(memory) == [("user", "kept"), ("assistant", "Hello!")]
     assert memory.model == "real"

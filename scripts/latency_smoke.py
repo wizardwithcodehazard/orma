@@ -12,7 +12,7 @@ import statistics
 import sys
 import time
 
-from smruti import Memory, SmrutiConfig
+from orma import Memory, SmrutiConfig
 
 NEEDLE = "My sister Asha is allergic to peanuts, so I always check recipes when I cook for her."
 

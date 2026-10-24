@@ -13,13 +13,13 @@ build(messages) renders them into a "## Memory" block in the system prompt, unde
 import time
 from dataclasses import dataclass, field
 
-from smruti import clock
-from smruti.config import SmrutiConfig
-from smruti.messages import message_text
-from smruti.recall.pack import MemoryItem, Packed, pack
-from smruti.recall.rank import base_level, rrf, similarity_weight, use_weight
-from smruti.store import USER_ENTITY, Event, Sentence, State, Store
-from smruti.text import count_tokens
+from orma import clock
+from orma.config import SmrutiConfig
+from orma.messages import message_text
+from orma.recall.pack import MemoryItem, Packed, pack
+from orma.recall.rank import base_level, rrf, similarity_weight, use_weight
+from orma.store import USER_ENTITY, Event, Sentence, State, Store
+from orma.text import count_tokens
 
 SEPARATOR = "\n\n"
 

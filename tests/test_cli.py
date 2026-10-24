@@ -3,7 +3,7 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-from smruti import Memory, cli
+from orma import Memory, cli
 
 runner = CliRunner()
 
@@ -58,16 +58,16 @@ def test_proxy_quiets_http_client_loggers(seeded, monkeypatch):
     import sys
     import types
 
-    import smruti.serve.proxy as proxy_module
+    import orma.serve.proxy as proxy_module
 
     monkeypatch.setitem(sys.modules, "uvicorn", types.SimpleNamespace(run=lambda *a, **k: None))
     monkeypatch.setattr(proxy_module, "create_app", lambda *a, **k: object())
-    saved = {name: logging.getLogger(name).level for name in ("httpx", "httpcore", "smruti")}
+    saved = {name: logging.getLogger(name).level for name in ("httpx", "httpcore", "orma")}
     try:
         runner.invoke(cli.app, ["proxy"])
         assert logging.getLogger("httpx").level == logging.WARNING
         assert logging.getLogger("httpcore").level == logging.WARNING
-        assert logging.getLogger("smruti").level == saved["smruti"]
+        assert logging.getLogger("orma").level == saved["orma"]
     finally:
         for name, level in saved.items():
             logging.getLogger(name).setLevel(level)

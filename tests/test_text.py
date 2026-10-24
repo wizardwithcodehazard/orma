@@ -1,4 +1,4 @@
-from smruti.text import count_tokens, made_of, phrases, span_of, split_sentences, words
+from orma.text import count_tokens, made_of, phrases, span_of, split_sentences, words
 
 
 def test_sentences_split_at_ends_and_lines():

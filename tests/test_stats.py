@@ -1,4 +1,4 @@
-from smruti import Memory
+from orma import Memory
 
 
 def test_stats_count_memory_by_kind(config, embedder, seed_state):

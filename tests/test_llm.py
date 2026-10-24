@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from smruti.llm import LLMClient, LLMError
+from orma.llm import LLMClient, LLMError
 
 
 def client(handler):

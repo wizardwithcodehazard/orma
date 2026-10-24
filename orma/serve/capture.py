@@ -9,7 +9,7 @@ import codecs
 import json
 import re
 
-from smruti.messages import message_text
+from orma.messages import message_text
 
 _REDACTED = "[REDACTED]"
 _SECRET_PATTERNS = [  # matched by format only

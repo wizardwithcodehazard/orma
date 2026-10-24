@@ -2,9 +2,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from smruti.encode import Encoder
-from smruti.sleep.consolidate import Consolidator
-from smruti.sleep.extract import parse_extraction
+from orma.encode import Encoder
+from orma.sleep.consolidate import Consolidator
+from orma.sleep.extract import parse_extraction
 
 THURSDAY = datetime(2026, 10, 15, 14, 0, tzinfo=timezone.utc).timestamp()
 
@@ -118,7 +118,7 @@ class SynonymEmbedder:
 
 
 def test_a_paraphrased_value_is_grounded(config, embedder):
-    from smruti.store import Store
+    from orma.store import Store
 
     store = Store(config, SynonymEmbedder(embedder))
     (line,) = keep(store, config, ("I am staying with mom this week.", "user"))

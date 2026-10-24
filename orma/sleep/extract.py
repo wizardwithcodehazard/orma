@@ -10,8 +10,8 @@ import json
 from dataclasses import dataclass, field
 from datetime import tzinfo
 
-from smruti import clock
-from smruti.llm import LLMError
+from orma import clock
+from orma.llm import LLMError
 
 SCHEMA = {
     "user_name": "the name the user calls themself, if a line says it; else empty",

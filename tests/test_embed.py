@@ -1,7 +1,7 @@
 import numpy as np
 
-from smruti.embed import l2_to_cosine, normalize, to_blob
-from smruti.messages import message_text
+from orma.embed import l2_to_cosine, normalize, to_blob
+from orma.messages import message_text
 
 
 def test_normalize_gives_unit_rows_and_handles_zero():

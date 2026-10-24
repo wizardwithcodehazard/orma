@@ -3,8 +3,8 @@ import zlib
 import numpy as np
 import pytest
 
-from smruti.config import SmrutiConfig
-from smruti.embed import normalize
+from orma.config import SmrutiConfig
+from orma.embed import normalize
 
 
 class FakeEmbedder:
@@ -69,7 +69,7 @@ def fake_llm():
 
 @pytest.fixture
 def store(config, embedder):
-    from smruti.store import Store
+    from orma.store import Store
 
     s = Store(config, embedder)
     yield s
@@ -78,7 +78,7 @@ def store(config, embedder):
 
 @pytest.fixture
 def noisy_store(config):
-    from smruti.store import Store
+    from orma.store import Store
 
     s = Store(config, NoisyEmbedder())
     yield s

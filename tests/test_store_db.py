@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from smruti.store import index
-from smruti.store.db import connect, init_schema
+from orma.store import index
+from orma.store.db import connect, init_schema
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 import pytest
 
-from smruti import Memory, SmrutiConfig
+from orma import Memory, SmrutiConfig
 
 
 def lives(s, place, since=""):

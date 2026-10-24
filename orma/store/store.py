@@ -11,11 +11,11 @@ from contextlib import contextmanager
 
 import numpy as np
 
-from smruti.config import SmrutiConfig
-from smruti.embed import Embedder, FastEmbedder
-from smruti.store import index
-from smruti.store.db import connect, init_schema
-from smruti.store.records import Attribute, Entity, Episode, Event, Sentence, State, from_row, state_text
+from orma.config import SmrutiConfig
+from orma.embed import Embedder, FastEmbedder
+from orma.store import index
+from orma.store.db import connect, init_schema
+from orma.store.records import Attribute, Entity, Episode, Event, Sentence, State, from_row, state_text
 
 USER_ENTITY = "user"
 

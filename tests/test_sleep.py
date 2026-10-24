@@ -1,6 +1,6 @@
-from smruti.encode import Encoder
-from smruti.sleep import Sleeper
-from smruti.sleep.extract import JSON_SCHEMA
+from orma.encode import Encoder
+from orma.sleep import Sleeper
+from orma.sleep.extract import JSON_SCHEMA
 
 NOTHING = {"states": [], "events": []}
 

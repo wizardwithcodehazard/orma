@@ -11,12 +11,12 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from smruti import clock
-from smruti.config import SmrutiConfig
-from smruti.sleep.consolidate import ConsolidationReport, Consolidator
-from smruti.sleep.extract import JSON_SCHEMA, ExtractionContext, extract, format_line
-from smruti.store import USER_ENTITY, Store
-from smruti.text import count_tokens
+from orma import clock
+from orma.config import SmrutiConfig
+from orma.sleep.consolidate import ConsolidationReport, Consolidator
+from orma.sleep.extract import JSON_SCHEMA, ExtractionContext, extract, format_line
+from orma.store import USER_ENTITY, Store
+from orma.text import count_tokens
 
 
 @dataclass

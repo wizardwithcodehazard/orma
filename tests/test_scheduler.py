@@ -1,7 +1,7 @@
 import time
 
-from smruti import Memory
-from smruti.serve.scheduler import SleepScheduler
+from orma import Memory
+from orma.serve.scheduler import SleepScheduler
 
 
 def test_run_once_sleeps_due_spaces(config, embedder, fake_llm):

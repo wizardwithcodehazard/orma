@@ -6,8 +6,8 @@ from pathlib import Path
 
 import typer
 
-from smruti import clock
-from smruti.memory import Memory
+from orma import clock
+from orma.memory import Memory
 
 DEFAULT_UPSTREAM = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible endpoint
 
@@ -82,7 +82,7 @@ def proxy(
     """Run the memory proxy; point any OpenAI-compatible client at http://HOST:PORT/v1."""
     import uvicorn
 
-    from smruti.serve.proxy import create_app
+    from orma.serve.proxy import create_app
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     for noisy in ("httpx", "httpcore"):

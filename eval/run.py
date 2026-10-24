@@ -21,11 +21,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from smruti import clock
-from smruti.config import SmrutiConfig
-from smruti.embed import FastEmbedder
-from smruti.llm import LLMClient
-from smruti.memory import Memory
+from orma import clock
+from orma.config import SmrutiConfig
+from orma.embed import FastEmbedder
+from orma.llm import LLMClient
+from orma.memory import Memory
 
 from eval.score import CaseScore, Check, answer_passes, finds, score_memory
 

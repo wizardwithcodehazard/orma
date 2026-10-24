@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
-from smruti.encode import Encoder
-from smruti.recall import Recaller
-from smruti.recall.pack import FRAMING
+from orma.encode import Encoder
+from orma.recall import Recaller
+from orma.recall.pack import FRAMING
 
 DAY = 86400.0
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc).timestamp()

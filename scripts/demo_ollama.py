@@ -7,15 +7,15 @@ model's. Works with any OpenAI-compatible runtime (Ollama, llama.cpp's llama-ser
 throwaway memory directory so your real memory is untouched:
 
     export SMRUTI_DIR=/tmp/smruti-demo && rm -rf $SMRUTI_DIR
-    python -m smruti proxy --model llama3.2:3b --sleep-poll 0     # terminal 1
+    python -m orma proxy --model llama3.2:3b --sleep-poll 0     # terminal 1
     python scripts/demo_ollama.py                                 # terminal 2
 
     # llama.cpp instead of Ollama:
-    python -m smruti proxy --upstream http://127.0.0.1:9931/v1 --model MODEL --sleep-poll 0
+    python -m orma proxy --upstream http://127.0.0.1:9931/v1 --model MODEL --sleep-poll 0
     python scripts/demo_ollama.py --upstream http://127.0.0.1:9931/v1 --model MODEL
 
 Options: --proxy (default http://localhost:8080/v1), --upstream (alias --ollama; default
-http://localhost:11434/v1), --model (default llama3.2:3b). The CLI is run as `python -m smruti`,
+http://localhost:11434/v1), --model (default llama3.2:3b). The CLI is run as `python -m orma`,
 so this checkout is used even if another `smruti` command is on PATH.
 """
 
@@ -59,7 +59,7 @@ def converse(proxy: str, model: str, turns: list[str], label: str) -> None:
 
 def smruti(*args: str) -> None:
     start = time.time()
-    out = subprocess.run([sys.executable, "-m", "smruti", *args], check=False, capture_output=True, text=True,
+    out = subprocess.run([sys.executable, "-m", "orma", *args], check=False, capture_output=True, text=True,
                          encoding="utf-8", errors="replace")
     print(f"\n$ smruti {' '.join(args)}  ({time.time() - start:.1f}s)\n{(out.stdout + out.stderr).strip()}")
 

@@ -1,8 +1,8 @@
 import pytest
 
-from smruti.recall.pack import FRAMING, MemoryItem, pack, render
-from smruti.recall.rank import base_level, rrf, use_weight
-from smruti.text import count_tokens
+from orma.recall.pack import FRAMING, MemoryItem, pack, render
+from orma.recall.rank import base_level, rrf, use_weight
+from orma.text import count_tokens
 
 
 def ranked(*ids, weight=1.0):
@@ -35,7 +35,7 @@ def test_rrf_weights_scale_contributions():
 
 
 def test_similarity_weight_is_calibrated_against_the_space_distribution():
-    from smruti.recall.rank import similarity_weight
+    from orma.recall.rank import similarity_weight
 
     novelty = [0.6, 0.5, 0.4]  # nearest-neighbour similarities 0.4, 0.5, 0.6 -> median floor 0.5
     w = similarity_weight(novelty, percentile=50.0, warmup=3, enabled=True)

@@ -8,9 +8,9 @@ any sleep. Tool records with an outcome are always kept.
 
 from dataclasses import dataclass
 
-from smruti.config import SmrutiConfig
-from smruti.store import Store
-from smruti.text import split_sentences
+from orma.config import SmrutiConfig
+from orma.store import Store
+from orma.text import split_sentences
 
 
 @dataclass

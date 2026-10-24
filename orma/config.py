@@ -9,12 +9,12 @@ from pathlib import Path
 
 
 def default_data_dir() -> Path:
-    env_dir = os.environ.get("SMRUTI_DIR")
-    return Path(env_dir).expanduser().resolve() if env_dir else Path.home() / ".smruti"
+    env_dir = os.environ.get("ORMA_DIR") or os.environ.get("SMRUTI_DIR")
+    return Path(env_dir).expanduser().resolve() if env_dir else Path.home() / ".orma"
 
 
 @dataclass
-class SmrutiConfig:
+class OrmaConfig:
     # Storage
     data_dir: Path = field(default_factory=default_data_dir)
     db_filename: str = "memory.db"
@@ -83,3 +83,7 @@ class SmrutiConfig:
     @property
     def db_path(self) -> Path:
         return Path(self.data_dir) / self.db_filename
+
+
+# Backwards compatibility alias
+SmrutiConfig = OrmaConfig

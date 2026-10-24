@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "smruti"
-version = "1.0.0.dev0"
-description = "Local neuro-symbolic long-term memory for small LLMs"
+name = "orma-ai"
+version = "0.1.0"
+description = "Local episode-first long-term memory for small LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -28,10 +28,11 @@ dev = [
 ]
 
 [project.scripts]
-smruti = "smruti.cli:app"
+orma = "orma.cli:app"
+smruti = "orma.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["smruti"]
+packages = ["orma"]
 
 [tool.ruff]
 line-length = 100

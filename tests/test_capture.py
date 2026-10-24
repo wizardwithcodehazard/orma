@@ -1,4 +1,4 @@
-from smruti.serve.capture import StreamAccumulator, cap_text, mask_secrets, new_turns, reply_text
+from orma.serve.capture import StreamAccumulator, cap_text, mask_secrets, new_turns, reply_text
 
 
 def test_first_request_records_all_user_turns():

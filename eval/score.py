@@ -10,8 +10,8 @@ about meaning: whose state it is, whether it is still true, and the day an event
 import re
 from dataclasses import dataclass, field
 
-from smruti import clock
-from smruti.store import USER_ENTITY, State, Store
+from orma import clock
+from orma.store import USER_ENTITY, State, Store
 
 
 @dataclass

@@ -5,7 +5,7 @@ import pytest
 
 from eval.run import load_cases, overrides, run_case, summarize, table
 from eval.score import answer_passes, finds, label, state_matches
-from smruti.recall import SearchResult
+from orma.recall import SearchResult
 
 ROOT = Path(__file__).resolve().parent.parent
 

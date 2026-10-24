@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from smruti import clock
+from orma import clock
 
 IST = timezone(timedelta(hours=5, minutes=30))
 THU = datetime(2026, 10, 15, 14, 0, tzinfo=IST).timestamp()  # Thursday afternoon in India

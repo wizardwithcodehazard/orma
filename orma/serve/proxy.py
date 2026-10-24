@@ -19,16 +19,16 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from smruti.memory import Memory
-from smruti.serve.capture import StreamAccumulator, cap_text, mask_secrets, new_turns, reply_text
-from smruti.serve.scheduler import SleepScheduler
+from orma.memory import Memory
+from orma.serve.capture import StreamAccumulator, cap_text, mask_secrets, new_turns, reply_text
+from orma.serve.scheduler import SleepScheduler
 
 logger = logging.getLogger(__name__)
 
-SPACE_HEADER = "x-smruti-space"
-SKIP_HEADER = "x-smruti-skip"
+SPACE_HEADER = "x-orma-space"
+SKIP_HEADER = "x-orma-skip"
 _DROPPED_HEADERS = {"host", "content-length", "connection", "transfer-encoding", "accept-encoding",
-                    SPACE_HEADER, SKIP_HEADER}
+                    SPACE_HEADER, SKIP_HEADER, "x-smruti-space", "x-smruti-skip"}
 _HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding", "te",
                "trailer", "upgrade"}
 
@@ -92,7 +92,8 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
         return response if isinstance(response, JSONResponse) else await relay_response(response)
 
     def skip_requested(request: Request) -> bool:
-        return request.headers.get(SKIP_HEADER, "").strip() not in ("", "0")
+        skip = request.headers.get(SKIP_HEADER) or request.headers.get("x-smruti-skip", "")
+        return skip.strip() not in ("", "0")
 
     async def chat_completions(request: Request) -> Response:
         if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
@@ -107,7 +108,7 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             return await forward_chat_unchanged(raw, request)  # not ours to interpret: fail open, no memory
 
         messages = body["messages"]
-        space = request.headers.get(SPACE_HEADER) or body.get("user") or default_space
+        space = request.headers.get(SPACE_HEADER) or request.headers.get("x-smruti-space") or body.get("user") or default_space
         if memory.model is None and body.get("model"):
             memory.model = body["model"]  # sleep consolidates with the model clients use
             logger.info("sleep will use model %s; pass --model to choose", memory.model)

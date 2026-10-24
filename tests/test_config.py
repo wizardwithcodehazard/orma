@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from smruti.config import SmrutiConfig
+from orma.config import SmrutiConfig
 
 
 def test_db_path_lives_in_data_dir(tmp_path):
@@ -13,8 +13,9 @@ def test_data_dir_comes_from_env(monkeypatch, tmp_path):
 
 
 def test_data_dir_falls_back_to_home(monkeypatch):
+    monkeypatch.delenv("ORMA_DIR", raising=False)
     monkeypatch.delenv("SMRUTI_DIR", raising=False)
-    assert SmrutiConfig().data_dir == Path.home() / ".smruti"
+    assert SmrutiConfig().data_dir == Path.home() / ".orma"
 
 
 def test_citable_and_recalled_roles_leave_out_the_assistant():

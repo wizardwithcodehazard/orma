@@ -7,8 +7,8 @@ import re
 import sqlite3
 from typing import NamedTuple
 
-from smruti.embed import l2_to_cosine, to_blob
-from smruti.store.db import FTS_TOKENIZER, TEXT_KINDS, VECTOR_KINDS
+from orma.embed import l2_to_cosine, to_blob
+from orma.store.db import FTS_TOKENIZER, TEXT_KINDS, VECTOR_KINDS
 
 
 def _check(kind: str, kinds: tuple) -> None:

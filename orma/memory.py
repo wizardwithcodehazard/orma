@@ -15,13 +15,13 @@ Anything can be added: chat turns (observe), notes, documents, tool output. Each
 import time
 from pathlib import Path
 
-from smruti.config import SmrutiConfig
-from smruti.encode import Encoder, EncodeResult
-from smruti.llm import LLMClient
-from smruti.messages import message_text
-from smruti.recall import Recaller, SearchResult
-from smruti.sleep import Sleeper, SleepReport
-from smruti.store import State, Store
+from orma.config import SmrutiConfig
+from orma.encode import Encoder, EncodeResult
+from orma.llm import LLMClient
+from orma.messages import message_text
+from orma.recall import Recaller, SearchResult
+from orma.sleep import Sleeper, SleepReport
+from orma.store import State, Store
 
 RECORD_CHARS = 2000  # long text is kept as several records of about this size, split between paragraphs
 

@@ -15,13 +15,13 @@ consolidate.py - Symbolic half of sleep. The model's extraction is checked and i
 import time
 from dataclasses import dataclass, fields
 
-from smruti import clock
-from smruti.clock import parse_time  # noqa: F401 - part of this module's API
-from smruti.config import SmrutiConfig
-from smruti.sleep.extract import ExtractedEvent, ExtractedState, Extraction
-from smruti.store import USER_ENTITY, Sentence, Store
-from smruti.store.records import state_text
-from smruti.text import made_of, phrases, span_of, words
+from orma import clock
+from orma.clock import parse_time  # noqa: F401 - part of this module's API
+from orma.config import SmrutiConfig
+from orma.sleep.extract import ExtractedEvent, ExtractedState, Extraction
+from orma.store import USER_ENTITY, Sentence, Store
+from orma.store.records import state_text
+from orma.text import made_of, phrases, span_of, words
 
 FIRST_PERSON_ROLES = ("user", "note")  # lines in which "I" is the user
 

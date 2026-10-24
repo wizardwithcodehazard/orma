@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, fields
 from datetime import timezone, tzinfo
 
-from smruti import clock
+from orma import clock
 
 
 def from_row(cls, row):

@@ -6,8 +6,8 @@ the things said in the order they were said; older turns fill whatever budget re
 
 from dataclasses import dataclass, field
 
-from smruti.messages import message_text
-from smruti.text import count_tokens
+from orma.messages import message_text
+from orma.text import count_tokens
 
 SECTIONS = {
     "states": "Now true",
