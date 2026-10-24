@@ -77,6 +77,25 @@ def test_hawkes_burst_temporal_excitation():
     assert hawkes_burst([], now) == 0.0
 
 
+def test_ebbinghaus_retention_stability_scaling():
+    from orma.recall.rank import ebbinghaus_retention
+
+    day = 86400.0
+    now = 100 * day
+    # Single mention (n=1, stability = 2.0 days): at t=0, retention is 1.0
+    assert ebbinghaus_retention([now], now, initial_stability_days=2.0) == pytest.approx(1.0)
+    # After 2 days (t = 1 stability interval): retention is exp(-1) ~ 0.3678
+    assert ebbinghaus_retention([now - 2 * day], now, initial_stability_days=2.0) == pytest.approx(0.367879, rel=1e-3)
+    # Repeated 5 times (n=5, stability = 2.0 * (1 + 0.5 * 4) = 6.0 days):
+    # After 2 days, retention is exp(-2/6) = exp(-0.3333) ~ 0.7165 (much stronger retention!)
+    times_5 = [now - (5 - i) * day for i in range(5)]
+    times_5[-1] = now - 2 * day  # latest was 2 days ago
+    assert ebbinghaus_retention(times_5, now, initial_stability_days=2.0, repetition_gain=0.5) == pytest.approx(0.7165, rel=1e-3)
+    # Empty list yields 0.0
+    assert ebbinghaus_retention([], now) == 0.0
+
+
+
 
 def item(section, i, text, order=0.0):
     return MemoryItem(section, i, text, order)

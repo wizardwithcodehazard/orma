@@ -47,6 +47,8 @@ class OrmaConfig:
     use_weight: float = 0.3  # how much that strength can move a memory's rank: a bounded boost, never a filter
     hawkes_alpha: float = 0.4  # amplitude of self-exciting temporal burst
     hawkes_half_life_seconds: float = 1800.0  # 30-min conversational excitation half-life
+    ebbinghaus_stability_days: float = 2.0  # base memory stability in days
+    ebbinghaus_gain: float = 0.5  # stability scaling per spaced rehearsal / citation
     max_passages: int = 12
     max_events: int = 6
     max_query_states: int = 8  # states of others matched by the query (the user's own states are always shown)
@@ -79,6 +81,7 @@ class OrmaConfig:
     enable_similarity_weighting: bool = True
     enable_base_level: bool = True  # rank by recency and frequency of use (ACT-R); off = by match alone
     enable_hawkes: bool = True  # temporal self-exciting burst intensity for conversational momentum
+    enable_ebbinghaus: bool = True  # spaced repetition memory stability scaling
     enable_schema_decoding: bool = True  # constrain extraction to the JSON schema (else plain JSON mode)
     enable_grounding: bool = True  # a state's value must be in (or paraphrased by) the line it cites
     enable_date_phrases: bool = True  # resolve date words ("last Saturday") against when they were said (else ISO only)

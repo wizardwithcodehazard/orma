@@ -51,6 +51,20 @@ def hawkes_burst(times, now: float, alpha: float = 0.4, half_life_seconds: float
     return float(sum(alpha * np.exp(-beta * max(0.0, now - t)) for t in times if now >= t))
 
 
+def ebbinghaus_retention(times, now: float, initial_stability_days: float = 2.0, repetition_gain: float = 0.5) -> float:
+    """Ebbinghaus retention score R = exp(-age_days / Stability).
+    Stability multiplies with each spaced repetition: S = S0 * (1 + gain * (n - 1)).
+    Frequently reinforced facts stay near 1.0, while one-off mentions decay exponentially.
+    """
+    if not times:
+        return 0.0
+    n = len(times)
+    stability = initial_stability_days * (1.0 + repetition_gain * (n - 1))
+    latest = max(times)
+    age_days = max(0.0, now - latest) / 86400.0
+    return float(np.exp(-age_days / max(0.1, stability)))
+
+
 def use_weight(strength: float, weight: float) -> float:
     """A bounded boost for strength: (1 - weight) + weight * min(strength, 1), so recency and repetition rank
     among relevant memories but never bury an old relevant one under fresh irrelevant ones."""
