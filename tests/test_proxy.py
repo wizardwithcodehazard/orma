@@ -292,3 +292,19 @@ def test_root_and_static_web_ui_passthrough(memory):
         asset_resp = c.get("/index.js")
         assert asset_resp.status_code == 200
 
+
+def test_proxy_sanitizes_negative_dry_parameters(memory):
+    up = Upstream()
+    with client(memory, up) as c:
+        c.post("/v1/chat/completions", json={
+            "model": "m",
+            "messages": [{"role": "user", "content": "hello"}],
+            "dry_penalty_last_n": -1,
+            "dry_allowed_length": -1,
+            "temperature": 0.7,
+        })
+    sent_body = up.requests[0]["body"]
+    assert "dry_penalty_last_n" not in sent_body
+    assert "dry_allowed_length" not in sent_body
+    assert sent_body["temperature"] == 0.7
+

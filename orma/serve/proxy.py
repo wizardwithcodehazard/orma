@@ -127,6 +127,11 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             logger.exception("reading new turns failed; nothing will be recorded")
             turns = []
 
+        # Sanitize vendor-specific sampling parameters (e.g. llama.cpp UI defaults to negative dry_* values)
+        for k in list(body.keys()):
+            if k.startswith("dry_") and isinstance(body[k], (int, float)) and body[k] < 0:
+                del body[k]
+
         response = await send_upstream("POST", "/chat/completions", json=body, headers=forwarded_headers(request))
         if isinstance(response, JSONResponse):
             return response
