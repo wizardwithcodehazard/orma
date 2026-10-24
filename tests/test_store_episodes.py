@@ -10,14 +10,11 @@ def test_pending_episodes_are_ordered_and_scoped(store):
     assert store.pending_stats() == [("other", 1, 102.0), ("s", 2, 101.0)]
 
 
-def test_mark_consolidated_then_prune_after_retention(store):
+def test_mark_consolidated_keeps_the_record(store):
     eid = add(store, "hello", now=100.0)
     store.mark_consolidated([eid], now=200.0)
     assert store.pending_episodes("s", 10) == []
-    assert store.prune_episodes(before=150.0) == 0
-    assert store.prune_episodes(before=250.0) == 1
-    assert store.episodes([eid]) == []
-    assert store.vec_search("episodes", "s", store.embed("hello"), 5) == []
+    assert store.episodes([eid])[0].consolidated_at == 200.0  # records are never deleted
 
 
 def test_repeated_sleep_failures_retire_episodes(store):

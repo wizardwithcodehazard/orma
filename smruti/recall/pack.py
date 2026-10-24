@@ -1,37 +1,31 @@
 """
-pack.py - Budgeted prompt assembly. The newest turns are always kept; memory is added in a
-fixed section order (core facts first, so they form a stable, cache-friendly prefix); older
-turns fill whatever budget remains.
+pack.py - Budgeted prompt assembly. The newest turns are always kept; memory lines are chosen in priority
+order (what is true now, then what was said, then events) while they fit, and shown grouped by section,
+the things said in the order they were said; older turns fill whatever budget remains.
 """
 
-import math
 from dataclasses import dataclass, field
 
 from smruti.messages import message_text
+from smruti.text import count_tokens
 
 SECTIONS = {
-    "core": "Known facts about the user",
-    "facts": "Relevant facts",
-    "events": "Past events",
-    "procedures": "Lessons from past actions",
-    "summaries": "Background",
-    "episodes": "Recent notes",
+    "states": "Now true",
+    "passages": "Things said before",
+    "events": "Events",
 }
 
-
-FRAMING = ("Things remembered from earlier conversations with this user (the person you are talking to). "
-           "Use them when relevant; do not mention this list. If a fact and the background disagree, trust the fact.")
-
-
-def count_tokens(text: str, chars_per_token: float) -> int:
-    return math.ceil(len(text) / chars_per_token)
+FRAMING = ("What you remember about the person you are talking to, from earlier conversations, notes and "
+           "documents. Use it when relevant; do not mention this list. A line marked [outdated] was true when "
+           "it was said and has changed since.")
 
 
 @dataclass
 class MemoryItem:
-    section: str
+    section: str  # states | passages | events
     id: int
     text: str
+    order: float = 0.0  # display order within its section (passages: when they were said)
 
 
 @dataclass
@@ -43,7 +37,6 @@ class Packed:
 
 
 def framing(today: str = "") -> str:
-    """The framing line; today's date lets the model reason about when remembered events happened."""
     return f"{FRAMING} Today is {today}." if today else FRAMING
 
 
@@ -52,14 +45,16 @@ def render(items: list[MemoryItem], today: str = "") -> str:
         return ""
     lines = ["## Memory", framing(today)]
     for section, title in SECTIONS.items():
-        texts = [item.text for item in items if item.section == section]
-        if texts:
+        chosen = sorted((i for i in items if i.section == section), key=lambda i: (i.order, i.id))
+        if chosen:
             lines.append(f"{title}:")
-            lines.extend(f"- {text}" for text in texts)
+            lines.extend(f"- {item.text}" for item in chosen)
     return "\n".join(lines)
 
 
-def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: int, today: str = "") -> Packed:
+def pack(candidates: list[MemoryItem], turns: list[dict], budget: int, chars_per_token: float, min_recent: int,
+         today: str = "", state_cap: int | None = None) -> Packed:
+    """candidates in priority order; states beyond state_cap tokens are left out."""
     def cost(text: str) -> int:
         return count_tokens(text, chars_per_token)
 
@@ -67,22 +62,15 @@ def pack(core, ranked, turns, budget: int, chars_per_token: float, min_recent: i
     older = list(turns[: len(turns) - len(kept)])
     kept_cost = sum(cost(message_text(t)) for t in kept)
 
-    # Exact running size of render(used): items arrive in section order, so each new section
-    # adds a title line and every line after the first adds a newline.
     used: list[MemoryItem] = []
-    chars = lines = 0
-    titled: set[str] = set()
-    for item in [*core, *ranked]:
-        added = [f"- {item.text}"]
-        if item.section not in titled:
-            added.insert(0, f"{SECTIONS[item.section]}:")
-        if lines == 0:
-            added[:0] = ["## Memory", framing(today)]
-        with_item = chars + sum(len(line) for line in added) + len(added) - (lines == 0)
-        if math.ceil(with_item / chars_per_token) + kept_cost <= budget:
+    state_tokens = 0
+    for item in candidates:
+        line_cost = cost(f"- {item.text}\n")
+        if item.section == "states" and state_cap is not None and state_tokens + line_cost > state_cap:
+            continue
+        if cost(render(used + [item], today)) + kept_cost <= budget:
             used.append(item)
-            titled.add(item.section)
-            chars, lines = with_item, lines + len(added)
+            state_tokens += line_cost if item.section == "states" else 0
     memory_text = render(used, today)
 
     remaining = budget - cost(memory_text) - kept_cost

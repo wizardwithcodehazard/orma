@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 
 # Virtual Environment
 .venv/
@@ -12,21 +13,39 @@ venv/
 env/
 ENV/
 
-# smruti local workspace database
+# Local databases & storage
 .smruti/
 .smriti/
+.orma/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
 
-# Build artifacts
+# Build & packaging artifacts
 build/
 dist/
 *.egg-info/
 *.whl
+
+# Test & coverage
+.coverage
+htmlcov/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
 
 # IDE & OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+*.swp
+*~
+
+# Benchmark & eval run logs
+eval/runs/
+scratch/

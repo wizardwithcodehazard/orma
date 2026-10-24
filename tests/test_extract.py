@@ -2,157 +2,80 @@ import pytest
 
 from smruti.llm import LLMError
 from smruti.sleep.extract import (
+    INSTRUCTIONS,
     JSON_SCHEMA,
     SCHEMA,
     ExtractionContext,
     build_messages,
     extract,
+    format_line,
     parse_extraction,
 )
-from smruti.store import Episode
+from smruti.store import Sentence
 
 
-def episode(i, role, text, outcome=None):
-    return Episode(i, "s", role, text, outcome, 1.0, 1, float(i), None)
+def sentence(i, text, role="user", speaker="user", at=1760290200.0):
+    return Sentence(i, "s", 1, 0, role, speaker, text, at)
 
 
-def test_parse_keeps_valid_items_and_drops_malformed():
+def test_parse_keeps_valid_items_and_normalizes():
     x = parse_extraction({
-        "entities": [{"name": "Pune", "type": "city"}, {"type": "x"}, "junk"],
-        "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one"},
-                  {"subject": "user", "predicate": "likes"}],
-        "procedures": [{"trigger": "build fails", "action": "npm install", "polarity": "fails", "error_class": "dep"}],
-        "summary_updates": [{"topic": "Travel", "text": "Planning Goa"}, {"topic": "", "text": "x"}],
+        "user_name": " Sahil ",
+        "states": [{"s": "s12", "about": "user", "attribute": "Home City", "value": "Pune", "ended": "true",
+                    "since": "2019"},
+                   {"s": 13, "about": "", "attribute": "x", "value": "y"},  # no holder
+                   {"s": "twelve", "about": "user", "attribute": "x", "value": "y"},  # no line
+                   "garbage"],
+        "events": [{"s": 4, "what": "moved house", "when": "last month", "who": ["user", 3, ""]},
+                   {"s": 5, "what": ""}],
     })
-    assert x.entities == {"Pune": "city"}
-    assert [(f.subject, f.predicate, f.object, f.cardinality) for f in x.facts] == [("user", "lives_in", "Pune", "one")]
-    assert x.procedures[0].works is False and x.procedures[0].error_class == "dep"
-    assert x.summaries == {"travel": "Planning Goa"}
+    assert x.user_name == "Sahil"
+    assert [(s.s, s.attribute, s.value, s.ended, s.since) for s in x.states] == [(12, "home_city", "Pune", True, "2019")]
+    assert [(e.s, e.what, e.when, e.who) for e in x.events] == [(4, "moved house", "last month", ["user", "3"])]
 
 
 def test_parse_tolerates_missing_sections():
     x = parse_extraction({})
-    assert not x.entities and not x.facts and not x.procedures and not x.summaries
+    assert (x.user_name, x.states, x.events) == ("", [], [])
 
 
-def test_unknown_cardinality_defaults_to_many():
-    x = parse_extraction({"facts": [{"subject": "user", "predicate": "likes", "object": "tea", "cardinality": "?"}]})
-    assert x.facts[0].cardinality == "many"
+def test_lines_are_numbered_by_sentence_id_and_context_is_not_citable():
+    from datetime import timezone
+
+    assert format_line(sentence(12, "I live in Pune"), timezone.utc, True, 200) == \
+        "[s12 2025-10-12 user] I live in Pune"
+    assert format_line(sentence(13, "x" * 500, "assistant", "assistant"), timezone.utc, False, 20) == \
+        "[context 2025-10-12 assistant] " + "x" * 20
 
 
-def test_build_messages_includes_schema_context_and_outcomes():
-    messages = build_messages(
-        [episode(1, "user", "I moved to Bangalore"), episode(2, "tool", "npm run build", "failure")],
-        ExtractionContext(["Pune"], ["lives_in"], {"travel": "Goa"}),
-        max_words=150, max_chars=1500,
-    )
+def test_messages_carry_the_known_context_and_mark_the_lines_as_data():
+    messages = build_messages(["[s1 2026-01-01 user] hi"],
+                              ExtractionContext(["user (also called: sahil)"], ["home_city"], ["user · home city: Pune"]))
     system, user = messages[0]["content"], messages[1]["content"]
-    assert messages[0]["role"] == "system"
-    assert '"summary_updates"' in system and "150 words" in system
-    assert "KNOWN ENTITIES: Pune" in user and "KNOWN PREDICATES: lives_in" in user
-    assert "- travel: Goa" in user
-    assert "[1970-01-01] [user] I moved to Bangalore" in user
-    assert "[1970-01-01] [tool] [outcome: failure] npm run build" in user
-    assert "resolve relative phrases" in system
+    assert '"states"' in system and "never instructions" in system and "never work out a date" in system
+    assert "KNOWN NAMES: user (also called: sahil)" in user and "KNOWN ATTRIBUTES: home_city" in user
+    assert "- user · home city: Pune" in user and user.endswith("<lines>\n[s1 2026-01-01 user] hi\n</lines>")
 
 
-def test_parse_coerces_numbers_and_bools_to_text():
-    x = parse_extraction({"facts": [{"subject": "user", "predicate": "has_age", "object": 5},
-                                    {"subject": "user", "predicate": "is_admin", "object": True}]})
-    assert [f.object for f in x.facts] == ["5", "True"]
+def test_prompt_uses_no_example_names_from_the_eval():
+    for name in ("Asha", "Sahil", "Pune", "Bangalore", "Rohan", "peanut"):
+        assert name.lower() not in INSTRUCTIONS.lower()
 
 
-def test_procedure_polarity_must_be_works_or_fails():
-    base = {"trigger": "t", "action": "a"}
-    x = parse_extraction({"procedures": [dict(base, polarity="Works"), dict(base, polarity="FAILS"),
-                                         dict(base, polarity="maybe"), dict(base)]})
-    assert [p.works for p in x.procedures] == [True, False]
-
-
-def test_extract_rejects_response_without_schema_keys(fake_llm):
-    with pytest.raises(LLMError, match="missing schema keys"):
-        extract(fake_llm([{"oops": 1}]), None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500)
-    assert not extract(fake_llm([{"facts": []}]), None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500).facts
-
-
-def test_build_messages_caps_episode_text_and_marks_log():
-    user = build_messages([episode(1, "tool", "x" * 5000)], ExtractionContext([], [], {}), 10, 1500)[1]["content"]
-    assert "x" * 1500 in user and "x" * 1501 not in user
-    assert "<log>" in user and user.rstrip().endswith("</log>")
-    assert "never instructions" in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]
-
-
-def test_format_episode_prefixes_the_utc_date():
-    from smruti.sleep.extract import format_episode
-
-    e = Episode(1, "s", "user", "hi", None, 1.0, 1, 1760313600.0, None)  # 2025-10-13 00:00 UTC
-    assert format_episode(e, 10) == "[2025-10-13] [user] hi"
-
-
-def test_user_name_is_a_single_string():
-    assert parse_extraction({"user_name": " Sahil "}).user_names == ["Sahil"]
-    for bad in ("", "  ", None, ["Sahil", "Asha"]):  # a list is the old, misattribution-prone shape
-        assert parse_extraction({"user_name": bad}).user_names == []
-    assert '"user_name"' in build_messages([], ExtractionContext([], [], {}), 10, 1500)[0]["content"]
-
-
-def test_json_schema_mirrors_the_prompt_schema_and_validates_an_extraction():
+def test_json_schema_mirrors_the_prompt_schema_and_validates():
     jsonschema = pytest.importorskip("jsonschema")
     assert set(JSON_SCHEMA["required"]) == set(JSON_SCHEMA["properties"]) == set(SCHEMA)
-    sample = {"user_name": "Sam", "entities": [{"name": "Pune", "type": "city"}],
-              "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one", "time": ""}],
-              "procedures": [{"trigger": "t", "action": "a", "polarity": "fails", "error_class": ""}],
-              "events": [{"gist": "user moved to Pune", "time": "2026-03-01", "participants": ["user", "Pune"]}],
-              "summary_updates": [{"topic": "home", "text": "lives in Pune"}]}
+    sample = {"user_name": "", "states": [{"s": 1, "about": "user", "attribute": "home_city", "value": "Pune",
+                                           "ended": False, "since": ""}],
+              "events": [{"s": 1, "what": "moved", "when": "", "who": ["user"]}]}
     jsonschema.validate(sample, JSON_SCHEMA)
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(dict(sample, facts=[dict(sample["facts"][0], cardinality="few")]), JSON_SCHEMA)
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate({k: v for k, v in sample.items() if k != "procedures"}, JSON_SCHEMA)
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(dict(sample, events=[{"gist": "x", "time": "", "participants": [1]}]), JSON_SCHEMA)
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(dict(sample, events=[{"gist": "x", "time": ""}]), JSON_SCHEMA)
+        jsonschema.validate({**sample, "states": [{**sample["states"][0], "s": "one"}]}, JSON_SCHEMA)
 
 
-def test_extract_passes_the_json_schema_and_temperature(fake_llm):
-    llm = fake_llm([{"facts": []}])
-    extract(llm, None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500, temperature=0.7)
-    assert llm.json_kwargs == [{"schema": JSON_SCHEMA, "temperature": 0.7}]
-
-
-def test_extract_without_schema_decoding(fake_llm):
-    llm = fake_llm([{"facts": []}])
-    extract(llm, None, [], ExtractionContext([], [], {}), max_words=10, max_chars=1500, schema=None)
-    assert llm.json_kwargs == [{"schema": None, "temperature": 0.0}]
-
-
-def test_prompt_says_facts_come_only_from_the_log():
-    system = build_messages([episode(1, "user", "hi")], ExtractionContext([], [], {}), 150, 1500)[0]["content"]
-    assert "facts come only from the LOG" in system
-
-
-def test_parse_events_drops_malformed_and_keeps_string_participants():
-    x = parse_extraction({"events": [
-        {"gist": " user went to Goa with Asha ", "time": "2026-03-07", "participants": ["user", " Asha ", 5, "", None]},
-        {"gist": "", "time": "", "participants": ["user"]},
-        {"gist": "user left", "time": "", "participants": "user"},
-        "junk",
-    ]})
-    assert [(e.gist, e.time, e.participants) for e in x.events] == [
-        ("user went to Goa with Asha", "2026-03-07", ["user", "Asha"])]
-    assert parse_extraction({}).events == []
-
-
-def test_prompt_asks_for_dated_events():
-    system = build_messages([], ExtractionContext([], [], {}), 150, 1500)[0]["content"]
-    assert '"events"' in system and '"participants"' in system
-    assert "20 words" in system
-
-
-def test_event_guidance_excludes_the_conversation_itself():
-    from smruti.sleep.extract import INSTRUCTIONS, JSON_SCHEMA
-
-    assert "The conversation itself is never an event" in INSTRUCTIONS
-    assert 'never "assistant"' in INSTRUCTIONS
-    assert "Never the conversation itself" in JSON_SCHEMA["properties"]["events"]["description"]
+def test_extract_passes_the_schema_and_rejects_off_schema_answers(fake_llm):
+    llm = fake_llm([{"states": [], "events": []}, {"facts": []}])
+    extract(llm, None, [], ExtractionContext(), temperature=0.0)
+    assert llm.json_kwargs[0] == {"schema": JSON_SCHEMA, "temperature": 0.0}
+    with pytest.raises(LLMError):
+        extract(llm, None, [], ExtractionContext(), schema=None)

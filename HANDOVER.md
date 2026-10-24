@@ -4,152 +4,112 @@ Everything you need to take over Smruti: what it is, how to run it, how it is bu
 
 ## 1. What it is, in one paragraph
 
-Smruti gives small local LLMs (reference: `llama3.2:3b` via Ollama, 4k-token budget, 8 GB laptop) long-term memory. It runs as an OpenAI-compatible proxy: clients such as OpenCode, Open WebUI or any OpenAI SDK point at `http://localhost:8080/v1`. Smruti then:
-
-- merges the relevant memories into each request, under a fixed token budget, without calling an LLM;
-- records the conversation;
-- in the background, while the user is idle, uses the same local model to turn conversations into a structured memory.
-
-That memory is a graph of entities and facts with time validity, plus dated events, lessons from tool use, and topic summaries. The design principle is "neural for perception, symbolic for memory": the LLM only reads text into a fixed schema, and code decides identity, contradiction, evidence and ranking.
+Smruti is a general long-term memory layer for small local LLMs (reference: Qwen2.5-3B on llama.cpp or `llama3.2:3b` on Ollama, 4k-token budget, an 8 GB laptop). Anything can be added: chat turns, notes, documents, tool output. Every record is kept in full and is searchable at once. In the background, while the machine is idle, the same local model reads new records and builds two kinds of structure that plain search cannot give: **states** (what is true now, one value at a time, superseded when it changes, with history) and **dated events**. Recall needs no LLM: hybrid search over the kept sentences plus the current states, rendered into the prompt with outdated lines marked. It ships as an SDK (`Memory.add / search / sleep / build_context`), a CLI, and an OpenAI-compatible proxy that adds memory to any chat client.
 
 ## 2. Run it (about 5 minutes)
 
-Python 3.10 or newer (macOS system Python 3.9 does not work). Use Homebrew Python or `uv`.
+Python 3.10 or newer.
 
 ```bash
 git clone https://github.com/wizardwithcodehazard/smruti.git && cd smruti
-python3.12 -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-python -m pytest -q                      # 248 pass, no downloads needed
-
-ollama pull llama3.2:3b
-smruti proxy --model llama3.2:3b         # terminal 1
+python -m pytest -q                                     # no downloads needed
 ```
 
 ```bash
-# terminal 2: scripted end-to-end demo against the real model, with and without memory
-export SMRUTI_DIR=/tmp/smruti-demo && rm -rf $SMRUTI_DIR   # restart the proxy with the same SMRUTI_DIR
-python scripts/demo_ollama.py
+python -m smruti add "My dentist is Dr. Rao in Kothrud."     # a note
+python -m smruti add notes/handbook.md                       # a document
+python -m smruti search "who is my dentist?"
+python -m smruti sleep --model MODEL --upstream http://127.0.0.1:PORT/v1
+python -m smruti facts --history
 
-python scripts/latency_smoke.py          # recall/encode latency with real embeddings, no LLM
-smruti facts --history                   # what is remembered (including facts that are no longer true)
-smruti recall "any message"              # the memory block that would be injected
+# the chat proxy (Ollama default; llama.cpp: --upstream http://127.0.0.1:PORT/v1)
+python -m smruti proxy --model llama3.2:3b
 ```
 
-The first run downloads the bge-small embedding model (about 130 MB). Memory lives in `~/.smruti/memory.db` unless `SMRUTI_DIR` is set. Reset it by deleting the directory.
+`python -m smruti` always runs this checkout, even if another `smruti` command is first on PATH. The first run downloads the bge-small embedding model (about 130 MB). Memory lives in `~/.smruti/memory.db` unless `SMRUTI_DIR` is set. A database from version 1 keeps its records; run `smruti rebuild` once.
 
 ## 3. Repo map
 
 | Path | What it is |
 |---|---|
 | `smruti/config.py` | `SmrutiConfig`: every tunable and every ablation switch (`enable_*`) |
-| `smruti/store/` | SQLite schema plus migrations (`db.py`), vector (sqlite-vec) and FTS5 index helpers (`index.py`), records, `Store` |
-| `smruti/encode.py` | Per-turn encoding with an adaptive novelty gate |
-| `smruti/recall/` | The request path: search fusion, entity linking, spreading activation (`activation.py`), base-level activation and fusion (`rank.py`), budgeted packing (`pack.py`), priming |
-| `smruti/sleep/` | Background consolidation: LLM extraction with a JSON schema (`extract.py`), replay voting (`vote.py`), grounding and symbolic consolidation (`consolidate.py`), batching, retries and the lease (`__init__.py`) |
-| `smruti/serve/` | The proxy (Starlette), turn capture from traffic, the background sleep scheduler |
-| `smruti/memory.py`, `smruti/cli.py` | Python SDK (`Memory`) and the `smruti` command |
-| `tests/` | 248 tests; `conftest.py` has `FakeEmbedder`, `NoisyEmbedder` and `FakeLLM` |
-| `scripts/` | Real-model demo and latency smoke test |
-| `docs/ARCHITECTURE.md` | Engineering overview |
-| `docs/CLIENTS.md`, `docs/SETUP_GUIDE.md` | Client setup and troubleshooting |
-| `docs/superpowers/specs/…design.md` | The design spec, the source of truth for rationale. Keep it updated when behaviour changes |
-| `docs/superpowers/plans/` | The implementation plans that built Plans 1 and 2 (historical; code has since moved on) |
+| `smruti/text.py` | Sentence splitting, code-block markers, whole-word matching |
+| `smruti/clock.py` | Timezone-aware days; date words resolved against when they were said |
+| `smruti/store/` | SQLite schema (`db.py`), vector and FTS5 helpers (`index.py`), records, `Store` |
+| `smruti/encode.py` | Adding a record: near-copy gate, sentences, indexing |
+| `smruti/sleep/` | Batching and the lease (`__init__.py`), the two-list extraction (`extract.py`), checks and time maintenance (`consolidate.py`) |
+| `smruti/recall/` | Hybrid search, ranking (`rank.py`), budgeted packing (`pack.py`) |
+| `smruti/serve/` | The proxy, turn capture, the background sleep scheduler |
+| `smruti/memory.py`, `smruti/cli.py` | The SDK and the `smruti` command |
+| `eval/` | Dev cases (`cases.json`), held-out test cases (`test_cases.json`), the harness (`run.py`, `score.py`) |
+| `tests/` | Unit and integration tests with `FakeEmbedder`, `NoisyEmbedder`, `FakeLLM` and `seed_state` |
+| `scripts/` | Real-model chat demo, latency and needle-in-a-haystack smoke test |
+| `docs/ARCHITECTURE.md` | Engineering overview of v2 (current) |
+| `docs/superpowers/` | The v1 design spec and plans (historical) |
 
-## 4. How a request and a sleep work
+## 4. How it works
 
-**Request (no LLM, no DB writes, about 26 ms with 2k facts):**
+Read `docs/ARCHITECTURE.md`. In short:
 
-1. The query is linked to known entities: by embedding similarity weighted against the space's own noise floor, and by exact name containment.
-2. Search hits and primed entities from recent requests become cues.
-3. Activation spreads along current facts and events, divided by each entity's fan (ACT-R fan effect, so a hub like `user` does not flood the prompt).
-4. Each fact is scored as relevance × base-level activation (ACT-R power-law decay over its evidence times) × importance (surprise) × confidence.
-5. Results are packed into the budget as a `## Memory` block: core facts, facts, past events, lessons, background, recent notes. Today's date is included.
-
-**Sleep (background, when 20 turns are pending or after 120 s idle):**
-
-1. Pending turns are batched to fit `sleep_prompt_tokens`.
-2. The LLM extracts `{user_name, entities, facts, events, procedures, summary_updates}`, using JSON-schema-constrained decoding where the runtime supports it.
-3. The grounding filter drops anything whose words are not in the batch's own log.
-4. Symbolic consolidation merges entities, normalizes predicates (with cardinality), closes contradicted one-valued facts (`valid_to`), handles back-dated facts only when both dates were stated, adds evidence (idempotent per batch), stores events and lessons, and updates summaries.
-5. Only one sleeper runs per space at a time (lease). A failed batch is retried, then retired after 3 attempts.
+- **add** (no LLM): keep the record, split into sentences, embed and index them. A near-copy (≥ 0.97) is counted, not stored.
+- **sleep** (one LLM call per batch): numbered lines in, `{user_name, states, events}` out, each citing a line number. Code checks the citation, who it is about (pronouns carry over from the last name before them), that the value is in the line, and maintains one value per entity and attribute over time.
+- **recall** (no LLM, no writes): hybrid search with a bounded recency boost; the user's current states always shown; superseded sentences marked `[outdated]`.
 
 ## 5. Key decisions and the history behind them (read before changing things)
 
 | Decision | Why (what went wrong otherwise) |
 |---|---|
-| No hand-written natural-language heuristics (no regex or keyword lists over meaning) | The old engine (pre-v1, still on the `main` and `feature/tier2-cognitive-enhancements` branches of the original repo) was full of them, and they blocked `python --version` after `python train.py` failed. Structural parsing (dates, JSON, secret formats) is fine. |
-| Recall never writes and never calls an LLM | Speed, and "retrieval is not evidence". Rules must not get stronger just because they were retrieved. |
-| Spreading activation with the fan effect instead of hop distance | With hop distance, 2,000 trivia facts about `user` drowned "Asha is allergic to peanuts" (found by `latency_smoke.py`). |
-| Similarity weighted against a data-adaptive floor | bge-small gives unrelated short texts about 0.4–0.6 cosine, so rank-only fusion pulled in junk. |
-| Grounding filter | The 3B model copied "lives in Pune" from the existing summary in its prompt, which overrode the Bangalore move. |
-| Votes add confidence and never gate admission (default `sleep_votes=1`) | Gating on agreement made real runs worse: the noisy second pass dropped true facts. |
-| Single `user_name` field plus alias guards | With a `user_names` list, llama3.2:3b put the sister's name in it in 3 out of 3 runs, so her allergy became the user's. |
-| Stated vs inferred time; same-day time counts as not stated | Without this, "I moved to Bangalore last month" was stored as history and Pune stayed current. |
-| Events are "real-life happenings, never the conversation" | Otherwise the model logged "assistant asks about user's work" as events. |
+| **v2: episodes are the memory; only states and events are structured** | v1 extracted a general triple graph. On Qwen2.5-3B the triples were often wrong (`user allergic_to Asha`), yet answers were right because the source sentence came along. Every repair (quotes, holder labels, learned cardinality, role aliases) added fields for a 3B model to get wrong and doubled sleep time (~40 s to ~110 s for 3 turns). Facts found swung 6/12 → 0/12 → 5/12 between patches. |
+| Records are never deleted | v1 pruned raw turns after 7 days and kept the lossy extraction forever, so a bad extraction was permanent. Now `rebuild` can re-read everything with a better model. |
+| The model cites line numbers, not quotes | Copying quotes made the answer long (the slow part) and needed fuzzy matching. A line number is a few tokens and exact. |
+| Only one-valued states are structured | One-valued state is what plain search cannot do (what is true *now*). Many-valued facts (likes, allergies, hobbies) are found as sentences; no cardinality guessing is needed. |
+| Who a memory is about is resolved in code; the model's label is not trusted | Qwen2.5-3B labelled "I live in Pune" as about someone else. First-person words in the user's own lines mean the user; "she" carries over the last name before it (Panini's anuvrtti). The two pronoun lists are config, replaceable per language. |
+| No hand-written meaning heuristics | The pre-v1 engine was full of them and broke on ordinary input. Structural rules (sentence ends, code fences, dates, closed pronoun classes) are fine. |
+| Recall never writes and never calls an LLM | Speed, and "retrieval is not evidence": a memory must not get stronger because it was retrieved. |
+| Similarity weighted against a data-adaptive floor | bge-small gives unrelated short texts about 0.4–0.6 cosine, so plain rank fusion pulled in junk. |
+| Others' states need lexical evidence to be shown | In a fresh space (before the floor warms up) vector-only matches put unrelated people's states into "Now true". |
+| Recency is a bounded boost (`use_weight`) | With ACT-R decay 0.5 alone, a 90-day-old memory scores about 0.1 of a fresh one, so fresh trivia would outrank an old relevant fact. The boost moves rank by at most 30%. |
+| Dates: the model copies date words, code resolves them in the user's timezone | Small models get date arithmetic wrong; UTC log dates put "yesterday" on the wrong day between 00:00 and 05:30 IST. |
+| The novelty gate drops only near-copies (0.97) | Embeddings barely see negation: "is allergic to" vs "is not allergic to" is 0.883, so a looser gate dropped corrections. |
 | Today's date in the memory block | Otherwise the model said "a few months ago" for an event four days earlier. |
-| No MCP or agent hooks in v1 | The proxy already sees tool calls and results in the conversation. |
+| No eval names in the extraction prompt | v1 put "my sister Asha" in the prompt while the eval tested that exact sentence. |
 
 ## 6. What has been verified
 
-- **Unit and integration tests:** 248, including the proxy against a fake upstream (streaming, disconnects, malformed bodies, CSRF guard, secret masking).
-- **Real model:** `llama3.2:3b` on an M1 8 GB via `scripts/demo_ollama.py`.
-
-| Check | Result |
-|---|---|
-| The move: Pune to Bangalore | correct: Pune is closed, Bangalore is current |
-| "Which city should I search for weekend cafes?" | "You're in Bangalore…" (plain Ollama has to ask) |
-| "When did I last go trekking, and who came with me?" | "Sinhagad fort with your sister Asha on 2026-10-09" (plain Ollama: "I can't know") |
-| "Cookies for my sister?" | **flaky**: correct (peanut-free) when "user has sister Asha" was extracted, misses the allergy when it wasn't |
-| Sleep time | about 10–25 s per batch on the M1; recall < 1 s |
-
-- **Not verified:**
-  - any benchmark;
-  - the client config examples in `docs/CLIENTS.md` (OpenCode, Continue), which were never tried against the real apps;
-  - runtimes other than Ollama.
+- **Tests:** `python -m pytest -q`, all passing, including the proxy against a fake upstream (streaming, disconnects, malformed bodies, CSRF guard, secret masking).
+- **Real model:** Qwen2.5-3B-Instruct Q4_K_M on llama.cpp, eval dev split; see §9 for how to run it. Results of the latest run are in `tasks.md`.
+- **Not verified:** any public benchmark (LongMemEval); the held-out test split beyond a single run; client configs in `docs/CLIENTS.md`; runtimes other than Ollama and llama.cpp.
 
 ## 7. Known issues and limitations (most important first)
 
-1. **Extraction quality is bounded by the sleep model.** With llama3.2:3b, facts are sometimes misattributed ("user is allergic" instead of the sister), links get missed ("has sister Asha"), and relative times are left unresolved. This is the main weakness. Plans are in §8.
-2. **Cardinality guesses stick.** A predicate's one/many is decided by the first extraction and never revised.
-3. **The grounding filter is literal.** Paraphrases ("mom" in the chat, "mother" in the extraction) get dropped. Watch `facts_ungrounded` in sleep reports.
-4. **Guard (b) on aliases** rejects a user name that already exists as another entity from an earlier batch.
-5. **Fresh spaces are noisy.** Until a space has enough history (`novelty_warmup` = 50 turns), the similarity floor is off and recall is noisier.
-6. **Token counts are an estimate** (`chars_per_token` = 3.5), not the model's tokenizer.
-7. **Trimming history can split** a tool call from its tool result.
-8. **Sleep competes with chat** for the GPU on small machines.
-9. **A Starlette deprecation warning** in tests (`httpx` with `TestClient`); harmless for now.
-10. **No `LICENSE` file yet,** although `pyproject.toml` says Apache-2.0. Add the license text before announcing.
+1. **Extraction coverage is bounded by the sleep model.** A 3B model misses states. Sentences are still found by search, but "Now true" and `[outdated]` depend on sleep. `rebuild` with a 7B model is the cheapest improvement.
+2. **The eval is small** (8 dev cases, 10 test cases, keyword-scored answers). Treat differences of one or two cases as noise.
+3. **English-centred perception.** The prompt, date parser, FTS stemmer and pronoun lists are English; Hinglish works only as far as the model and embedder manage.
+4. **"user" filed for someone else's state is not caught** when the line has first-person words ("my sister Asha lives in Delhi" filed as the user's). The sentence shown with it lets the chat model correct it.
+5. **Fresh spaces are noisier** until `novelty_warmup` records exist.
+6. **Token counts are an estimate** (`chars_per_token` = 3.5).
+7. **Sleep competes with chat** for the GPU on small machines; `--sleep-upstream` can point sleep at another server.
+8. **No `LICENSE` file yet,** although `pyproject.toml` says Apache-2.0.
 
-## 8. What to do next (in this order; also in `tasks.md`)
+## 8. What to do next
 
-1. **Deterministic dates.** The model copies the phrase ("last Saturday"), and a date library resolves it against the turn's timestamp. Small models should not do date arithmetic.
-2. **Show source sentences.** Store each fact with its source sentence and show the sentence in the prompt, so a misattributed triple cannot mislead the answer. Probably the biggest quick win.
-3. **A small labelled eval set.** 30–50 conversations targeting the failure types in §7.1, run after every change. Decide by numbers, not by eye. (Voting looked good in theory and was worse in practice.)
-4. **LongMemEval (Plan 3).** Use the oracle split first (500 questions, about 7k tokens of history each, about 1.5 min per question on an M1). It's free on a Kaggle GPU notebook with Ollama inside, judged by Gemini through its OpenAI-compatible endpoint (rate limits vary; cache verdicts so runs can resume).
-   - Baselines: last-k, full-context, naive RAG.
-   - Then ablate every `enable_*` switch.
-   - The dataset is `xiaowu0162/longmemeval-cleaned` on Hugging Face.
-5. **Rewrite before extracting** (resolve pronouns into standalone sentences), and a yes/no verification pass per extracted fact.
-6. **A fixed relation vocabulary** as a schema enum, so cardinality per relation is deterministic.
-7. **`--sleep-model`,** so sleep can use a stronger model than chat when RAM allows.
-8. **Packaging.** Publish to PyPI and add `smruti up` (check Ollama, pull the model, start the proxy), so users can run `pipx install smruti && smruti up`.
-9. **Later:**
-   - GLiNER or coreference models as fast perception;
-   - a LoRA extraction adapter trained on corrected sleep output;
-   - `smruti correct` and asking the user when a memory is uncertain;
-   - an optional MCP server.
+1. Run the held-out test split once and report it next to dev, with the episodic-only baseline (`--set enable_semantic=false`).
+2. LongMemEval (oracle split) with last-k, full-context and plain-RAG baselines.
+3. A stronger sleep model through `rebuild` (7B on a second server) and measure the gain.
+4. Grow the eval to 30–50 cases, judged by a larger model instead of keywords.
+5. Coding sessions: tool-output memory (what was tried, what worked), now as a separate, tested module.
 
 ## 9. Working on the code
 
-- **Tests first.** The fakes make tests deterministic and fast. `NoisyEmbedder` mimics a real embedder's ~0.5 baseline similarity; use it when testing relevance.
-- **Ablations.** Every new mechanism gets an `enable_*` switch in `SmrutiConfig`, so its effect can be measured.
-- **Check against the real model.** Unit tests have repeatedly passed while the real 3B model behaved differently. After any change to sleep or recall, run `scripts/demo_ollama.py` and read the facts and answers.
-- **Debug extraction by replaying.** To see what the model actually extracted, call `LLMClient.chat_json` with `build_messages(...)` and `JSON_SCHEMA` from `smruti.sleep.extract`. Import the module with `importlib.import_module("smruti.sleep.extract")`, because `smruti.sleep` re-exports a function named `extract` that shadows the module.
-- **Keep the spec current.** Update the design spec and `docs/ARCHITECTURE.md` when behaviour changes.
+- **Tests first.** The fakes make tests deterministic and fast. `seed_state` creates a state backed by a real sentence.
+- **Every mechanism gets an `enable_*` switch** and stays only if turning it off hurts the eval.
+- **Run the eval after every change to sleep or recall:** `python -m eval.run --upstream URL --model MODEL --label NAME` (dev). Ablate with `--set enable_x=false`. Compare with `--compare eval/runs/a.json eval/runs/b.json`. Run `--split test` only to report, never to tune.
+- **Debug extraction by replaying:** `smruti.sleep.extract.build_messages(lines, context)` with `LLMClient.chat_json(..., schema=JSON_SCHEMA)`. Import the module with `importlib.import_module("smruti.sleep.extract")`, because `smruti.sleep` re-exports a function named `extract`.
 
 ## 10. History
 
-- The project started as a coding-agent memory (anti-memories for failing shell commands, MCP tools, hooks). That engine was replaced by this design.
-- The concurrency work from the `Index` branch (write retries, queue worker) was merged into the old engine first; the rewrite superseded it.
-- This repository (`wizardwithcodehazard/smruti`) contains the neurosymbolic local memory layer on `main`.
+- Pre-v1: a coding-agent memory with anti-memories, MCP tools and hooks; replaced.
+- v1 (Plans 1–2, Batches A and C): proxy, triple graph with spreading activation, priming, summaries, procedures, quotes, kartā labels, learned cardinality. Superseded by v2 for the reasons in §5; it is in git history.
+- v2: the general, episode-first layer described here.

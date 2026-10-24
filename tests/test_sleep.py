@@ -1,200 +1,102 @@
 from smruti.encode import Encoder
-from smruti.llm import LLMError
 from smruti.sleep import Sleeper
 from smruti.sleep.extract import JSON_SCHEMA
 
-PUNE = {"entities": [{"name": "Pune", "type": "city"}],
-        "facts": [{"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one"}]}
-MOTHER = {"entities": [{"name": "mother", "type": "person"}],
-          "facts": [{"subject": "user", "predicate": "has_mother", "object": "mother", "cardinality": "one"},
-                    {"subject": "mother", "predicate": "lives_in", "object": "Nagpur", "cardinality": "one"}]}
+NOTHING = {"states": [], "events": []}
 
 
-def test_sleep_consolidates_in_batches(store, config, fake_llm):
+def turn(store, config, text, role="user", now=None):
+    return Encoder(store, config).encode("s", role, text, now=now, speaker=role).episode_id
+
+
+def test_sleep_reads_records_in_batches(store, config, fake_llm):
     config.sleep_batch_episodes = 2
-    enc = Encoder(store, config)
-    for text in ["I live in Pune", "nice weather", "my mother lives in Nagpur"]:
-        enc.encode("s", "user", text)
-    llm = fake_llm([PUNE, MOTHER])
-    report = Sleeper(store, config, llm).run("s")
+    for i in range(3):
+        turn(store, config, f"fact number {i} about trains", now=float(i))
+    llm = fake_llm([NOTHING, NOTHING])
+    report = Sleeper(store, config, llm, "m").run("s", now=100.0)
     assert (report.batches, report.episodes, report.failed_batches) == (2, 3, 0)
-    assert report.consolidation.facts_added == 3
-    assert store.pending_episodes("s", 10) == []
-    assert "KNOWN PREDICATES: lives_in" in llm.calls[1][1]["content"]
+    assert store.pending_episodes("s", 10) == [] and llm.json_kwargs[0] == {"schema": JSON_SCHEMA, "temperature": 0.0}
+
+
+def test_lines_are_numbered_and_assistant_turns_are_context(store, config, fake_llm):
+    user = turn(store, config, "I live in Pune.", now=1.0)
+    turn(store, config, "Pune is lovely! You probably love the hills.", role="assistant", now=2.0)
+    llm = fake_llm([NOTHING])
+    Sleeper(store, config, llm, "m").run("s", now=100.0)
+    prompt = llm.calls[0][1]["content"]
+    (line,) = store.episode_sentences([user])
+    assert f"[s{line.id} 1970-01-01 user] I live in Pune." in prompt
+    assert "[context 1970-01-01 assistant] Pune is lovely!" in prompt
+
+
+def test_a_batch_with_nothing_citable_needs_no_model_call(store, config, fake_llm):
+    turn(store, config, "Anything else I can help with?", role="assistant")
+    llm = fake_llm([])
+    report = Sleeper(store, config, llm, "m").run("s")
+    assert report.episodes == 1 and llm.calls == [] and store.pending_episodes("s", 10) == []
+
+
+def test_without_semantic_memory_sleep_only_marks_records_read(store, config, fake_llm):
+    config.enable_semantic = False
+    turn(store, config, "I live in Pune.")
+    llm = fake_llm([])
+    assert Sleeper(store, config, llm, "m").run("s").episodes == 1 and llm.calls == []
 
 
 def test_failed_batch_is_retried_then_retired(store, config, fake_llm):
     config.sleep_max_attempts = 2
-    Encoder(store, config).encode("s", "user", "hello")
-    sleeper = Sleeper(store, config, fake_llm([LLMError("down"), LLMError("down")]))
-    assert sleeper.run("s").failed_batches == 1
+    turn(store, config, "I live in Pune.")
+    llm = fake_llm([RuntimeError("model down"), RuntimeError("model down")])
+    assert Sleeper(store, config, llm, "m").run("s").failed_batches == 1
     assert len(store.pending_episodes("s", 10)) == 1
-    assert sleeper.run("s").failed_batches == 1
-    assert store.pending_episodes("s", 10) == []
+    Sleeper(store, config, llm, "m").run("s")
+    assert store.pending_episodes("s", 10) == []  # retired after the cap
+
+
+def test_an_off_schema_answer_counts_as_a_failed_attempt(store, config, fake_llm):
+    turn(store, config, "I live in Pune.")
+    report = Sleeper(store, config, fake_llm([{"facts": []}]), "m").run("s")
+    assert report.failed_batches == 1 and len(store.pending_episodes("s", 10)) == 1
 
 
 def test_due_spaces_by_count_or_idle_time(store, config, fake_llm):
-    config.sleep_after_episodes = 2
-    config.sleep_idle_seconds = 60
-    enc = Encoder(store, config)
-    enc.encode("busy", "user", "one", now=1000.0)
-    enc.encode("busy", "user", "two", now=1000.0)
-    enc.encode("quiet", "user", "three", now=1000.0)
-    enc.encode("fresh", "user", "four", now=1050.0)
-    assert Sleeper(store, config, fake_llm()).due_spaces(now=1070.0) == ["busy", "quiet"]
-
-
-def test_consolidated_episodes_are_pruned_after_retention(store, config, fake_llm):
-    config.episode_retention_days = 1
-    Encoder(store, config).encode("s", "user", "hello", now=0.0)
-    Sleeper(store, config, fake_llm([{"facts": []}])).run("s", now=10.0)
-    report = Sleeper(store, config, fake_llm()).run("s", now=10.0 + 2 * 86400)
-    assert report.pruned_episodes == 1
-
-
-def test_unexpected_extract_or_apply_error_counts_as_failed_attempt(store, config, fake_llm):
-    config.sleep_max_attempts = 1
-    Encoder(store, config).encode("s", "user", "hello")
-    assert Sleeper(store, config, fake_llm([ValueError("bad")])).run("s").failed_batches == 1
-    assert store.pending_episodes("s", 10) == []
-
-    Encoder(store, config).encode("s", "user", "again")
-    sleeper = Sleeper(store, config, fake_llm([PUNE]))
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("embedder died")
-
-    sleeper.consolidator.apply = boom
-    assert sleeper.run("s").failed_batches == 1
-    assert store.pending_episodes("s", 10) == []
+    config.sleep_after_episodes, config.sleep_idle_seconds = 2, 50.0
+    turn(store, config, "first thing", now=100.0)
+    sleeper = Sleeper(store, config, fake_llm(), "m")
+    assert sleeper.due_spaces(now=120.0) == [] and sleeper.due_spaces(now=151.0) == ["s"]
+    turn(store, config, "second thing", now=121.0)
+    assert sleeper.due_spaces(now=122.0) == ["s"]
 
 
 def test_second_sleeper_does_nothing_while_the_lease_is_held(store, config, fake_llm):
-    Encoder(store, config).encode("s", "user", "I live in Pune")
-    assert store.acquire_sleep_lease("s", "someone-else", ttl=600, now=__import__("time").time())
-    llm = fake_llm([PUNE])
-    report = Sleeper(store, config, llm).run("s")
-    assert report.batches == 0 and llm.calls == []
-    assert len(store.pending_episodes("s", 10)) == 1
-    store.release_sleep_lease("s", "someone-else")
-    assert Sleeper(store, config, llm).run("s").batches == 1
-    assert store.acquire_sleep_lease("s", "next", ttl=600, now=__import__("time").time())  # released afterwards
+    turn(store, config, "I live in Pune.")
+    store.acquire_sleep_lease("s", "someone-else", 600.0, now=0.0)
+    report = Sleeper(store, config, fake_llm([]), "m").run("s", now=10.0)
+    assert report.batches == 0 and len(store.pending_episodes("s", 10)) == 1
 
 
-def test_batches_respect_the_prompt_token_budget(store, config, fake_llm):
+def test_batches_respect_the_prompt_budget(store, config, fake_llm):
     config.sleep_prompt_tokens = 30
-    config.sleep_max_episode_chars = 1000
-    enc = Encoder(store, config)
-    for text in ["aa " * 20, "bb " * 20, "cc " * 20]:  # ~60 chars = ~18 tokens each
-        enc.encode("s", "user", text)
-    llm = fake_llm([{"facts": []}] * 3)
-    report = Sleeper(store, config, llm).run("s")
-    assert (report.batches, report.episodes) == (3, 3)  # one per batch, none over budget
-    for call in llm.calls:
-        log = call[1]["content"].split("<log>\n")[1].split("\n</log>")[0]
-        assert len(log) <= config.sleep_prompt_tokens * config.chars_per_token
+    for i in range(3):
+        turn(store, config, f"Sentence number {i} is about the weather in the hills.", now=float(i))
+    llm = fake_llm([NOTHING, NOTHING, NOTHING])
+    assert Sleeper(store, config, llm, "m").run("s").batches == 3
 
 
-def test_oversized_episode_is_truncated_to_the_budget(store, config, fake_llm):
-    config.sleep_prompt_tokens = 20
-    Encoder(store, config).encode("s", "tool", "x" * 5000)
-    llm = fake_llm([{"facts": []}])
-    assert Sleeper(store, config, llm).run("s").episodes == 1
-    log = llm.calls[0][1]["content"].split("<log>\n")[1].split("\n</log>")[0]
-    assert 0 < len(log) <= 20 * config.chars_per_token
+def test_an_oversized_record_is_cut_to_the_budget(store, config, fake_llm):
+    config.sleep_prompt_tokens = 40
+    turn(store, config, " ".join(f"Sentence {i} is long enough to count." for i in range(20)))
+    llm = fake_llm([NOTHING])
+    Sleeper(store, config, llm, "m").run("s")
+    assert llm.calls[0][1]["content"].count("[s") < 20
 
 
-def test_episode_char_cap_is_configurable(store, config, fake_llm):
-    config.sleep_max_episode_chars = 10
-    Encoder(store, config).encode("s", "user", "y" * 100)
-    llm = fake_llm([{"facts": []}])
-    Sleeper(store, config, llm).run("s")
-    content = llm.calls[0][1]["content"]
-    assert "y" * 10 in content and "y" * 11 not in content
-
-
-def test_context_lists_only_the_nearest_predicates(store, config, fake_llm):
-    config.sleep_context_predicates = 1
-    for name in ["lives_in", "works_at", "likes"]:
-        store.add_predicate("s", name, "one")
-    Encoder(store, config).encode("s", "user", "where does the user work, works at")
-    llm = fake_llm([{"facts": []}])
-    Sleeper(store, config, llm).run("s")
-    assert "KNOWN PREDICATES: works_at\n" in llm.calls[0][1]["content"]
-
-
-def test_known_entities_show_aliases(store, config, fake_llm):
+def test_context_shows_known_names_aliases_attributes_and_states(store, config, fake_llm, seed_state):
+    seed_state(store, "s", "home_city", "Pune", text="I live in Pune")
     store.add_alias("s", "Sahil", store.user_entity("s"))
-    Encoder(store, config).encode("s", "user", "hello there")
-    llm = fake_llm([{"facts": []}])
-    Sleeper(store, config, llm).run("s")
-    assert "user (also called: sahil)" in llm.calls[0][1]["content"]
-
-
-def test_extraction_context_lists_user_and_all_topics(store, config, fake_llm):
-    from smruti.encode import Encoder
-
-    store.user_entity("s")
-    store.upsert_summary("s", "travel", "planning a Goa trip", 5)
-    store.upsert_summary("s", "work", "backend developer", 3)
-    Encoder(store, config).encode("s", "user", "completely unrelated words here")
-    llm = fake_llm([{"facts": []}])
-    Sleeper(store, config, llm).run("s")
+    turn(store, config, "Thinking about moving house soon.")
+    llm = fake_llm([NOTHING])
+    Sleeper(store, config, llm, "m").run("s", now=100.0)
     prompt = llm.calls[0][1]["content"]
-    assert "KNOWN ENTITIES: user" in prompt
-    assert "EXISTING TOPICS: travel, work" in prompt
-
-
-TEA = {"entities": [], "facts": [{"subject": "user", "predicate": "likes", "object": "masala tea", "cardinality": "many"}]}
-EMPTY = {"facts": []}
-
-
-def test_votes_run_a_second_pass_at_the_vote_temperature_with_the_json_schema(store, config, fake_llm):
-    config.sleep_votes = 2
-    Encoder(store, config).encode("s", "user", "I live in Pune")
-    llm = fake_llm([PUNE, PUNE])
-    report = Sleeper(store, config, llm).run("s")
-    assert report.batches == 1 and report.consolidation.facts_added == 1
-    assert [k["temperature"] for k in llm.json_kwargs] == [0.0, 0.7]
-    assert all(k["schema"] == JSON_SCHEMA for k in llm.json_kwargs)
-    assert llm.calls[0] == llm.calls[1]  # same prompt replayed
-
-
-def test_failed_second_pass_fails_the_batch(store, config, fake_llm):
-    config.sleep_votes = 2
-    Encoder(store, config).encode("s", "user", "I live in Pune")
-    report = Sleeper(store, config, fake_llm([PUNE, LLMError("down")])).run("s")
-    assert report.failed_batches == 1 and store.current_facts("s") == []
-
-
-def test_votes_add_confidence_but_every_first_pass_fact_is_kept(store, config, fake_llm):
-    config.sleep_votes = 2
-    Encoder(store, config).encode("s", "user", "I live in Pune and love masala tea")
-    first = dict(PUNE, facts=PUNE["facts"] + TEA["facts"])
-    report = Sleeper(store, config, fake_llm([first, PUNE])).run("s")
-    assert (report.consolidation.facts_added, report.consolidation.facts_agreed) == (2, 1)
-    assert {f.object: f.support for f in store.current_facts("s")} == {"Pune": 2, "masala tea": 1}
-
-
-def test_single_vote_is_the_default(store, config, fake_llm):
-    from smruti.config import SmrutiConfig
-
-    assert SmrutiConfig().sleep_votes == 1
-    Encoder(store, config).encode("s", "user", "I love masala tea")
-    llm = fake_llm([TEA])
-    report = Sleeper(store, config, llm).run("s")
-    assert report.consolidation.facts_added == 1 and report.consolidation.facts_agreed == 0
-    assert len(llm.json_kwargs) == 1
-
-
-def test_fact_copied_from_existing_summaries_does_not_supersede_the_logged_move(store, config, fake_llm):
-    enc = Encoder(store, config)
-    enc.encode("s", "user", "I live in Pune", now=100.0)
-    Sleeper(store, config, fake_llm([PUNE])).run("s", now=200.0)
-    enc.encode("s", "user", "I moved to Bangalore last month", now=300.0)
-    hallucinated = {"entities": [{"name": "Bangalore", "type": "city"}, {"name": "Pune", "type": "city"}],
-                    "facts": [{"subject": "user", "predicate": "lives_in", "object": "Bangalore", "cardinality": "one"},
-                              {"subject": "user", "predicate": "lives_in", "object": "Pune", "cardinality": "one"}]}
-    report = Sleeper(store, config, fake_llm([hallucinated])).run("s", now=400.0)
-    assert report.consolidation.facts_ungrounded == 1
-    assert [f.object for f in store.current_facts("s")] == ["Bangalore"]
+    assert "user (also called: sahil)" in prompt and "home_city" in prompt and "- user · home city: Pune" in prompt

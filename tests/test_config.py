@@ -17,5 +17,6 @@ def test_data_dir_falls_back_to_home(monkeypatch):
     assert SmrutiConfig().data_dir == Path.home() / ".smruti"
 
 
-def test_recall_note_chars_default():
-    assert SmrutiConfig().recall_note_chars == 300
+def test_citable_and_recalled_roles_leave_out_the_assistant():
+    config = SmrutiConfig()
+    assert "assistant" not in config.citable_roles and "assistant" not in config.recall_roles

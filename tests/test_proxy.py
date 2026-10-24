@@ -52,18 +52,15 @@ def texts(memory, space="default"):
     return [(e.role, e.text) for e in memory.store.pending_episodes(space, 20)]
 
 
-def test_injects_memory_and_records_the_exchange(memory):
-    s = memory.store
-    user = s.user_entity("default")
-    s.add_fact("default", user, s.add_predicate("default", "lives_in", "one"),
-               s.add_entity("default", "Pune", "city"), None, 1.0, [1])
+def test_injects_memory_and_records_the_exchange(memory, seed_state):
+    seed_state(memory.store, "default", "home_city", "Pune", text="I live in Pune")
     up = Upstream(reply="Try Lonavala.")
     with client(memory, up) as c:
         r = chat(c, "Weekend trip ideas?")
     assert r.status_code == 200
     assert r.json()["choices"][0]["message"]["content"] == "Try Lonavala."
     sent = up.requests[0]["body"]["messages"]
-    assert sent[0]["role"] == "system" and "user lives in Pune" in sent[0]["content"]
+    assert sent[0]["role"] == "system" and "user · home city: Pune" in sent[0]["content"]
     assert up.requests[0]["path"] == "/v1/chat/completions"
     assert texts(memory) == [("user", "Weekend trip ideas?"), ("assistant", "Try Lonavala.")]
     assert memory.model == "llama3.2:3b"

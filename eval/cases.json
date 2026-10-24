@@ -1,0 +1,143 @@
+{
+  "_format": "DEV cases: tune on these. Each case is fed into its own fresh memory: the turns of each session (a string is a user message; {role, text, speaker} for assistant, tool, note or document), one minute apart from 'at', then a sleep. 'expect' checks the memory: 'current' must be a state true now, 'closed' a state that has ended with no current twin, 'absent' must not be a current state (catches misattribution); a state matches when its holder is in 'about' and every term occurs in its attribute and value; {\"any\": [...]} passes when one alternative does. 'events': terms in the gist, 'date' a prefix of the local day. 'finds': search for q must surface every term in one of its top 5 sentences or a current state. 'questions': asked with memory (and once without); every 'must' group needs one alternative in the answer, no 'must_not' group may match.",
+  "timezone": "Asia/Kolkata",
+  "cases": [
+    {
+      "id": "identity-move",
+      "tags": ["alias", "update", "relative-date"],
+      "sessions": [
+        {"at": "2026-10-03T10:00:00", "turns": [
+          "Hi! I'm Sahil. I live in Pune and I work as a backend developer at a fintech startup.",
+          "These days I'm learning Rust in the evenings."
+        ]},
+        {"at": "2026-10-14T19:00:00", "turns": ["Quick update: I moved to Bangalore last month for a new job."]}
+      ],
+      "expect": {
+        "user_aliases": ["Sahil"],
+        "current": [{"about": ["user"], "terms": ["bangalore"]}],
+        "closed": [{"about": ["user"], "terms": ["pune"]}],
+        "events": [{"terms": ["bangalore"], "date": "2026-09"}]
+      },
+      "finds": [
+        {"q": "What do I do for work?", "terms": ["backend"]},
+        {"q": "Which programming language am I learning?", "terms": ["rust"]}
+      ],
+      "questions": [
+        {"q": "Which city should I search in for good weekend cafes near me?", "must": [["bangalore", "bengaluru"]]},
+        {"q": "Which programming language am I learning these days?", "must": [["rust"]]}
+      ]
+    },
+    {
+      "id": "sister-allergy",
+      "tags": ["attribution"],
+      "sessions": [
+        {"at": "2026-10-05T18:00:00", "turns": [
+          "My sister Asha is allergic to peanuts, so I always double-check recipes when I cook for her.",
+          "She also hates mushrooms."
+        ]}
+      ],
+      "expect": {
+        "absent": [{"about": ["user"], "terms": ["peanut"]}, {"about": ["user"], "terms": ["mushroom"]}]
+      },
+      "finds": [
+        {"q": "I'm baking cookies for my sister", "terms": ["peanut"]},
+        {"q": "What does my sister dislike eating?", "terms": ["mushroom"]}
+      ],
+      "questions": [
+        {"q": "I'm baking cookies for my sister this weekend. Any recipe ideas?",
+         "must": [["peanut-free", "peanut free", "without peanut", "no peanut", "avoid peanut", "nut-free", "nut free", "allergy", "allergic", "allergies"]]}
+      ]
+    },
+    {
+      "id": "trek-date",
+      "tags": ["relative-date", "event"],
+      "sessions": [
+        {"at": "2026-10-15T20:00:00", "turns": [
+          "Last Saturday I went trekking to Sinhagad fort with my sister Asha, it was amazing."
+        ]}
+      ],
+      "expect": {"events": [{"terms": ["sinhagad"], "date": "2026-10-10"}]},
+      "finds": [{"q": "trekking", "terms": ["sinhagad"]}],
+      "questions": [
+        {"q": "When did I last go trekking, and who came with me?",
+         "must": [["asha"], ["2026-10-10", "october 10", "10 october", "oct 10", "10th october", "october 10th", "last saturday", "saturday"]],
+         "must_not": [["september"]]}
+      ]
+    },
+    {
+      "id": "quit-coffee",
+      "tags": ["update", "ended"],
+      "sessions": [
+        {"at": "2026-09-01T09:00:00", "turns": ["I love coffee, I drink three cups a day."]},
+        {"at": "2026-10-12T09:00:00", "turns": ["I quit coffee last week, I only drink green tea now."]}
+      ],
+      "expect": {
+        "current": [{"about": ["user"], "terms": ["tea"]}],
+        "absent": [{"about": ["user"], "terms": ["coffee"]}]
+      },
+      "finds": [{"q": "what do I drink in the morning?", "terms": ["green tea"]}],
+      "questions": [
+        {"q": "Do I still drink coffee these days?",
+         "must": [["no", "not", "quit", "stopped", "gave up", "green tea"]],
+         "must_not": [["yes, you", "you still drink coffee"]]}
+      ]
+    },
+    {
+      "id": "past-job",
+      "tags": ["tense", "update"],
+      "sessions": [
+        {"at": "2026-10-08T21:00:00", "turns": ["I used to work at Infosys, but now I work at Razorpay as a backend engineer."]}
+      ],
+      "expect": {
+        "current": [{"about": ["user"], "terms": ["razorpay"]}],
+        "absent": [{"about": ["user"], "terms": ["infosys"]}]
+      },
+      "questions": [
+        {"q": "Where do I work right now?", "must": [["razorpay"]], "must_not": [["you work at infosys"]]}
+      ]
+    },
+    {
+      "id": "mom-paraphrase",
+      "tags": ["paraphrase", "attribution"],
+      "sessions": [
+        {"at": "2026-10-09T12:00:00", "turns": ["My mom lives in Nashik and she is a school teacher."]}
+      ],
+      "expect": {
+        "current": [{"about": ["mom", "mother", "my mom", "user's mother", "user's mom"], "terms": ["nashik"]}],
+        "absent": [{"about": ["user"], "terms": ["teacher"]}, {"about": ["user"], "terms": ["nashik"]}]
+      },
+      "questions": [
+        {"q": "Which city should I book train tickets to if I want to visit my mother?", "must": [["nashik"]]}
+      ]
+    },
+    {
+      "id": "friend-birthday",
+      "tags": ["third-party", "date"],
+      "sessions": [
+        {"at": "2026-10-10T16:00:00", "turns": ["My best friend Rohan's birthday is on 12 November.", "He is crazy about cricket."]}
+      ],
+      "expect": {
+        "current": [{"about": ["rohan"], "terms": ["november"]}],
+        "absent": [{"about": ["user"], "terms": ["cricket"]}]
+      },
+      "finds": [{"q": "gift for Rohan", "terms": ["cricket"]}],
+      "questions": [
+        {"q": "What birthday gift should I get for Rohan?", "must": [["cricket"]]},
+        {"q": "When is Rohan's birthday?",
+         "must": [["12 november", "november 12", "12th november", "november 12th", "nov 12", "12 nov"]]}
+      ]
+    },
+    {
+      "id": "new-dog",
+      "tags": ["relative-date", "event"],
+      "sessions": [
+        {"at": "2026-10-11T08:00:00", "turns": ["We adopted a beagle named Bruno two weeks ago!"]}
+      ],
+      "expect": {"events": [{"terms": ["bruno"], "date": "2026-09-27"}]},
+      "finds": [{"q": "my dog", "terms": ["bruno", "beagle"]}],
+      "questions": [
+        {"q": "What is my dog's name and breed?", "must": [["bruno"], ["beagle"]]}
+      ]
+    }
+  ]
+}

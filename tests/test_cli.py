@@ -9,39 +9,48 @@ runner = CliRunner()
 
 
 @pytest.fixture
-def seeded(config, embedder, monkeypatch):
+def seeded(config, embedder, monkeypatch, seed_state):
     monkeypatch.setattr(cli, "_memory", lambda upstream=None, model=None: Memory(config=config, embedder=embedder))
     mem = Memory(config=config, embedder=embedder)
-    s = mem.store
-    fact_id = s.add_fact("default", s.user_entity("default"), s.add_predicate("default", "lives_in", "one"),
-                         s.add_entity("default", "Pune", "city"), None, 1.0, [1])
+    state_id = seed_state(mem.store, "default", "home_city", "Pune", text="I live in Pune")
     mem.close()
-    return fact_id
+    return state_id
 
 
 def test_help_lists_commands():
     out = runner.invoke(cli.app, ["--help"]).output
-    for command in ("proxy", "sleep", "facts", "recall", "forget", "stats"):
+    for command in ("add", "search", "proxy", "sleep", "rebuild", "facts", "recall", "forget", "stats"):
         assert command in out
 
 
-def test_facts_forget_and_history(seeded):
-    assert "user lives in Pune" in runner.invoke(cli.app, ["facts"]).output
+def test_facts_show_the_sentence_and_forget_ends_the_state(seeded):
+    out = runner.invoke(cli.app, ["facts"]).output
+    assert "user · home city: Pune" in out and "user: I live in Pune" in out
     result = runner.invoke(cli.app, ["forget", str(seeded)])
     assert result.exit_code == 0 and "Forgotten" in result.output
-    assert "user lives in Pune" not in runner.invoke(cli.app, ["facts"]).output
-    assert "no longer true" in runner.invoke(cli.app, ["facts", "--history"]).output
+    assert "home city" not in runner.invoke(cli.app, ["facts"]).output
+    assert "(until " in runner.invoke(cli.app, ["facts", "--history"]).output
     assert runner.invoke(cli.app, ["forget", str(seeded)]).exit_code == 1
+
+
+def test_add_text_and_file_then_search(seeded, tmp_path):
+    assert "Kept 1 of 1 records" in runner.invoke(cli.app, ["add", "My dentist is Dr. Rao in Kothrud."]).output
+    notes = tmp_path / "trip.md"
+    notes.write_text("Packing list for Manali: jacket, boots.\n\nTrain leaves at 6 am.", encoding="utf-8")
+    assert "Kept 1 of 1 records" in runner.invoke(cli.app, ["add", str(notes)]).output
+    out = runner.invoke(cli.app, ["search", "dentist"]).output
+    assert "Things said:" in out and "My dentist is Dr. Rao in Kothrud." in out
+    assert "trip.md: Train leaves at 6 am." in runner.invoke(cli.app, ["search", "train time"]).output
 
 
 def test_recall_prints_the_memory_block(seeded):
     out = runner.invoke(cli.app, ["recall", "where do I live?"]).output
-    assert "## Memory" in out and "user lives in Pune" in out
+    assert "## Memory" in out and "user · home city: Pune" in out
 
 
 def test_stats_prints_json(seeded):
     data = json.loads(runner.invoke(cli.app, ["stats"]).output)
-    assert data["space"] == "default" and data["current_facts"] == 1
+    assert data["space"] == "default" and data["current_states"] == 1 and data["sentences"] == 1
 
 
 def test_proxy_quiets_http_client_loggers(seeded, monkeypatch):

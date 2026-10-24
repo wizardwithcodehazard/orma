@@ -1,17 +1,16 @@
 """
-encode.py - Per-turn encoding (no LLM). Like hippocampal gating, a turn that adds nothing
-new relative to the space's own recent novelty distribution is counted, not stored.
-Tool turns with outcomes are always stored: every outcome is evidence for procedures.
+encode.py - Adding a record (no LLM). A record that is a near-copy of one already kept (similarity >=
+novelty_duplicate_similarity) is counted, not stored: the bar is high on purpose, because embeddings
+barely see negation or tense and a correction looks close to what it corrects. Everything else is kept
+in full and split into sentences, each embedded and indexed, so it can be found at once, long before
+any sleep. Tool records with an outcome are always kept.
 """
 
 from dataclasses import dataclass
 
-import numpy as np
-
 from smruti.config import SmrutiConfig
 from smruti.store import Store
-
-NOVELTY_SOURCES = ("episodes", "facts", "summaries")
+from smruti.text import split_sentences
 
 
 @dataclass
@@ -19,6 +18,7 @@ class EncodeResult:
     stored: bool
     episode_id: int | None
     novelty: float
+    sentences: int = 0
 
 
 class Encoder:
@@ -26,29 +26,27 @@ class Encoder:
         self.store = store
         self.config = config
 
-    def encode(self, space: str, role: str, text: str, outcome: str | None = None, now=None) -> EncodeResult:
+    def encode(self, space: str, role: str, text: str, outcome: str | None = None, now=None, source: str = "chat",
+               speaker: str = "") -> EncodeResult:
         vec = self.store.embed(text)
-        similarities = [sim for kind in NOVELTY_SOURCES for _, sim in self.store.vec_search(kind, space, vec, 1)]
-        novelty = 1.0 - max(similarities, default=0.0)
-        history = self.store.novelty_scores(space)
+        nearest = self.store.vec_search("episodes", space, vec, 1)
+        novelty = 1.0 - (nearest[0][1] if nearest else 0.0)
+        if outcome is None and self.config.enable_novelty_gate and nearest \
+                and nearest[0][1] >= self.config.novelty_duplicate_similarity:
+            self.store.bump_seen(nearest[0][0])
+            return EncodeResult(False, nearest[0][0], novelty)
 
-        if outcome is None and self._redundant(novelty, history):
-            # Bump only the episode this turn duplicates, never an unrelated one when a
-            # fact or summary was the closest match.
-            nearest = self.store.vec_search("episodes", space, vec, 1)
-            if nearest and nearest[0][1] >= max(similarities) - 1e-6:
-                self.store.bump_seen(nearest[0][0])
-                return EncodeResult(False, nearest[0][0], novelty)
-            return EncodeResult(False, None, novelty)
-
-        episode_id = self.store.add_episode(space, role, text, outcome, novelty, vec, now=now)
-        if similarities:
-            # Only stored turns that found a neighbour sample the similarity distribution recall calibrates
-            # against: dropped near-duplicates would inflate it, and an empty space has no neighbour to score.
+        episode_id = self.store.add_episode(space, role, text, outcome, novelty, vec, now=now, source=source,
+                                            speaker=speaker)
+        count = self.split(self.store.episodes([episode_id])[0])
+        if nearest:
+            # Only kept records that found a neighbour sample the similarity distribution recall calibrates against.
             self.store.push_novelty(space, novelty, self.config.novelty_window)
-        return EncodeResult(True, episode_id, novelty)
+        return EncodeResult(True, episode_id, novelty, count)
 
-    def _redundant(self, novelty: float, history: list[float]) -> bool:
-        if not self.config.enable_novelty_gate or len(history) < self.config.novelty_warmup:
-            return False
-        return novelty < float(np.percentile(history, self.config.novelty_percentile))
+    def split(self, episode) -> int:
+        """Stores the sentences of a kept record; returns how many."""
+        texts = split_sentences(episode.text, self.config.max_sentence_chars)
+        if texts:
+            self.store.add_sentences(episode.space, episode, texts, self.store.embed_many(texts))
+        return len(texts)

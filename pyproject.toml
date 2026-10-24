@@ -17,6 +17,8 @@ dependencies = [
     "starlette>=0.37.0",
     "uvicorn>=0.29.0",
     "typer>=0.9.0",
+    "dateparser>=1.2.0",
+    "tzdata; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]

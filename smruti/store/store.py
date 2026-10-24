@@ -1,8 +1,7 @@
 """
-store.py - Typed access to the memory graph: episodes, entities, predicates, facts,
-events, summaries and procedures, each kept in sync with its vector and lexical index.
-A single re-entrant lock serializes access so the proxy's request path and background
-sleep can share one store.
+store.py - Typed access to the memory: kept records (episodes) and their sentences, entities, states and
+events, each kept in sync with its vector and lexical index. A single re-entrant lock serializes access
+so the proxy's request path and background sleep can share one store.
 """
 
 import json
@@ -16,35 +15,15 @@ from smruti.config import SmrutiConfig
 from smruti.embed import Embedder, FastEmbedder
 from smruti.store import index
 from smruti.store.db import connect, init_schema
-from smruti.store.records import (
-    Entity,
-    Episode,
-    Event,
-    Fact,
-    Predicate,
-    Procedure,
-    Summary,
-    fact_text,
-    from_row,
-)
+from smruti.store.records import Attribute, Entity, Episode, Event, Sentence, State, from_row, state_text
 
 USER_ENTITY = "user"
 
-_FACT_SELECT = """
-SELECT f.*, s.name AS subject, p.name AS predicate, COALESCE(o.name, f.object_value) AS object
-FROM facts f
-JOIN entities s ON s.id = f.subject_id
-JOIN predicates p ON p.id = f.predicate_id
-LEFT JOIN entities o ON o.id = f.object_id
-"""
-
-# Current facts touching any of the given entities, as subject or as object.
-_INCIDENT = """
-SELECT f.id, f.subject_id, f.object_id FROM facts f
-WHERE f.space = ? AND f.valid_to IS NULL AND f.subject_id IN (SELECT value FROM json_each(?))
-UNION
-SELECT f.id, f.subject_id, f.object_id FROM facts f
-WHERE f.space = ? AND f.valid_to IS NULL AND f.object_id IN (SELECT value FROM json_each(?))
+_STATE_SELECT = """
+SELECT st.*, e.name AS subject, a.name AS attribute
+FROM states st
+JOIN entities e ON e.id = st.subject_id
+JOIN attributes a ON a.id = st.attribute_id
 """
 
 
@@ -99,6 +78,9 @@ class Store:
     def embed(self, text: str) -> np.ndarray:
         return self.embedder.embed([text])[0]
 
+    def embed_many(self, texts: list[str]) -> np.ndarray:
+        return self.embedder.embed(list(texts))
+
     def vec_search(self, kind: str, space: str, vec, k: int) -> list[tuple[int, float]]:
         with self.lock:
             return index.vec_search(self.conn, kind, space, vec, k)
@@ -112,16 +94,16 @@ class Store:
         with self.lock:
             return index.stems(self.conn, list(texts))
 
-    # --- Episodes ----------------------------------------------------------------------
+    # --- Episodes (kept records) -------------------------------------------------------
 
-    def add_episode(self, space, role, text, outcome, novelty, vec, now=None) -> int:
+    def add_episode(self, space, role, text, outcome, novelty, vec, now=None, source="chat", speaker="") -> int:
         with self.tx() as c:
             episode_id = c.execute(
-                "INSERT INTO episodes (space, role, text, outcome, novelty, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (space, role, text, outcome, novelty, _now(now)),
+                "INSERT INTO episodes (space, role, text, outcome, novelty, created_at, source, speaker) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (space, role, text, outcome, novelty, _now(now), source, speaker or role),
             ).lastrowid
             index.vec_put(c, "episodes", episode_id, space, vec)
-            index.text_put(c, "episodes", episode_id, space, text)
         return episode_id
 
     def bump_seen(self, episode_id: int) -> None:
@@ -137,16 +119,6 @@ class Store:
             (space, limit),
         )
         return [from_row(Episode, r) for r in rows]
-
-    def pending_by_ids(self, space: str, ids) -> list[Episode]:
-        """The given episodes that are still unconsolidated in the space, in the order given."""
-        ids = list(ids)
-        if not ids:
-            return []
-        rows = {r["id"]: r for r in self._rows(
-            f"SELECT * FROM episodes WHERE space = ? AND consolidated_at IS NULL AND id IN ({_placeholders(ids)})",
-            [space, *ids])}
-        return [from_row(Episode, rows[i]) for i in ids if i in rows]
 
     def pending_stats(self) -> list[tuple[str, int, float]]:
         """(space, pending count, newest pending created_at) for every space with pending episodes."""
@@ -173,19 +145,40 @@ class Store:
                     (now, episode_id, max_attempts),
                 )
 
-    def prune_episodes(self, before: float) -> int:
+    def episodes_without_sentences(self, space: str) -> list[Episode]:
+        """Records kept before sentences existed (a version 1 database)."""
+        rows = self._rows("SELECT * FROM episodes e WHERE space = ? AND NOT EXISTS "
+                          "(SELECT 1 FROM sentences s WHERE s.episode_id = e.id) ORDER BY created_at, id", (space,))
+        return [from_row(Episode, r) for r in rows]
+
+    # --- Sentences ---------------------------------------------------------------------
+
+    def add_sentences(self, space: str, episode: Episode, texts: list[str], vecs) -> list[int]:
+        ids = []
         with self.tx() as c:
-            ids = [
-                r[0]
-                for r in c.execute(
-                    "SELECT id FROM episodes WHERE consolidated_at IS NOT NULL AND consolidated_at < ?", (before,)
-                ).fetchall()
-            ]
-            for episode_id in ids:
-                c.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
-                index.vec_drop(c, "episodes", episode_id)
-                index.text_drop(c, "episodes", episode_id)
-        return len(ids)
+            for position, (text, vec) in enumerate(zip(texts, vecs)):
+                sentence_id = c.execute(
+                    "INSERT INTO sentences (space, episode_id, position, role, speaker, text, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (space, episode.id, position, episode.role, episode.speaker or episode.role, text,
+                     episode.created_at),
+                ).lastrowid
+                index.vec_put(c, "sentences", sentence_id, space, vec)
+                index.text_put(c, "sentences", sentence_id, space, text)
+                ids.append(sentence_id)
+        return ids
+
+    def sentences(self, ids) -> list[Sentence]:
+        return self._by_ids(Sentence, "sentences", ids)
+
+    def episode_sentences(self, episode_ids) -> list[Sentence]:
+        """The sentences of the given episodes, in the order they were said."""
+        ids = list(episode_ids)
+        if not ids:
+            return []
+        rows = self._rows(f"SELECT * FROM sentences WHERE episode_id IN ({_placeholders(ids)}) "
+                          "ORDER BY created_at, episode_id, position", ids)
+        return [from_row(Sentence, r) for r in rows]
 
     # --- Sleep lease -------------------------------------------------------------------
 
@@ -224,7 +217,7 @@ class Store:
     # --- Entities ----------------------------------------------------------------------
 
     def user_entity(self, space: str, now=None) -> int:
-        """The entity for the person chatting; created on first use."""
+        """The entity for the person this memory belongs to; created on first use."""
         sql = "SELECT id FROM entities WHERE space = ? AND name = ?"
         rows = self._rows(sql, (space, USER_ENTITY))
         if rows:
@@ -283,131 +276,119 @@ class Store:
         found = {e.id: e for e in self._by_ids(Entity, "entities", [i for i, _ in hits])}
         return [(found[i], sim) for i, sim in hits if i in found]
 
-    # --- Predicates --------------------------------------------------------------------
+    def entities_named_in(self, space: str, text: str, k: int = 8) -> list[Entity]:
+        """Known entities whose whole name occurs in text."""
+        hits = [hit.id for hit in self.text_search("entities", space, text, k) if hit.row_coverage >= 1.0]
+        return self._by_ids(Entity, "entities", hits)
 
-    def add_predicate(self, space: str, name: str, cardinality: str, vec=None) -> int:
+    # --- Attributes --------------------------------------------------------------------
+
+    def add_attribute(self, space: str, name: str, vec=None) -> int:
         vec = self.embed(name.replace("_", " ")) if vec is None else vec
         with self.tx() as c:
-            predicate_id = c.execute(
-                "INSERT INTO predicates (space, name, cardinality) VALUES (?, ?, ?)", (space, name, cardinality)
-            ).lastrowid
-            index.vec_put(c, "predicates", predicate_id, space, vec)
-        return predicate_id
+            attribute_id = c.execute("INSERT INTO attributes (space, name) VALUES (?, ?)", (space, name)).lastrowid
+            index.vec_put(c, "attributes", attribute_id, space, vec)
+        return attribute_id
 
-    def predicate(self, predicate_id: int) -> Predicate | None:
-        found = self._by_ids(Predicate, "predicates", [predicate_id])
+    def attribute(self, attribute_id: int) -> Attribute | None:
+        found = self._by_ids(Attribute, "attributes", [attribute_id])
         return found[0] if found else None
 
-    def predicates(self, space: str) -> list[Predicate]:
-        return [from_row(Predicate, r) for r in self._rows("SELECT * FROM predicates WHERE space = ? ORDER BY id", (space,))]
+    def find_attribute(self, space: str, name: str) -> Attribute | None:
+        rows = self._rows("SELECT * FROM attributes WHERE space = ? AND name = ?", (space, name))
+        return from_row(Attribute, rows[0]) if rows else None
 
-    def nearest_predicates(self, space: str, vec, k: int) -> list[tuple[Predicate, float]]:
+    def nearest_attributes(self, space: str, vec, k: int) -> list[tuple[Attribute, float]]:
         with self.lock:
-            hits = self.vec_search("predicates", space, vec, k)
-            found = {p.id: p for p in self._by_ids(Predicate, "predicates", [i for i, _ in hits])}
+            hits = self.vec_search("attributes", space, vec, k)
+            found = {a.id: a for a in self._by_ids(Attribute, "attributes", [i for i, _ in hits])}
             return [(found[i], sim) for i, sim in hits if i in found]
 
-    def nearest_predicate(self, space: str, vec) -> tuple[Predicate, float] | None:
-        nearest = self.nearest_predicates(space, vec, 1)
-        return nearest[0] if nearest else None
+    # --- States ------------------------------------------------------------------------
 
-    # --- Facts -------------------------------------------------------------------------
-
-    def add_fact(self, space, subject_id, predicate_id, object_id, object_value, valid_from, source_episode_ids, now=None,
-                 valid_to=None, vec=None,
-                 valid_from_stated: bool = False, support: int = 1, importance: float = 0.5) -> int:
-        """Inserts a fact with support observations (one by default: confidence 1/2), each evidenced at now;
-        current unless valid_to is given.
-        Pass a precomputed vec (of the rendered text) to keep inference out of the caller's transaction."""
-        subject = self.entity(subject_id).name
-        predicate = self.predicate(predicate_id).name
-        object_ = self.entity(object_id).name if object_id else object_value
-        text = fact_text(subject, predicate, object_)
-        vec = self.embed(text) if vec is None else vec  # inference stays outside the lock and transaction
+    def add_state(self, space: str, subject_id: int, attribute_id: int, value: str, valid_from: float,
+                  sentence_id: int, said_at: float, stated: bool = False, valid_to: float | None = None,
+                  vec=None) -> int:
+        """A state stated by sentence_id (said at said_at); current unless valid_to is given. Pass a precomputed
+        vec of its text to keep inference out of the caller's transaction."""
+        text = state_text(self.entity(subject_id).name, self.attribute(attribute_id).name, value)
+        vec = self.embed(text) if vec is None else vec
         with self.tx() as c:
-            now = _now(now)
-            fact_id = c.execute(
-                "INSERT INTO facts (space, subject_id, predicate_id, object_id, object_value, confidence, support, "
-                "valid_from, valid_to, last_used, source_episode_ids, valid_from_stated, evidence_times, importance) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (space, subject_id, predicate_id, object_id, object_value, support / (support + 1), support, valid_from, valid_to, now,
-                 json.dumps(sorted(set(source_episode_ids))), int(valid_from_stated), json.dumps([now] * support),
-                 importance),
+            state_id = c.execute(
+                "INSERT INTO states (space, subject_id, attribute_id, value, valid_from, valid_from_stated, valid_to, "
+                "sentence_id, evidence, evidence_times) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (space, subject_id, attribute_id, value, valid_from, int(stated), valid_to, sentence_id,
+                 json.dumps([sentence_id]), json.dumps([said_at])),
             ).lastrowid
-            if valid_to is None:  # closed facts stay out of the search indexes
-                index.vec_put(c, "facts", fact_id, space, vec)
-                index.text_put(c, "facts", fact_id, space, text)
-        return fact_id
+            if valid_to is None:  # past states stay out of the search indexes
+                index.vec_put(c, "states", state_id, space, vec)
+                index.text_put(c, "states", state_id, space, text)
+        return state_id
 
-    def facts(self, ids) -> list[Fact]:
+    def states(self, ids) -> list[State]:
         ids = list(ids)
         if not ids:
             return []
-        rows = {r["id"]: r for r in self._rows(_FACT_SELECT + f" WHERE f.id IN ({_placeholders(ids)})", ids)}
-        return [Fact.from_row(rows[i]) for i in ids if i in rows]
+        rows = {r["id"]: r for r in self._rows(_STATE_SELECT + f" WHERE st.id IN ({_placeholders(ids)})", ids)}
+        return [State.from_row(rows[i]) for i in ids if i in rows]
 
-    def current_facts(self, space: str, subject_id=None, predicate_id=None) -> list[Fact]:
-        sql, params = _FACT_SELECT + " WHERE f.space = ? AND f.valid_to IS NULL", [space]
+    def current_states(self, space: str, subject_id=None, attribute_id=None) -> list[State]:
+        sql, params = _STATE_SELECT + " WHERE st.space = ? AND st.valid_to IS NULL", [space]
         if subject_id is not None:
-            sql += " AND f.subject_id = ?"
+            sql += " AND st.subject_id = ?"
             params.append(subject_id)
-        if predicate_id is not None:
-            sql += " AND f.predicate_id = ?"
-            params.append(predicate_id)
-        return [Fact.from_row(r) for r in self._rows(sql + " ORDER BY f.id", params)]
+        if attribute_id is not None:
+            sql += " AND st.attribute_id = ?"
+            params.append(attribute_id)
+        return [State.from_row(r) for r in self._rows(sql + " ORDER BY st.id", params)]
 
-    def fact_history(self, space: str, subject_id=None) -> list[Fact]:
-        """All facts including closed ones, oldest first: the timeline for 'when' questions."""
-        sql, params = _FACT_SELECT + " WHERE f.space = ?", [space]
+    def state_history(self, space: str, subject_id=None, attribute_id=None) -> list[State]:
+        """All states including past ones, oldest first: the timeline for 'when' questions."""
+        sql, params = _STATE_SELECT + " WHERE st.space = ?", [space]
         if subject_id is not None:
-            sql += " AND f.subject_id = ?"
+            sql += " AND st.subject_id = ?"
             params.append(subject_id)
-        return [Fact.from_row(r) for r in self._rows(sql + " ORDER BY f.valid_from, f.id", params)]
+        if attribute_id is not None:
+            sql += " AND st.attribute_id = ?"
+            params.append(attribute_id)
+        return [State.from_row(r) for r in self._rows(sql + " ORDER BY st.valid_from, st.id", params)]
 
-    def reinforce_fact(self, fact_id: int, source_episode_ids, now=None, count: int = 1,
-                       importance: float | None = None) -> None:
-        """count more independent observations, each evidenced at now: support + count, confidence =
-        support / (support + 1). Importance becomes the larger of the old and the given one."""
-        now = _now(now)
+    def states_citing(self, sentence_ids) -> list[State]:
+        """States (current or past) first stated by any of the given sentences."""
+        ids = list(sentence_ids)
+        if not ids:
+            return []
+        return [State.from_row(r) for r in
+                self._rows(_STATE_SELECT + f" WHERE st.sentence_id IN ({_placeholders(ids)}) ORDER BY st.id", ids)]
+
+    def reinforce_state(self, state_id: int, sentence_id: int, said_at: float) -> None:
+        """Another sentence states the same value: one more use of this memory."""
         with self.tx() as c:
-            row = c.execute("SELECT * FROM facts WHERE id = ?", (fact_id,)).fetchone()
-            support = row["support"] + count
-            sources = sorted(set(json.loads(row["source_episode_ids"])) | set(source_episode_ids))
-            evidence = (json.loads(row["evidence_times"]) or [row["last_used"]]) + [now] * count
-            importance = row["importance"] if importance is None else max(row["importance"], importance)
-            c.execute(
-                "UPDATE facts SET support = ?, confidence = ?, source_episode_ids = ?, last_used = ?, "
-                "evidence_times = ?, importance = ? WHERE id = ?",
-                (support, support / (support + 1), json.dumps(sources), now, json.dumps(evidence), importance,
-                 fact_id),
-            )
+            row = c.execute("SELECT evidence, evidence_times FROM states WHERE id = ?", (state_id,)).fetchone()
+            evidence, times = json.loads(row["evidence"]), json.loads(row["evidence_times"])
+            if sentence_id not in evidence:
+                c.execute("UPDATE states SET evidence = ?, evidence_times = ? WHERE id = ?",
+                          (json.dumps(evidence + [sentence_id]), json.dumps(times + [said_at]), state_id))
 
-    def close_fact(self, fact_id: int, valid_to: float) -> None:
-        """Ends a fact's validity: it stays in the timeline but leaves the search indexes."""
+    def close_state(self, state_id: int, valid_to: float, ended_by: int | None = None) -> None:
+        """Ends a state: it stays in the timeline but leaves the search indexes."""
         with self.tx() as c:
-            c.execute("UPDATE facts SET valid_to = ? WHERE id = ? AND valid_to IS NULL", (valid_to, fact_id))
-            index.vec_drop(c, "facts", fact_id)
-            index.text_drop(c, "facts", fact_id)
-
-    def incident_facts(self, space: str, entity_ids) -> list[tuple[int, int, int | None]]:
-        """Current facts touching any of the given entities, as (fact id, subject id, object id or None).
-        Every edge of each entity is returned, so the result also gives each entity's fan."""
-        ids = json.dumps(list(entity_ids))
-        return [(r[0], r[1], r[2]) for r in self._rows(_INCIDENT, (space, ids, space, ids))]
+            c.execute("UPDATE states SET valid_to = ?, ended_by = ? WHERE id = ? AND valid_to IS NULL",
+                      (valid_to, ended_by, state_id))
+            index.vec_drop(c, "states", state_id)
+            index.text_drop(c, "states", state_id)
 
     # --- Events ------------------------------------------------------------------------
 
     def add_event(self, space: str, gist: str, occurred_at: float, occurred_stated: bool, participant_ids,
-                  source_episode_ids, vec=None, now=None, importance: float = 0.5) -> int:
-        """Inserts a dated event linked to its participant entities. Pass a precomputed vec (of the gist) to
-        keep inference out of the caller's transaction."""
-        vec = self.embed(gist) if vec is None else vec  # inference stays outside the lock and transaction
+                  sentence_id: int, vec=None, now=None) -> int:
+        """Inserts a dated event, stated by sentence_id, linked to its participant entities."""
+        vec = self.embed(gist) if vec is None else vec
         with self.tx() as c:
             event_id = c.execute(
-                "INSERT INTO events (space, gist, occurred_at, occurred_stated, created_at, source_episode_ids, "
-                "importance) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (space, gist, occurred_at, int(occurred_stated), _now(now), json.dumps(sorted(set(source_episode_ids))),
-                 importance),
+                "INSERT INTO events (space, gist, occurred_at, occurred_stated, created_at, sentence_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (space, gist, occurred_at, int(occurred_stated), _now(now), sentence_id),
             ).lastrowid
             c.executemany("INSERT OR IGNORE INTO event_participants (event_id, entity_id) VALUES (?, ?)",
                           [(event_id, entity_id) for entity_id in participant_ids])
@@ -418,112 +399,54 @@ class Store:
     def events(self, ids) -> list[Event]:
         return self._by_ids(Event, "events", ids)
 
-    def batch_events(self, space: str, source_episode_ids) -> list[Event]:
-        """Events recorded from exactly this batch of episodes, oldest first."""
-        rows = self._rows("SELECT * FROM events WHERE space = ? AND source_episode_ids = ? ORDER BY id",
-                          (space, json.dumps(sorted(set(source_episode_ids)))))
+    def space_events(self, space: str) -> list[Event]:
+        """Every event of a space, in the order they happened."""
+        rows = self._rows("SELECT * FROM events WHERE space = ? ORDER BY occurred_at, id", (space,))
+        return [from_row(Event, r) for r in rows]
+
+    def events_citing(self, sentence_id: int) -> list[Event]:
+        rows = self._rows("SELECT * FROM events WHERE sentence_id = ? ORDER BY id", (sentence_id,))
         return [from_row(Event, r) for r in rows]
 
     def event_participants(self, event_id: int) -> list[int]:
         return [r[0] for r in self._rows(
             "SELECT entity_id FROM event_participants WHERE event_id = ? ORDER BY entity_id", (event_id,))]
 
-    def events_for_entities(self, space: str, entity_ids) -> list[tuple[int, int]]:
-        """(event id, entity id) for every event any of the given entities took part in: the event edges of
-        each entity, so the result also counts toward each entity's fan."""
-        return [(r[0], r[1]) for r in self._rows(
-            "SELECT p.event_id, p.entity_id FROM event_participants p JOIN events e ON e.id = p.event_id "
-            "WHERE e.space = ? AND p.entity_id IN (SELECT value FROM json_each(?)) ORDER BY p.event_id, p.entity_id",
-            (space, json.dumps(list(entity_ids))))]
+    # --- Rebuilding --------------------------------------------------------------------
 
-    # --- Summaries ---------------------------------------------------------------------
-
-    def upsert_summary(self, space: str, topic: str, text: str, tokens: int, now=None) -> int:
-        indexed = f"{topic}: {text}"
-        vec = self.embed(indexed)
+    def clear_consolidation(self, space: str) -> None:
+        """Forgets everything sleep built in the space (states, events, attributes, entities other than the user,
+        aliases) and marks every kept record pending again, so it can be read anew. Records and sentences stay."""
         with self.tx() as c:
-            c.execute(
-                "INSERT INTO summaries (space, topic, text, tokens, updated_at) VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(space, topic) DO UPDATE SET text = excluded.text, tokens = excluded.tokens, "
-                "updated_at = excluded.updated_at",
-                (space, topic, text, tokens, _now(now)),
-            )
-            summary_id = c.execute(
-                "SELECT id FROM summaries WHERE space = ? AND topic = ?", (space, topic)
-            ).fetchone()["id"]
-            index.vec_put(c, "summaries", summary_id, space, vec)
-            index.text_put(c, "summaries", summary_id, space, indexed)
-        return summary_id
-
-    def summaries(self, ids) -> list[Summary]:
-        return self._by_ids(Summary, "summaries", ids)
-
-    def summary_topics(self, space: str) -> list[str]:
-        return [r["topic"] for r in self._rows("SELECT topic FROM summaries WHERE space = ? ORDER BY topic", (space,))]
-
-    def summary(self, space: str, topic: str) -> Summary | None:
-        rows = self._rows("SELECT * FROM summaries WHERE space = ? AND topic = ?", (space, topic))
-        return from_row(Summary, rows[0]) if rows else None
-
-    # --- Procedures --------------------------------------------------------------------
-
-    def add_procedure(self, space, trigger, action, error_class, works: bool, vec=None, now=None,
-                      source_episode_ids=()) -> int:
-        indexed = f"When {trigger}: {action}"
-        vec = self.embed(indexed) if vec is None else vec
-        now = _now(now)
-        with self.tx() as c:
-            procedure_id = c.execute(
-                "INSERT INTO procedures (space, trigger, action, error_class, successes, failures, created_at, last_used, "
-                "source_episode_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (space, trigger, action, error_class, int(works), int(not works), now, now,
-                 json.dumps(sorted(set(source_episode_ids)))),
-            ).lastrowid
-            index.vec_put(c, "procedures", procedure_id, space, vec)
-            index.text_put(c, "procedures", procedure_id, space, indexed)
-        return procedure_id
-
-    def add_procedure_evidence(self, procedure_id: int, works: bool, now=None, source_episode_ids=()) -> None:
-        column = "successes" if works else "failures"
-        with self.tx() as c:
-            row = c.execute("SELECT source_episode_ids FROM procedures WHERE id = ?", (procedure_id,)).fetchone()
-            sources = sorted(set(json.loads(row["source_episode_ids"])) | set(source_episode_ids))
-            c.execute(
-                f"UPDATE procedures SET {column} = {column} + 1, last_used = ?, source_episode_ids = ? WHERE id = ?",
-                (_now(now), json.dumps(sources), procedure_id),
-            )
-
-    def procedures(self, ids) -> list[Procedure]:
-        return self._by_ids(Procedure, "procedures", ids)
-
-    def nearest_procedure(self, space: str, vec) -> tuple[Procedure, float] | None:
-        with self.lock:
-            hits = self.vec_search("procedures", space, vec, 1)
-            found = self.procedures([hits[0][0]]) if hits else []
-            return (found[0], hits[0][1]) if found else None
-
-    def prune_procedures(self, unused_since: float, min_confidence: float) -> int:
-        """Forgets procedures that are both stale and not confidently established."""
-        with self.tx() as c:
-            stale = [from_row(Procedure, r) for r in c.execute("SELECT * FROM procedures WHERE last_used < ?", (unused_since,))]
-            doomed = [p.id for p in stale if p.confidence < min_confidence]
-            for procedure_id in doomed:
-                c.execute("DELETE FROM procedures WHERE id = ?", (procedure_id,))
-                index.vec_drop(c, "procedures", procedure_id)
-                index.text_drop(c, "procedures", procedure_id)
-        return len(doomed)
+            for kind, table in (("states", "states"), ("events", "events"), ("attributes", "attributes")):
+                for (row_id,) in c.execute(f"SELECT id FROM {table} WHERE space = ?", (space,)).fetchall():
+                    index.vec_drop(c, kind, row_id)
+                    if kind != "attributes":
+                        index.text_drop(c, kind, row_id)
+            c.execute("DELETE FROM event_participants WHERE event_id IN (SELECT id FROM events WHERE space = ?)",
+                      (space,))
+            c.execute("DELETE FROM events WHERE space = ?", (space,))
+            c.execute("DELETE FROM states WHERE space = ?", (space,))
+            c.execute("DELETE FROM attributes WHERE space = ?", (space,))
+            c.execute("DELETE FROM entity_aliases WHERE space = ?", (space,))
+            for (row_id,) in c.execute("SELECT id FROM entities WHERE space = ? AND name != ?",
+                                       (space, USER_ENTITY)).fetchall():
+                index.vec_drop(c, "entities", row_id)
+                index.text_drop(c, "entities", row_id)
+            c.execute("DELETE FROM entities WHERE space = ? AND name != ?", (space, USER_ENTITY))
+            c.execute("UPDATE episodes SET consolidated_at = NULL, sleep_attempts = 0, sleep_error = NULL "
+                      "WHERE space = ?", (space,))
 
     # --- Introspection -----------------------------------------------------------------
 
     def stats(self, space: str) -> dict[str, int]:
         counts = {
-            "episodes": "SELECT COUNT(*) FROM episodes WHERE space = ?",
-            "pending_episodes": "SELECT COUNT(*) FROM episodes WHERE space = ? AND consolidated_at IS NULL",
+            "records": "SELECT COUNT(*) FROM episodes WHERE space = ?",
+            "pending_records": "SELECT COUNT(*) FROM episodes WHERE space = ? AND consolidated_at IS NULL",
+            "sentences": "SELECT COUNT(*) FROM sentences WHERE space = ?",
             "entities": "SELECT COUNT(*) FROM entities WHERE space = ?",
-            "current_facts": "SELECT COUNT(*) FROM facts WHERE space = ? AND valid_to IS NULL",
-            "closed_facts": "SELECT COUNT(*) FROM facts WHERE space = ? AND valid_to IS NOT NULL",
-            "procedures": "SELECT COUNT(*) FROM procedures WHERE space = ?",
-            "summaries": "SELECT COUNT(*) FROM summaries WHERE space = ?",
+            "current_states": "SELECT COUNT(*) FROM states WHERE space = ? AND valid_to IS NULL",
+            "past_states": "SELECT COUNT(*) FROM states WHERE space = ? AND valid_to IS NOT NULL",
             "events": "SELECT COUNT(*) FROM events WHERE space = ?",
         }
         return {name: self._rows(sql, (space,))[0][0] for name, sql in counts.items()}

@@ -6,7 +6,7 @@ from smruti.serve.scheduler import SleepScheduler
 
 def test_run_once_sleeps_due_spaces(config, embedder, fake_llm):
     config.sleep_after_episodes = 1
-    mem = Memory(config=config, embedder=embedder, llm=fake_llm([{"facts": []}]), model="m")
+    mem = Memory(config=config, embedder=embedder, llm=fake_llm([{"states": [], "events": []}]), model="m")
     mem.observe("user", "hello", space="s")
     assert SleepScheduler(mem, poll_seconds=60).run_once() == ["s"]
     assert mem.store.pending_episodes("s", 10) == []

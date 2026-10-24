@@ -1,20 +1,16 @@
 from smruti import Memory
 
 
-def test_stats_count_memory_by_kind(config, embedder):
+def test_stats_count_memory_by_kind(config, embedder, seed_state):
     mem = Memory(config=config, embedder=embedder)
     s = mem.store
-    user = s.user_entity("s")
-    lives = s.add_predicate("s", "lives_in", "one")
-    old = s.add_fact("s", user, lives, None, "Pune", 1.0, [1])
-    s.close_fact(old, 2.0)
-    s.add_fact("s", user, lives, None, "Bangalore", 2.0, [2])
-    mem.observe("user", "hello", space="s")
-    assert mem.stats("s") == {
-        "episodes": 1, "pending_episodes": 1, "entities": 1, "current_facts": 1,
-        "closed_facts": 1, "procedures": 0, "summaries": 0, "events": 0,
-    }
-    assert mem.stats("other")["episodes"] == 0
+    old = seed_state(s, "s", "home_city", "Pune", now=1.0)
+    s.close_state(old, 2.0)
+    seed_state(s, "s", "home_city", "Bangalore", now=2.0)
+    mem.observe("user", "hello there. how are you", space="s")
+    assert mem.stats("s") == {"records": 3, "pending_records": 1, "sentences": 4, "entities": 1,
+                              "current_states": 1, "past_states": 1, "events": 0}
+    assert mem.stats("other")["records"] == 0
     mem.close()
 
 

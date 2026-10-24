@@ -53,9 +53,8 @@ class FakeLLM:
 
 @pytest.fixture
 def config(tmp_path):
-    # One extraction per sleep batch, so queued FakeLLM extractions map one-to-one onto batches;
-    # replay-and-vote tests set sleep_votes=2 explicitly.
-    return SmrutiConfig(data_dir=tmp_path, embedding_dim=FakeEmbedder.dim, sleep_votes=1)
+    # UTC, so calendar days in tests do not depend on the machine's timezone.
+    return SmrutiConfig(data_dir=tmp_path, embedding_dim=FakeEmbedder.dim, timezone="UTC")
 
 
 @pytest.fixture
@@ -84,3 +83,21 @@ def noisy_store(config):
     s = Store(config, NoisyEmbedder())
     yield s
     s.close()
+
+
+def _seed_state(store, space, attribute, value, subject="user", text=None, now=1.0, valid_to=None):
+    """A state backed by a real record and sentence, as sleep would leave it."""
+    text = text or f"{subject} {attribute.replace('_', ' ')} {value}"
+    episode_id = store.add_episode(space, "user", text, None, 1.0, store.embed(text), now=now, speaker="user")
+    (sentence_id,) = store.add_sentences(space, store.episodes([episode_id])[0], [text], [store.embed(text)])
+    subject_id = store.user_entity(space) if subject == "user" else (
+        getattr(store.find_entity(space, subject), "id", None) or store.add_entity(space, subject, "thing"))
+    found = store.find_attribute(space, attribute)
+    attribute_id = found.id if found else store.add_attribute(space, attribute)
+    store.mark_consolidated([episode_id], now)  # as sleep leaves it
+    return store.add_state(space, subject_id, attribute_id, value, now, sentence_id, now, valid_to=valid_to)
+
+
+@pytest.fixture
+def seed_state():
+    return _seed_state

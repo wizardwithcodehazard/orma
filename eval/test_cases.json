@@ -1,0 +1,151 @@
+{
+  "_format": "HELD-OUT TEST cases: same format as cases.json. Never tune on these; run them only to report a result after dev is settled.",
+  "timezone": "Asia/Kolkata",
+  "cases": [
+    {
+      "id": "hinglish-job-switch",
+      "tags": ["hinglish", "update"],
+      "sessions": [
+        {"at": "2026-07-02T21:00:00", "turns": ["Main abhi Hyderabad mein rehta hoon aur Infosys mein kaam karta hoon."]},
+        {"at": "2026-10-01T21:00:00", "turns": ["Arre, maine job switch kar li, ab main Swiggy mein kaam karta hoon."]}
+      ],
+      "expect": {
+        "current": [{"about": ["user"], "terms": ["swiggy"]}],
+        "absent": [{"about": ["user"], "terms": ["infosys"]}]
+      },
+      "questions": [{"q": "Where do I work now?", "must": [["swiggy"]], "must_not": [["you work at infosys"]]}]
+    },
+    {
+      "id": "travel-policy-document",
+      "tags": ["document"],
+      "sessions": [
+        {"at": "2026-09-20T11:00:00", "turns": [
+          {"role": "document", "speaker": "travel-policy.md", "text": "Travel policy, 2026.\n\nHotel stays above 5000 rupees per night need written approval from your manager.\n\nAll flights must be booked through Kesari Travels; personal bookings are not reimbursed."}
+        ]}
+      ],
+      "finds": [
+        {"q": "who books our flights?", "terms": ["kesari"]},
+        {"q": "hotel limit per night", "terms": ["5000"]}
+      ],
+      "questions": [
+        {"q": "Do I need approval for a hotel that costs 7000 rupees a night?", "must": [["approval", "approve"]]}
+      ]
+    },
+    {
+      "id": "assistant-misleads",
+      "tags": ["assistant-noise", "diet"],
+      "sessions": [
+        {"at": "2026-10-02T20:00:00", "turns": [
+          "I'm vegetarian, by the way.",
+          {"role": "assistant", "text": "Great! Butter chicken and fish curry are two crowd favourites you could try this week."},
+          "Thanks, noted."
+        ]}
+      ],
+      "expect": {
+        "current": [{"about": ["user"], "terms": ["vegetarian"]}],
+        "absent": [{"about": ["user"], "terms": ["chicken"]}, {"about": ["user"], "terms": ["fish"]}]
+      },
+      "questions": [
+        {"q": "Suggest a dinner I could cook tonight.", "must": [], "must_not": [["chicken"], ["fish"], ["mutton"], ["prawn"]]}
+      ]
+    },
+    {
+      "id": "two-moves",
+      "tags": ["update", "relative-date"],
+      "sessions": [
+        {"at": "2026-06-01T10:00:00", "turns": ["I live in Chennai."]},
+        {"at": "2026-08-10T10:00:00", "turns": ["We shifted to Kochi last week."]},
+        {"at": "2026-10-05T10:00:00", "turns": ["Moved again! I'm now settled in Mysuru."]}
+      ],
+      "expect": {
+        "current": [{"about": ["user"], "terms": ["mysuru"]}],
+        "closed": [{"about": ["user"], "terms": ["chennai"]}, {"about": ["user"], "terms": ["kochi"]}]
+      },
+      "questions": [
+        {"q": "Which city do I live in?", "must": [["mysuru", "mysore"]],
+         "must_not": [["you live in chennai"], ["you live in kochi"]]}
+      ]
+    },
+    {
+      "id": "cousin-pronoun",
+      "tags": ["attribution", "pronoun"],
+      "sessions": [
+        {"at": "2026-10-07T19:00:00", "turns": [
+          "My cousin Kavya just joined Zomato as a data analyst.",
+          "She lives in Gurgaon now."
+        ]}
+      ],
+      "expect": {
+        "current": [{"about": ["kavya"], "terms": ["gurgaon"]}],
+        "absent": [{"about": ["user"], "terms": ["zomato"]}, {"about": ["user"], "terms": ["gurgaon"]}]
+      },
+      "questions": [{"q": "Where does Kavya live?", "must": [["gurgaon", "gurugram"]]}]
+    },
+    {
+      "id": "laptop-tooling",
+      "tags": ["tool", "update"],
+      "sessions": [
+        {"at": "2026-10-09T22:00:00", "turns": [
+          "I switched my laptop from Windows to Fedora yesterday.",
+          {"role": "tool", "text": "$ python3 --version\nPython 3.12.4"}
+        ]}
+      ],
+      "expect": {"current": [{"about": ["user"], "terms": ["fedora"]}]},
+      "finds": [{"q": "which python version is installed?", "terms": ["3.12.4"]}],
+      "questions": [{"q": "Which operating system is on my laptop?", "must": [["fedora"]], "must_not": [["windows 1"]]}]
+    },
+    {
+      "id": "allergy-cleared",
+      "tags": ["ended", "negation"],
+      "sessions": [
+        {"at": "2026-05-01T12:00:00", "turns": ["I'm allergic to shellfish, so no prawns for me."]},
+        {"at": "2026-10-03T12:00:00", "turns": ["Good news: the allergy test says I'm no longer allergic to shellfish."]}
+      ],
+      "expect": {"absent": [{"about": ["user"], "terms": ["shellfish"]}]},
+      "questions": [
+        {"q": "Can I eat prawns now?", "must": [["no longer", "not allergic", "anymore", "yes", "can eat", "you can"]]}
+      ]
+    },
+    {
+      "id": "half-marathon",
+      "tags": ["event", "relative-date"],
+      "sessions": [
+        {"at": "2026-10-12T09:00:00", "turns": ["Two days ago I ran my first half marathon in Bengaluru, finished in 2:05."]}
+      ],
+      "expect": {"events": [{"terms": ["marathon"], "date": "2026-10-10"}]},
+      "questions": [
+        {"q": "When did I run my first half marathon, and what was my time?",
+         "must": [["2:05"], ["2026-10-10", "october 10", "10 october", "oct 10", "10th october", "october 10th"]]}
+      ]
+    },
+    {
+      "id": "landlord-in-a-long-chat",
+      "tags": ["needle", "retrieval"],
+      "sessions": [
+        {"at": "2026-10-04T18:00:00", "turns": [
+          "My landlord is Mr. Iyer; he wants the rent by the 5th of every month.",
+          "Anyway, the weather has been crazy this week.",
+          "I watched two films over the weekend.",
+          "Thinking of learning the guitar at some point.",
+          "My neighbour's cat keeps sitting on my scooter.",
+          "Work has been slow, mostly meetings.",
+          "Need to buy a new pressure cooker."
+        ]}
+      ],
+      "finds": [{"q": "who is my landlord?", "terms": ["iyer"]}],
+      "questions": [{"q": "What's my landlord's name, and when is rent due?", "must": [["iyer"], ["5th", "fifth", "5 "]]}]
+    },
+    {
+      "id": "sister-wedding",
+      "tags": ["event", "third-party", "date"],
+      "sessions": [
+        {"at": "2026-10-13T20:00:00", "turns": [
+          "Big news: my sister Neha got engaged yesterday!",
+          "The wedding is planned for February in Udaipur."
+        ]}
+      ],
+      "expect": {"events": [{"terms": ["engaged"], "date": "2026-10-12"}]},
+      "questions": [{"q": "Where is my sister's wedding going to be?", "must": [["udaipur"]]}]
+    }
+  ]
+}

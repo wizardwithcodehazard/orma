@@ -19,35 +19,35 @@ def unit(*xs):
 
 
 def test_vector_search_is_scoped_to_space(conn):
-    index.vec_put(conn, "facts", 1, "a", unit(1, 0, 0, 0))
-    index.vec_put(conn, "facts", 2, "b", unit(1, 0, 0, 0))
-    index.vec_put(conn, "facts", 3, "a", unit(0, 1, 0, 0))
-    hits = index.vec_search(conn, "facts", "a", unit(1, 0, 0, 0), 5)
+    index.vec_put(conn, "states", 1, "a", unit(1, 0, 0, 0))
+    index.vec_put(conn, "states", 2, "b", unit(1, 0, 0, 0))
+    index.vec_put(conn, "states", 3, "a", unit(0, 1, 0, 0))
+    hits = index.vec_search(conn, "states", "a", unit(1, 0, 0, 0), 5)
     assert [i for i, _ in hits] == [1, 3]
     assert hits[0][1] == pytest.approx(1.0)
     assert hits[1][1] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_vec_put_replaces_existing_row(conn):
-    index.vec_put(conn, "facts", 1, "a", unit(1, 0, 0, 0))
-    index.vec_put(conn, "facts", 1, "a", unit(0, 1, 0, 0))
-    assert index.vec_search(conn, "facts", "a", unit(0, 1, 0, 0), 5) == [(1, pytest.approx(1.0))]
+    index.vec_put(conn, "states", 1, "a", unit(1, 0, 0, 0))
+    index.vec_put(conn, "states", 1, "a", unit(0, 1, 0, 0))
+    assert index.vec_search(conn, "states", "a", unit(0, 1, 0, 0), 5) == [(1, pytest.approx(1.0))]
 
 
 def test_text_search_ranks_matches_and_is_syntax_safe(conn):
-    index.text_put(conn, "facts", 7, "a", "user lives in Pune")
-    index.text_put(conn, "facts", 8, "a", "user works at Acme")
-    index.text_put(conn, "facts", 9, "b", "user lives in Pune")
-    hits = index.text_search(conn, "facts", "a", 'Where does the user live? "Pune"!', 5)
+    index.text_put(conn, "states", 7, "a", "user lives in Pune")
+    index.text_put(conn, "states", 8, "a", "user works at Acme")
+    index.text_put(conn, "states", 9, "b", "user lives in Pune")
+    hits = index.text_search(conn, "states", "a", 'Where does the user live? "Pune"!', 5)
     assert hits[0][0] == 7
     assert 9 not in [hit.id for hit in hits]
 
 
 def test_text_search_reports_term_coverage_with_the_index_stemmer(conn):
-    index.text_put(conn, "facts", 1, "a", "user lives in Pune")
+    index.text_put(conn, "states", 1, "a", "user lives in Pune")
     index.text_put(conn, "entities", 2, "a", "New York")
     # "live" and "lives" share a porter stem, so coverage agrees with what MATCH matched.
-    (hit,) = index.text_search(conn, "facts", "a", "Where does the user live?", 5)
+    (hit,) = index.text_search(conn, "states", "a", "Where does the user live?", 5)
     assert hit.query_coverage == pytest.approx(2 / 5) and hit.row_coverage == pytest.approx(2 / 4)
     (hit,) = index.text_search(conn, "entities", "a", "any new ideas?", 5)
     assert hit.row_coverage == pytest.approx(1 / 2)
@@ -60,13 +60,13 @@ def test_terms_split_like_the_fts_tokenizer():
 
 
 def test_text_search_with_no_terms_returns_nothing(conn):
-    assert index.text_search(conn, "facts", "a", "?!", 5) == []
+    assert index.text_search(conn, "states", "a", "?!", 5) == []
 
 
 def test_text_drop_removes_row(conn):
-    index.text_put(conn, "facts", 7, "a", "user lives in Pune")
-    index.text_drop(conn, "facts", 7)
-    assert index.text_search(conn, "facts", "a", "Pune", 5) == []
+    index.text_put(conn, "states", 7, "a", "user lives in Pune")
+    index.text_drop(conn, "states", 7)
+    assert index.text_search(conn, "states", "a", "Pune", 5) == []
 
 
 def test_dimension_mismatch_is_rejected(tmp_path):
@@ -94,30 +94,29 @@ def test_index_functions_reject_unknown_kind(conn):
     with pytest.raises(ValueError):
         index.text_search(conn, "bogus", "a", "x", 1)
     with pytest.raises(ValueError):
-        index.text_put(conn, "predicates", 1, "a", "x")  # predicates have no text index
+        index.text_put(conn, "attributes", 1, "a", "x")  # attributes have no text index
 
 
-def test_existing_database_gains_procedure_sources_column(tmp_path):
+def test_a_version_1_database_gains_record_sources(tmp_path):
     c = connect(tmp_path / "old.db")
+    c.execute("CREATE TABLE episodes (id INTEGER PRIMARY KEY, space TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT "
+              "NULL, outcome TEXT, novelty REAL, seen_count INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL, "
+              "consolidated_at REAL, sleep_attempts INTEGER NOT NULL DEFAULT 0, sleep_error TEXT)")
+    c.execute("INSERT INTO episodes (space, role, text, created_at) VALUES ('s', 'user', 'hi', 1)")
     init_schema(c, 4)
-    c.execute("ALTER TABLE procedures DROP COLUMN source_episode_ids")
-    init_schema(c, 4)
-    c.execute("INSERT INTO procedures (space, trigger, action, created_at, last_used) VALUES ('s', 't', 'a', 1, 1)")
-    assert c.execute("SELECT source_episode_ids FROM procedures").fetchone()[0] == "[]"
+    row = c.execute("SELECT source, speaker FROM episodes").fetchone()
+    assert (row["source"], row["speaker"]) == ("chat", "")
+    assert c.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "2"
     c.close()
 
 
-def test_predicate_names_are_unique_per_space(store):
+def test_attribute_names_are_unique_per_space(store):
     import sqlite3
 
-    store.add_predicate("s", "lives_in", "one")
-    store.add_predicate("t", "lives_in", "one")
+    store.add_attribute("s", "home_city")
+    store.add_attribute("t", "home_city")
     with pytest.raises(sqlite3.IntegrityError):
-        store.add_predicate("s", "lives_in", "one")
-
-
-def test_new_databases_have_no_candidate_facts_table(conn):
-    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'candidate_facts'").fetchone() is None
+        store.add_attribute("s", "home_city")
 
 
 def test_store_stems_with_the_index_tokenizer(store):

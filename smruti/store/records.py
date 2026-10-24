@@ -2,11 +2,9 @@
 
 import json
 from dataclasses import dataclass, fields
-from datetime import datetime, timezone
+from datetime import timezone, tzinfo
 
-
-def fact_text(subject: str, predicate: str, object_: str) -> str:
-    return f"{subject} {predicate.replace('_', ' ')} {object_}"
+from smruti import clock
 
 
 def from_row(cls, row):
@@ -15,17 +13,40 @@ def from_row(cls, row):
     return cls(**{f.name: row[f.name] for f in fields(cls)})
 
 
+def state_text(subject: str, attribute: str, value: str) -> str:
+    return f"{subject} · {attribute.replace('_', ' ')}: {value}"
+
+
 @dataclass
 class Episode:
+    """A kept record: a chat turn, a note, part of a document, a tool result."""
     id: int
     space: str
-    role: str
+    role: str  # user | assistant | tool | note | document
     text: str
     outcome: str | None
     novelty: float | None
     seen_count: int
     created_at: float
     consolidated_at: float | None
+    source: str  # where it came from: chat, api, file:<name>, ...
+    speaker: str  # who wrote it; for user and note records, the user
+
+
+@dataclass
+class Sentence:
+    id: int
+    space: str
+    episode_id: int
+    position: int
+    role: str
+    speaker: str
+    text: str
+    created_at: float
+
+    def label(self, tz: tzinfo | None) -> str:
+        """The sentence as recall shows it: day, speaker, words."""
+        return f"{clock.iso_day(self.created_at, tz)} {self.speaker}: {self.text}"
 
 
 @dataclass
@@ -39,88 +60,41 @@ class Entity:
 
 
 @dataclass
-class Predicate:
+class Attribute:
     id: int
     space: str
     name: str
-    cardinality: str
 
 
 @dataclass
-class Fact:
+class State:
+    """What one attribute of one entity is, from valid_from until valid_to (None while still true)."""
     id: int
     space: str
     subject_id: int
-    predicate_id: int
-    object_id: int | None
-    object_value: str | None
-    confidence: float
-    support: int
+    attribute_id: int
+    value: str
     valid_from: float
-    valid_to: float | None
-    last_used: float
-    source_episode_ids: list[int]
     valid_from_stated: bool
-    evidence_times: list[float]  # one timestamp per observation
-    importance: float  # surprise: mean novelty of the source episodes, max over batches
+    valid_to: float | None
+    sentence_id: int  # the sentence that first stated it
+    ended_by: int | None  # the sentence that said it stopped, if one did
+    evidence: list[int]  # every sentence that stated it
+    evidence_times: list[float]  # when each was said
     subject: str
-    predicate: str
-    object: str
+    attribute: str
 
     @property
     def text(self) -> str:
-        return fact_text(self.subject, self.predicate, self.object)
+        return state_text(self.subject, self.attribute, self.value)
 
     @classmethod
-    def from_row(cls, row) -> "Fact":
+    def from_row(cls, row) -> "State":
         values = {f.name: row[f.name] for f in fields(cls)}
-        values["source_episode_ids"] = json.loads(values["source_episode_ids"])
         values["valid_from_stated"] = bool(values["valid_from_stated"])
-        values["evidence_times"] = json.loads(values["evidence_times"]) or [values["last_used"]]  # pre-migration row
+        values["evidence"] = json.loads(values["evidence"])
+        values["evidence_times"] = json.loads(values["evidence_times"])
         return cls(**values)
-
-
-@dataclass
-class Summary:
-    id: int
-    space: str
-    topic: str
-    text: str
-    tokens: int
-    updated_at: float
-
-
-@dataclass
-class Procedure:
-    id: int
-    space: str
-    trigger: str
-    action: str
-    error_class: str | None
-    successes: int
-    failures: int
-    created_at: float
-    last_used: float
-    source_episode_ids: list[int]
-
-    @classmethod
-    def from_row(cls, row) -> "Procedure":
-        values = {f.name: row[f.name] for f in fields(cls)}
-        values["source_episode_ids"] = json.loads(values["source_episode_ids"])
-        return cls(**values)
-
-    @property
-    def works(self) -> bool:
-        return self.successes >= self.failures
-
-    @property
-    def confidence(self) -> float:
-        """Beta-posterior mean of the majority outcome."""
-        return (max(self.successes, self.failures) + 1) / (self.successes + self.failures + 2)
-
-    @property
-    def text(self) -> str:
-        return f"When {self.trigger}: {self.action} ({'works' if self.works else 'fails'})"
 
 
 @dataclass
@@ -131,16 +105,18 @@ class Event:
     occurred_at: float
     occurred_stated: bool
     created_at: float
-    source_episode_ids: list[int]
-    importance: float  # surprise: mean novelty of the source episodes
+    sentence_id: int
 
     @classmethod
     def from_row(cls, row) -> "Event":
         values = {f.name: row[f.name] for f in fields(cls)}
-        values["source_episode_ids"] = json.loads(values["source_episode_ids"])
         values["occurred_stated"] = bool(values["occurred_stated"])
         return cls(**values)
 
+    def label(self, tz: tzinfo | None) -> str:
+        """The gist after the day it happened in tz."""
+        return f"{clock.iso_day(self.occurred_at, tz)}: {self.gist}"
+
     @property
     def text(self) -> str:
-        return f"{datetime.fromtimestamp(self.occurred_at, timezone.utc):%Y-%m-%d}: {self.gist}"
+        return self.label(timezone.utc)

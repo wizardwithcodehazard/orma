@@ -23,74 +23,62 @@ class SmrutiConfig:
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
 
-    # Encode: adaptive novelty gate
-    novelty_percentile: float = 10.0
-    novelty_warmup: int = 50
-    novelty_window: int = 500
+    # Calendar: the user's timezone ('' = this machine's, 'UTC', or an IANA name like Asia/Kolkata) decides what
+    # day a timestamp falls on; date_order ('DMY', 'MDY', 'YMD' or '' for dateparser's default) reads "08/10/2026".
+    timezone: str = ""
+    date_order: str = ""
 
-    # Recall
+    # Add: every record is kept in full; its sentences are the unit of recall and of citation in sleep.
+    novelty_duplicate_similarity: float = 0.97  # a record this close to one already kept is counted, not stored
+    novelty_warmup: int = 50  # samples before recall calibrates similarity against the space's own distribution
+    novelty_window: int = 500
+    max_sentence_chars: int = 400  # longer sentences are split into pieces of at most this size
+    max_tool_chars: int = 4000  # tool output kept per recorded turn by the proxy (head and tail)
+
+    # Recall (no LLM, no writes)
     budget_tokens: int = 4096
     chars_per_token: float = 3.5
-    entity_link_k: int = 8
-    max_hops: int = 2
-    hop_decay: float = 0.6
-    search_k: int = 20
+    search_k: int = 30
     rrf_k: int = 60
-    # Similarity floor = this percentile of the space's nearest-neighbour similarity distribution (from
-    # the novelty buffer); the median is what a typical turn's closest memory reaches, i.e. the noise level.
+    # Similarity floor = this percentile of the space's nearest-neighbour similarity distribution: what an
+    # arbitrary record reaches by chance (small embedders give unrelated texts ~0.5), so it carries no evidence.
     similarity_floor_percentile: float = 50.0
-    max_candidate_facts: int = 64
-    max_candidate_events: int = 16
-    recency_half_life_days: float = 14.0  # procedures, summaries, notes; facts and events too with enable_base_level off
-    # ACT-R base-level activation of facts and events: sum over evidence times of (age_days + 1) ** -decay.
-    base_level_decay: float = 0.5  # ACT-R's standard d
-    # Score multiplier (1 - w) + w * importance, importance = mean novelty (surprise) of the source episodes.
-    importance_weight: float = 0.5
-    # Priming (in RAM, per space): the entities the last recalls activated add to the next request's cues.
-    priming_size: int = 16  # strongest entities kept after each recall
-    priming_decay: float = 0.5  # factor applied per request in the space
-    priming_weight: float = 0.5  # cue weight per unit of priming
-    priming_floor: float = 0.01  # weaker priming is dropped
-    core_min_confidence: float = 0.7
+    base_level_decay: float = 0.5  # ACT-R d: a memory's strength is the sum of (age_days + 1) ** -d over its uses
+    use_weight: float = 0.3  # how much that strength can move a memory's rank: a bounded boost, never a filter
+    max_passages: int = 12
+    max_events: int = 6
+    max_query_states: int = 8  # states of others matched by the query (the user's own states are always shown)
+    state_budget_share: float = 0.25  # "Now true" takes at most this share of the budget
     min_recent_turns: int = 2
-    recall_note_chars: int = 300  # longest pending-episode note shown in recall
+    recall_roles: tuple[str, ...] = ("user", "note", "document", "tool")  # whose sentences recall shows
 
-    # Sleep
+    # Sleep (one LLM call per batch, in the background)
     sleep_after_episodes: int = 20
     sleep_idle_seconds: float = 120.0
     sleep_batch_episodes: int = 12
     sleep_max_attempts: int = 3
     sleep_prompt_tokens: int = 3000
-    sleep_max_episode_chars: int = 1500
-    max_tool_chars: int = 4000  # tool output kept per recorded turn (head and tail)
-    sleep_context_predicates: int = 30
+    context_chars: int = 200  # an assistant turn is shown to sleep as this much context, never as evidence
+    citable_roles: tuple[str, ...] = ("user", "note", "document", "tool")  # whose lines a memory may cite
+    sleep_context_states: int = 20
+    sleep_context_attributes: int = 30
     sleep_lease_seconds: float = 600.0
     entity_merge_threshold: float = 0.85
-    predicate_merge_threshold: float = 0.8
-    procedure_merge_threshold: float = 0.85
-    summary_max_tokens: int = 200
-    episode_retention_days: float = 7.0
-    procedure_ttl_days: float = 30.0
-    procedure_min_confidence: float = 0.5
-    # Replay and vote (an experiment; each extra vote costs a full extraction): each batch is extracted
-    # sleep_votes times (the first pass at temperature 0, replays at sleep_vote_temperature). The first pass is
-    # consolidated; a fact a replay also states (rendered-text cosine >= vote_match_threshold) counts as one
-    # extra observation.
-    sleep_votes: int = 1  # 1 = single pass, no voting
-    sleep_vote_temperature: float = 0.7
-    vote_match_threshold: float = 0.8
+    attribute_merge_threshold: float = 0.8
+    # The two closed word classes the holder check needs, English by default (replace both for another language):
+    # words by which a speaker means themself, and words that refer back to someone already named.
+    first_person_words: tuple[str, ...] = ("i", "me", "my", "mine", "myself", "we", "us", "our", "ours", "ourselves")
+    third_person_words: tuple[str, ...] = ("she", "her", "hers", "herself", "he", "him", "his", "himself", "they",
+                                           "them", "their", "theirs", "it", "its", "itself")
 
     # Ablation switches
+    enable_semantic: bool = True  # sleep builds states and events; off = recall over kept sentences only (baseline)
     enable_novelty_gate: bool = True
-    enable_graph: bool = True
-    enable_core_block: bool = True
     enable_similarity_weighting: bool = True
-    enable_episode_recall: bool = True
-    enable_schema_decoding: bool = True  # constrain extraction to JSON_SCHEMA (else plain JSON mode)
-    enable_grounding: bool = True  # drop extracted facts, entities and user names the batch's log does not contain
-    enable_events: bool = True  # store dated events during sleep and recall them
-    enable_priming: bool = True  # recently activated entities stay warm for the next requests
-    enable_base_level: bool = True  # facts and events: base-level activation x importance (else recency of last use)
+    enable_base_level: bool = True  # rank by recency and frequency of use (ACT-R); off = by match alone
+    enable_schema_decoding: bool = True  # constrain extraction to the JSON schema (else plain JSON mode)
+    enable_grounding: bool = True  # a state's value must be in (or paraphrased by) the line it cites
+    enable_date_phrases: bool = True  # resolve date words ("last Saturday") against when they were said (else ISO only)
 
     @property
     def db_path(self) -> Path:

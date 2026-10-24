@@ -1,7 +1,8 @@
 import pytest
 
-from smruti.recall.pack import FRAMING, MemoryItem, count_tokens, pack
-from smruti.recall.rank import base_level, importance_factor, recency, rrf
+from smruti.recall.pack import FRAMING, MemoryItem, pack, render
+from smruti.recall.rank import base_level, rrf, use_weight
+from smruti.text import count_tokens
 
 
 def ranked(*ids, weight=1.0):
@@ -45,11 +46,6 @@ def test_similarity_weight_is_calibrated_against_the_space_distribution():
     assert similarity_weight(novelty, 50.0, warmup=3, enabled=False)(0.1) == 1.0  # ablated
 
 
-def test_recency_half_life():
-    assert recency(0.0, 14 * 86400.0, 14.0) == pytest.approx(0.5)
-    assert recency(100.0, 50.0, 14.0) == 1.0
-
-
 def test_base_level_activation_sums_power_law_decayed_evidence():
     day, now = 86400.0, 100 * 86400.0
     assert base_level([now], now, 0.5) == pytest.approx(1.0)  # one fresh evidence
@@ -59,54 +55,50 @@ def test_base_level_activation_sums_power_law_decayed_evidence():
     assert base_level([], now, 0.5) == 0.0
 
 
-def test_importance_factor_blends_toward_one():
-    assert importance_factor(1.0, 0.5) == pytest.approx(1.0)
-    assert importance_factor(0.0, 0.5) == pytest.approx(0.5)
-    assert importance_factor(0.2, 0.0) == pytest.approx(1.0)  # weight 0: importance ignored
+def test_use_weight_is_a_bounded_boost():
+    assert use_weight(1.0, 0.3) == pytest.approx(1.0)
+    assert use_weight(0.0, 0.3) == pytest.approx(0.7)  # an old memory keeps most of its rank
+    assert use_weight(5.0, 0.3) == pytest.approx(1.0)  # strength beyond one adds nothing
 
 
-def test_count_tokens_rounds_up():
-    assert count_tokens("abcdefg", 3.5) == 2
+def item(section, i, text, order=0.0):
+    return MemoryItem(section, i, text, order)
 
 
-def test_pack_keeps_last_turns_and_respects_budget():
+def test_render_groups_sections_and_orders_things_said_by_time():
+    text = render([item("passages", 2, "later", 20.0), item("events", 1, "2026-10-10: trek"),
+                   item("states", 3, "user · home city: Pune"), item("passages", 1, "earlier", 10.0)], "2026-10-15")
+    assert text.splitlines() == ["## Memory", f"{FRAMING} Today is 2026-10-15.", "Now true:",
+                                 "- user · home city: Pune", "Things said before:", "- earlier", "- later",
+                                 "Events:", "- 2026-10-10: trek"]
+    assert render([]) == ""
+
+
+def test_pack_keeps_the_last_turns_and_respects_the_budget():
     turns = [{"role": "user", "content": "x" * 70}, {"role": "assistant", "content": "y" * 70},
-             {"role": "user", "content": "z" * 70}]
-    items = [MemoryItem("facts", i, f"fact number {i}") for i in range(50)]
-    packed = pack([], items, turns, budget=140, chars_per_token=3.5, min_recent=2)
-    assert packed.turns == turns[-2:]
-    assert packed.tokens <= 140
-    assert 0 < len(packed.used) < 50
-    assert packed.memory_text.startswith(f"## Memory\n{FRAMING}\nRelevant facts:\n- fact number 0")
+             {"role": "user", "content": "z" * 35}]
+    items = [item("passages", i, f"passage number {i} " * 3, i) for i in range(30)]
+    packed = pack(items, turns, budget=150, chars_per_token=3.5, min_recent=1)
+    assert packed.turns[-1] == turns[-1] and packed.tokens <= 150 and 0 < len(packed.used) < 30
+    assert packed.tokens == count_tokens(packed.memory_text, 3.5) + sum(
+        count_tokens(t["content"], 3.5) for t in packed.turns)
 
 
-def test_pack_orders_sections_and_adds_older_turns_when_room():
-    core = [MemoryItem("core", 1, "user lives in Pune")]
-    ranked = [MemoryItem("summaries", 9, "travel: planning a Goa trip"),
-              MemoryItem("procedures", 4, "When build fails: npm install (works)")]
-    turns = [{"role": "user", "content": "old"}, {"role": "user", "content": "new"}]
-    packed = pack(core, ranked, turns, budget=1000, chars_per_token=3.5, min_recent=1)
-    assert packed.turns == turns
-    text = packed.memory_text
-    assert text.index("Known facts about the user") < text.index("Lessons from past actions") < text.index("Background")
+def test_pack_fills_leftover_budget_with_older_turns():
+    turns = [{"role": "user", "content": "old question"}, {"role": "assistant", "content": "old answer"},
+             {"role": "user", "content": "new question"}]
+    packed = pack([item("states", 1, "user · home city: Pune")], turns, budget=500, chars_per_token=3.5,
+                  min_recent=1)
+    assert packed.turns == turns and "Now true:" in packed.memory_text
+
+
+def test_states_beyond_their_cap_are_left_out():
+    states = [item("states", i, f"user · attribute {i}: some value") for i in range(10)]
+    packed = pack(states + [item("passages", 99, "a thing said")], [], budget=1000, chars_per_token=3.5,
+                  min_recent=0, state_cap=30)
+    used = [i.section for i in packed.used]
+    assert used.count("states") < 10 and "passages" in used
 
 
 def test_pack_without_memory_has_no_header():
-    packed = pack([], [], [{"role": "user", "content": "hi"}], 100, 3.5, 2)
-    assert packed.memory_text == "" and packed.used == []
-
-
-def test_pack_token_count_is_exact_with_the_framing_line():
-    items = [MemoryItem("facts", i, f"fact number {i}") for i in range(50)]
-    for budget in range(10, 120, 7):
-        packed = pack([], items, [], budget=budget, chars_per_token=3.5, min_recent=0)
-        assert packed.tokens == count_tokens(packed.memory_text, 3.5) <= budget
-
-
-def test_pack_puts_events_after_facts_and_before_procedures():
-    ranked = [MemoryItem("facts", 1, "user lives in Pune"), MemoryItem("events", 2, "2026-03-07: user went to Goa"),
-              MemoryItem("procedures", 3, "When build fails: npm install (works)"),
-              MemoryItem("summaries", 4, "travel: Goa"), MemoryItem("episodes", 5, "note")]
-    text = pack([], ranked, [], budget=1000, chars_per_token=3.5, min_recent=0).memory_text
-    titles = ["Relevant facts:", "Past events:", "Lessons from past actions:", "Background:", "Recent notes:"]
-    assert [text.index(t) for t in titles] == sorted(text.index(t) for t in titles)
+    assert pack([], [{"role": "user", "content": "hi"}], 100, 3.5, 2).memory_text == ""

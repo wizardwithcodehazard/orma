@@ -2,20 +2,26 @@
 demo_ollama.py - End-to-end check against a real local model, with and without memory.
 
 Runs a short scripted conversation through a running `smruti proxy`, consolidates it with
-`smruti sleep`, then asks questions that need memory and prints the answers next to plain
-Ollama's. Use a throwaway memory directory so your real memory is untouched:
+`smruti sleep`, then asks questions that need memory and prints the answers next to the plain
+model's. Works with any OpenAI-compatible runtime (Ollama, llama.cpp's llama-server, ...). Use a
+throwaway memory directory so your real memory is untouched:
 
     export SMRUTI_DIR=/tmp/smruti-demo && rm -rf $SMRUTI_DIR
-    smruti proxy --model llama3.2:3b --sleep-poll 0          # terminal 1
-    python scripts/demo_ollama.py                            # terminal 2
+    python -m smruti proxy --model llama3.2:3b --sleep-poll 0     # terminal 1
+    python scripts/demo_ollama.py                                 # terminal 2
 
-Options: --proxy (default http://localhost:8080/v1), --ollama (default
-http://localhost:11434/v1), --model (default llama3.2:3b).
+    # llama.cpp instead of Ollama:
+    python -m smruti proxy --upstream http://127.0.0.1:9931/v1 --model MODEL --sleep-poll 0
+    python scripts/demo_ollama.py --upstream http://127.0.0.1:9931/v1 --model MODEL
+
+Options: --proxy (default http://localhost:8080/v1), --upstream (alias --ollama; default
+http://localhost:11434/v1), --model (default llama3.2:3b). The CLI is run as `python -m smruti`,
+so this checkout is used even if another `smruti` command is on PATH.
 """
 
 import argparse
-import shutil
 import subprocess
+import sys
 import time
 
 import httpx
@@ -53,32 +59,33 @@ def converse(proxy: str, model: str, turns: list[str], label: str) -> None:
 
 def smruti(*args: str) -> None:
     start = time.time()
-    out = subprocess.run([shutil.which("smruti") or "smruti", *args], check=False, capture_output=True, text=True)
+    out = subprocess.run([sys.executable, "-m", "smruti", *args], check=False, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
     print(f"\n$ smruti {' '.join(args)}  ({time.time() - start:.1f}s)\n{(out.stdout + out.stderr).strip()}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--proxy", default="http://localhost:8080/v1")
-    parser.add_argument("--ollama", default="http://localhost:11434/v1")
+    parser.add_argument("--upstream", "--ollama", dest="upstream", default="http://localhost:11434/v1")
     parser.add_argument("--model", default="llama3.2:3b")
     args = parser.parse_args()
 
     print("=== Conversation 1 (through the proxy)")
     converse(args.proxy, args.model, CONVERSATION_1, "conv1")
-    smruti("sleep", "--model", args.model, "--upstream", args.ollama)
+    smruti("sleep", "--model", args.model, "--upstream", args.upstream)
     smruti("facts")
 
     print("\n=== Conversation 2 (a change)")
     converse(args.proxy, args.model, CONVERSATION_2, "conv2")
-    smruti("sleep", "--model", args.model, "--upstream", args.ollama)
+    smruti("sleep", "--model", args.model, "--upstream", args.upstream)
     smruti("facts", "--history")
 
     print("\n=== New chat: questions that need memory")
     for question in QUESTIONS:
         smruti("recall", question)
         ask(args.proxy, args.model, [{"role": "user", "content": question}], "WITH smruti")
-        ask(args.ollama, args.model, [{"role": "user", "content": question}], "WITHOUT memory (plain Ollama)")
+        ask(args.upstream, args.model, [{"role": "user", "content": question}], "WITHOUT memory (plain model)")
     smruti("stats")
 
 
