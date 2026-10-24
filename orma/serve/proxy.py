@@ -42,6 +42,11 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                sleep_poll_seconds: float | None = 30.0, transport: httpx.AsyncBaseTransport | None = None) -> Starlette:
     client = httpx.AsyncClient(base_url=upstream.rstrip("/"), timeout=httpx.Timeout(None, connect=10.0),
                                transport=transport)
+    root_base = upstream.rstrip("/")
+    if root_base.endswith("/v1"):
+        root_base = root_base[:-3]
+    root_client = httpx.AsyncClient(base_url=root_base, timeout=httpx.Timeout(None, connect=10.0),
+                                    transport=transport)
     scheduler = SleepScheduler(memory, sleep_poll_seconds) if sleep_poll_seconds else None
 
     def forwarded_headers(request: Request) -> dict[str, str]:
@@ -154,6 +159,16 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                                        params=request.query_params)
         return response if isinstance(response, JSONResponse) else await relay_response(response)
 
+    async def root_passthrough(request: Request) -> Response:
+        path = request.url.path
+        try:
+            req = root_client.build_request(request.method, path, content=await request.body(),
+                                            headers=forwarded_headers(request), params=request.query_params)
+            resp = await root_client.send(req, stream=True)
+            return resp if isinstance(resp, JSONResponse) else await relay_response(resp)
+        except httpx.HTTPError as exc:
+            return upstream_error(exc)
+
     @asynccontextmanager
     async def lifespan(app):
         if scheduler is not None:
@@ -164,11 +179,15 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             if scheduler is not None:
                 scheduler.stop()
             await client.aclose()
+            await root_client.aclose()
 
     return Starlette(
         routes=[
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+            Route("/chat/completions", chat_completions, methods=["POST"]),
             Route("/v1/{path:path}", passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),
+            Route("/", root_passthrough, methods=["GET"]),
+            Route("/{path:path}", root_passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),
         ],
         lifespan=lifespan,
     )

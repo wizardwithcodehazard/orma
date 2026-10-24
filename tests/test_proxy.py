@@ -25,7 +25,7 @@ class Upstream:
             return httpx.Response(200, json={"data": [{"id": "llama3.2:3b"}]})
         if self.status != 200:
             return httpx.Response(self.status, json={"error": {"message": "bad"}})
-        if body.get("stream"):
+        if body and body.get("stream"):
             return httpx.Response(200, headers={"content-type": "text/event-stream"},
                                   content=b"".join(self.stream_chunks))
         return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": self.reply}}]})
@@ -282,3 +282,13 @@ def test_stream_records_the_user_turn_and_partial_reply_on_client_disconnect(mem
 
     asyncio.run(run())
     assert texts(memory) == [("user", "hi"), ("assistant", "Hel")]
+
+
+def test_root_and_static_web_ui_passthrough(memory):
+    up = Upstream()
+    with client(memory, up) as c:
+        resp = c.get("/")
+        assert resp.status_code == 200
+        asset_resp = c.get("/index.js")
+        assert asset_resp.status_code == 200
+
