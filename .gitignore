@@ -49,3 +49,10 @@ Thumbs.db
 # Benchmark & eval run logs
 eval/runs/
 scratch/
+
+# Internal roadmap & handover notes
+tasks.md
+HANDOVER.md
+implementation.md
+docs/superpowers/
+
