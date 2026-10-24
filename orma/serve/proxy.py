@@ -75,6 +75,8 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                 try:
                     async for chunk in response.aiter_bytes():
                         yield chunk
+                except (anyio.get_cancelled_exc_class(), Exception):
+                    pass
                 finally:
                     with anyio.CancelScope(shield=True):
                         await response.aclose()
@@ -151,6 +153,8 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                 async for chunk in response.aiter_bytes():
                     accumulator.feed(chunk)
                     yield chunk
+            except (anyio.get_cancelled_exc_class(), Exception):
+                pass
             finally:
                 with anyio.CancelScope(shield=True):  # runs on client disconnect too, with whatever was streamed
                     await response.aclose()

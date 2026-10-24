@@ -1,4 +1,4 @@
-"""cli.py - The `smruti` command: add to memory, search it, consolidate it, inspect it, and run the chat proxy."""
+"""cli.py - The `orma` command: add to memory, search it, consolidate it, inspect it, and run the chat proxy."""
 
 import json
 import logging
@@ -6,13 +6,36 @@ from pathlib import Path
 
 import typer
 
-from orma import clock
+from orma import __version__, clock
 from orma.memory import Memory
 
 DEFAULT_UPSTREAM = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible endpoint
 
-app = typer.Typer(help="smruti: local neuro-symbolic long-term memory for small LLMs.",
-                  no_args_is_help=True, add_completion=False)
+app = typer.Typer(
+    help="orma: local episode-first long-term memory for small LLMs.",
+    no_args_is_help=True,
+    add_completion=False,
+)
+
+
+def _version_callback(value: bool):
+    if value:
+        typer.echo(f"orma {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        "-v",
+        help="Show version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+):
+    pass
 
 
 def _memory(upstream: str | None = None, model: str | None = None) -> Memory:
@@ -102,6 +125,8 @@ def proxy(
     app_ = create_app(memory, upstream, default_space=space, sleep_poll_seconds=sleep_poll or None)
     try:
         uvicorn.run(app_, host=host, port=port, log_level="warning")
+    except (KeyboardInterrupt, SystemExit):
+        typer.echo("\nOrma proxy stopped.")
     finally:
         memory.close()
 
