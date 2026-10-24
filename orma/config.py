@@ -84,6 +84,7 @@ class OrmaConfig:
     enable_hawkes: bool = True  # temporal self-exciting burst intensity for conversational momentum
     enable_ebbinghaus: bool = True  # spaced repetition memory stability scaling
     enable_spreading_activation: bool = True  # ACT-R associative spreading activation with Fan Effect
+    enable_defeasible_logic: bool = True  # distinguish permanent overrides from conditional defeasible exceptions
     enable_schema_decoding: bool = True  # constrain extraction to the JSON schema (else plain JSON mode)
     enable_grounding: bool = True  # a state's value must be in (or paraphrased by) the line it cites
     enable_date_phrases: bool = True  # resolve date words ("last Saturday") against when they were said (else ISO only)

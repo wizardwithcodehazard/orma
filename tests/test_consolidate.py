@@ -146,6 +146,21 @@ def test_a_new_value_closes_the_old_one(store, config):
     assert pune.valid_to == later[0].created_at and pune.ended_by == later[0].id
 
 
+def test_conditional_exception_does_not_close_default_state(store, config):
+    first = keep(store, config, ("I love black coffee.", "user"))
+    apply(store, config, {"states": [state(first[0].id, "favorite_drink", "black coffee")]}, first)
+    # Conditional exception: "when I have a cold, I drink ginger tea"
+    later = keep(store, config, ("When I have a cold, I drink ginger tea.", "user"), at=THURSDAY + 86400)
+    report = apply(store, config, {"states": [state(later[0].id, "favorite_drink", "ginger tea")]}, later)
+    # The default state should NOT be closed because the line is conditionally framed
+    assert report.states_closed == 0
+    states = store.current_states("s")
+    assert len(states) == 2
+    values = {st.value for st in states}
+    assert values == {"black coffee", "ginger tea"}
+
+
+
 def test_an_attribute_named_differently_merges_by_meaning(store, config):
     config.attribute_merge_threshold = 0.5  # FakeEmbedder: "home city" vs "home city name" share words
     first = keep(store, config, ("I live in Pune.", "user"))

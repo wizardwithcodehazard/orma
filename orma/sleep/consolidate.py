@@ -25,6 +25,19 @@ from orma.text import made_of, phrases, span_of, words
 
 FIRST_PERSON_ROLES = ("user", "note")  # lines in which "I" is the user
 
+CONDITIONAL_MARKERS = (
+    "when ", "whenever ", "if ", "unless ", "except ",
+    "temporarily", "for now", "just today", "today because",
+    "sometimes", "in case of", "during", "while "
+)
+
+
+def has_conditional_framing(text: str) -> bool:
+    """Checks whether text has conditional or contextual framing (defeasible exception),
+    rather than a permanent categorical state change."""
+    t = text.lower()
+    return any(marker in t for marker in CONDITIONAL_MARKERS)
+
 
 @dataclass
 class ConsolidationReport:
@@ -175,8 +188,9 @@ class Consolidator:
         later = [st.valid_from for st in current if since is not None and st.valid_from_stated and st.valid_from > start]
         subject = self.store.entity(subject_id).name
         vec = self.store.embed(state_text(subject, self.store.attribute(attribute_id).name, item.value))
+        is_conditional = self.config.enable_defeasible_logic and has_conditional_framing(sentence.text)
         with self.store.tx():  # close and insert together: a reader never sees the attribute without a value
-            if not later:
+            if not later and not is_conditional:
                 for st in current:
                     self.store.close_state(st.id, max(start, st.valid_from), ended_by=sentence.id)
                     report.states_closed += 1
