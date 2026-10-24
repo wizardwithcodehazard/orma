@@ -43,36 +43,69 @@ Most agent memory frameworks (like Mem0 or Cognee) were designed for massive clo
 
 ## Architecture & Data Flow
 
-### 1. The Fast Request & Recall Path (Zero LLM Calls)
-
-```mermaid
-flowchart LR
-    User["User / Chat Client / SDK"] -->|"1. Chat Request"| Proxy["Orma Proxy or SDK"]
-    Proxy -->|"2. Hybrid Query"| Store[("SQLite + sqlite-vec + FTS5")]
-    Store -->|"3. Match Sentences & Current States"| Ranker["Ranker & Budget Packer"]
-    Ranker -->|"4. Injects Memory Block"| Upstream["Local LLM (Ollama / llama.cpp)"]
-    Upstream -->|"5. Stream Response"| Proxy
-    Proxy -->|"6. Return to User"| User
-    Proxy -.->|"7. Async Append Episode"| Store
-```
-
-### 2. The Background Sleep Path (Idempotent Consolidation)
+### 1. Online Recall & Cognitive Retrieval Pipeline (< 25ms, Zero LLM Calls)
 
 ```mermaid
 flowchart TD
-    Pending["Pending Episodes in SQLite"] --> Batcher["Batcher (Lines [s1, s2, ...])"]
-    Batcher --> LocalLLM["Local Sleep Model (Qwen2.5-3B / Llama-3.2-3B)"]
-    LocalLLM -->|"Schema Output: States & Events citing Line #"| Validator["Deterministic Grounding Engine"]
+    User["User / Agent / Client"] -->|"1. Chat Request"| Proxy["Orma Proxy / SDK"]
     
-    subgraph Verification ["Deterministic Python Code"]
-        Validator --> V1["Verify Line Citations Exist"]
-        Validator --> V2["Pronoun & Anuvrtti Resolution"]
-        Validator --> V3["Timezone Date Parsing (clock.py)"]
-        Validator --> V4["Grounding Check (No Hallucinations)"]
+    subgraph MultiSearch ["Multi-Channel Hybrid Search (SQLite)"]
+        Proxy -->|"2a. BM25 Query"| FTS["FTS5 BM25 Exact Text Index"]
+        Proxy -->|"2b. Vector Query"| Vec["sqlite-vec (bge-small-en-v1.5)"]
+        FTS --> RRF["Reciprocal Rank Fusion (RRF)"]
+        Vec --> RRF
+        RRF --> NoiseFloor["Adaptive Space Noise Floor Calibration"]
     end
 
-    Verification --> Integrator["State Store"]
-    Integrator -->|"Closes Contradicted Old States"| ActiveStates[("Current States & History")]
+    subgraph SpreadingGraph ["ACT-R Spreading Activation (SQLite Entity Graph)"]
+        NoiseFloor --> ExtractEntities["Extract Seed Entities from Query & States"]
+        ExtractEntities --> Adjacency["Traverse Bi-directional Entity Links"]
+        Adjacency --> FanEffect["Anderson's Fan Effect: Weight / Fan(Entity)"]
+        FanEffect --> AssociateStates["Boost Associated Context (Dr. Rao -> Clinic -> Toothache)"]
+    end
+
+    subgraph CognitiveRanker ["Stochastic & Cognitive Scoring Suite"]
+        AssociateStates --> Hawkes["Hawkes Self-Exciting Temporal Burst: α · exp(-β · Δt)"]
+        Hawkes --> Ebbinghaus["Ebbinghaus Spaced Stability: S = S0 · (1 + gain · (n - 1))"]
+        Ebbinghaus --> BaseLevel["ACT-R Base-Level Decay: Σ (age_days + 1)^(-d)"]
+    end
+
+    subgraph BudgetPacker ["Token-Budget Packing & Guardrails"]
+        BaseLevel --> Novelty["Novelty Gate: Drop duplicates (cosine >= 0.97)"]
+        Novelty --> Partition["Partition Budget: Now True | Outdated History | Events | Sentences"]
+        Partition --> MemoryBlock["Construct Formatted System Memory Prompt Block"]
+    end
+
+    MemoryBlock -->|"3. Injected Prompt"| Upstream["Local LLM (Ollama / llama.cpp / vLLM)"]
+    Upstream -->|"4. Streaming Response"| Proxy
+    Proxy -->|"5. Return to User"| User
+    Proxy -.->|"6. Async Non-Blocking Append"| EpisodicLog[("SQLite Append-Only Episodes")]
+```
+
+### 2. Background Sleep Consolidation & Defeasible Epistemic Logic
+
+```mermaid
+flowchart TD
+    EpisodicLog[("Pending SQLite Episodes")] -->|"Idle (120s) or Batch Threshold"| Batcher["Episode Batcher (Line IDs [s1, s2, ...])"]
+    Batcher --> SleepLLM["Local Sleep Model (Qwen2.5-3B / Llama-3.2-3B)"]
+    SleepLLM -->|"Constrained JSON Schema Output"| RawExtraction["Raw States & Events with Line Citations"]
+
+    subgraph DeterministicVerification ["Deterministic Neuro-Symbolic Verification"]
+        RawExtraction --> V1["Line Citation Check (Cited sentence exists?)"]
+        V1 --> V2["Grounding Engine (Value matches / paraphrases line?)"]
+        V2 --> V3["Pronoun & Anaphora Resolution (Anuvṛtti tracking)"]
+        V3 --> V4["Calendar & Timezone Anchoring (clock.py)"]
+    end
+
+    subgraph DefeasibleLogic ["Defeasible Epistemic Logic Gate"]
+        V4 --> FrameCheck{"Has Conditional Framing? (when, if, unless, during)"}
+        FrameCheck -->|"No (Categorical Fact)"| Categorical["Supersedes Contradictory Prior State"]
+        Categorical --> CloseOld["Mark Old State: active = 0, superseded_by_id = new_id"]
+        FrameCheck -->|"Yes (Defeasible Exception)"| Defeasible["Preserve Baseline Truth + Record Conditional Override"]
+    end
+
+    CloseOld --> Store[("SQLite State Store & Entity Adjacency Graph")]
+    Defeasible --> Store
 ```
 
 ---
@@ -267,27 +300,98 @@ Events:
 
 ## Cognitive & Mathematical Architecture
 
-Orma integrates established principles from cognitive science and stochastic temporal processes directly into its zero-latency retrieval engine:
+Orma integrates established principles from cognitive science, stochastic point processes, and non-monotonic logic directly into its zero-latency retrieval engine:
+
+```
++---------------------------------------------------------------------------------------------------+
+|                                 ORMA COGNITIVE RETRIEVAL PIPELINE                                 |
++------------------------------------+--------------------------------------------------------------+
+| Hybrid Search (BM25 + sqlite-vec)  | Multi-channel fusion calibrated against dynamic noise floor  |
+| Spreading Activation (ACT-R)       | Associative entity graph traversal with Fan Effect damping   |
+| Hawkes Temporal Burst Process      | Self-exciting exponential kernel for conversational momentum |
+| Ebbinghaus Retention & Stability   | Dynamic stability scaling per spaced repetition & rehearsal  |
+| Defeasible Epistemic Logic         | Conditional exception handling preventing false overwrites   |
++------------------------------------+--------------------------------------------------------------+
+```
+
+---
 
 ### 1. Hawkes Self-Exciting Temporal Process (`enable_hawkes`)
-Conversations naturally exhibit temporal burstiness—discussing a topic triggers immediate follow-ups. Orma models this using a self-exciting Hawkes kernel with exponential decay:
-* **Burst Momentum**: Mentions generate a transient activation burst (`alpha = 0.4`) that decays with a 30-minute half-life (`half_life = 1800s`).
-* **Clean Falloff**: Recent conversation topics gain immediate conversational momentum without permanently distorting baseline long-term retrieval.
+
+**Cognitive Rationale:** Human dialogues exhibit natural clustering and temporal burstiness (Hawkes 1971, Kleinberg 2002). When a user brings up a topic (e.g., an ongoing project or medical symptom), subsequent exchanges revolve around that cluster. Standard recency decay either forgets past topics too fast or keeps them active too long.
+
+**Mathematical Formulation:**
+```
+Intensity(t) = alpha * exp(-beta * dt)
+beta = ln(2) / half_life_seconds
+```
+
+* **Burst Amplitude (`alpha = 0.4`)**: Boosts items accessed in active conversational bursts.
+* **Decay Constant (`beta = ln(2) / 1800`)**: A 30-minute half-life ensures topics discussed earlier in a session maintain strong conversational momentum without lingering indefinitely into future days.
+* **Bounded Ranking**: Implemented in [orma/recall/rank.py](file:///c:/Users/Sahil/Desktop/memory_layer/smruti/orma/recall/rank.py) as a bounded additive boost so temporal bursts never override exact factual matches.
+
+---
 
 ### 2. Ebbinghaus Spaced Repetition Stability (`enable_ebbinghaus`)
-Human memory consolidation follows the spacing effect: repeated retrieval over time cements knowledge, whereas single mentions fade.
-* **Dynamic Stability**: Memory stability `S` expands with spaced rehearsals: `S = S0 * (1 + gain * (n - 1))` (where `S0 = 2.0` days, `gain = 0.5`).
-* **Robust Retention**: Frequently confirmed user facts withstand temporal decay, while transient one-off details gracefully yield budget space.
 
-### 3. ACT-R Spreading Activation & The Fan Effect (`enable_spreading_activation`)
-Memories are not isolated strings; they are interconnected nodes in a personal knowledge network.
-* **Associative Spread**: When a query recalls a target entity, activation propagates to related states and entities without requiring heavy graph databases.
-* **Anderson's Fan Effect**: Activation divided by source fan (`Weight / Fan`). Specific, specialized entities (e.g., `"Dr. Rao"`) channel concentrated associative recall, while generic hub nodes (e.g., `"city"`) do not drown out relevant facts.
+**Cognitive Rationale:** The human forgetting curve (Ebbinghaus 1885, Cepeda et al. 2008) demonstrates that memory retention decays exponentially, but each spaced retrieval increases the memory's underlying **stability** (half-life). A fact stated once in passing should gracefully fade, whereas a fact confirmed across 4 different days should remain permanently accessible.
+
+**Mathematical Formulation:**
+```
+Retention R(dt) = exp(-dt / S)
+Stability S(n)  = S0 * (1 + gain * (n - 1))
+```
+
+* **Baseline Stability (`S0 = 2.0` days)**: Initial stability for a single mention.
+* **Rehearsal Gain (`gain = 0.5`)**: For every subsequent citation or spaced rehearsal `n`, memory stability expands linearly, lengthening the half-life before decay.
+* **Dual Protection**: Single-pass noise drops out of recall candidate pools, while repeated preferences resist decay for months.
+
+---
+
+### 3. ACT-R Spreading Activation & Anderson's Fan Effect (`enable_spreading_activation`)
+
+**Cognitive Rationale:** Human memory recalls information associatively (Anderson 1983). When asked *"Where should I go for my toothache?"*, the query may not contain the doctor's name, but the concept of *toothache* is associatively linked to *dentist* and *Dr. Rao*. Traditional graph databases (e.g. Neo4j) add 50–150ms of network overhead. Orma executes associative graph traversal directly within SQLite using indexed adjacency tables.
+
+**Mathematical Formulation:**
+```
+Activation A_i = B_i + sum_j (W_j * S_ji)
+Association S_ji = Base_Weight / Fan(Entity_j)
+```
+
+* **Source Seed Extraction**: Seed entities are identified from hybrid text matches and active states.
+* **The Fan Effect**: John R. Anderson's Fan Effect proves that associative activation spreading from a concept is inversely proportional to the number of facts associated with it:
+  * A specific entity (e.g., `"Dr. Rao"` with `Fan = 2`) channels 50% of its associative energy directly to the target clinic state.
+  * A general hub (e.g., `"Pune"` with `Fan = 60`) dissipates its energy across dozens of states, preventing generic concepts from hijacking the recall budget.
+
+---
 
 ### 4. Defeasible Epistemic Logic (`enable_defeasible_logic`)
-Human preferences are non-monotonic and context-dependent.
-* **Conditional Invariance**: Orma distinguishes between categorical facts (`"I drink black coffee every morning"`) and defeasible conditional overrides (`"When I have a sore throat, I drink ginger tea with honey"`).
-* **No False Contradictions**: Situational rules and exceptions do not close or overwrite baseline truths in memory consolidation.
+
+**Cognitive Rationale:** Real-world beliefs are non-monotonic. When a user states:
+> *"I drink black coffee every morning."*
+> followed later by:
+> *"When I have a sore throat, I drink ginger tea with honey."*
+
+Naive memory systems (like Mem0 or basic graph extraction) detect a contradiction on the entity-attribute `(user, drink)` and destructively overwrite the baseline habit.
+
+**Epistemic Rule Engine:**
+* Orma inspects assertions using semantic and syntactic conditional markers (`when`, `if`, `unless`, `during`, `in case of`).
+* **Categorical Assertions** (`"I moved to Bangalore"`): Trigger state supersession (`active = 0, superseded_by_id = new_state_id`).
+* **Defeasible Overrides** (`"When sick, drink tea"`): Registered as conditional exceptions without closing or corrupting the baseline categorical truth. Both facts are preserved in context.
+
+---
+
+### 5. Adaptive Noise Floor Calibration & Reciprocal Rank Fusion
+
+**Algorithmic Rationale:** Small embedding models (e.g., 384-dimensional `bge-small-en-v1.5`) suffer from geometric concentration on high-dimensional unit hyperspheres—unrelated sentences frequently score 0.45–0.55 cosine similarity by pure random chance.
+
+* **Noise Floor Estimation**: Orma dynamically samples pairwise distances to compute the 50th-percentile noise floor of the embedding space.
+* **Similarity Floor Truncation**: Scores below the space noise floor carry zero evidential weight.
+* **Reciprocal Rank Fusion (RRF)**:
+  ```
+  RRF Score = (1 / (60 + Rank_BM25)) + (1 / (60 + Rank_Vector))
+  ```
+  Fuses exact keyword recall (FTS5 BM25) with semantic vector search (sqlite-vec) with zero hyperparameter tuning.
 
 ---
 
