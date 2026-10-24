@@ -5,7 +5,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-197%20passed-brightgreen.svg)](tests/)
 
 Orma can be used in two ways:
 1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
@@ -88,7 +88,7 @@ Or install from source for development:
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
 pip install -e ".[dev]"
-python -m pytest -q  # 192 tests pass locally
+python -m pytest -q  # 197 tests pass locally
 ```
 
 ---
@@ -265,14 +265,57 @@ Events:
 
 ---
 
+## Cognitive & Mathematical Architecture
+
+Orma integrates established principles from cognitive science and stochastic temporal processes directly into its zero-latency retrieval engine:
+
+### 1. Hawkes Self-Exciting Temporal Process (`enable_hawkes`)
+Conversations naturally exhibit temporal burstiness—discussing a topic triggers immediate follow-ups. Orma models this using a self-exciting Hawkes kernel with exponential decay:
+* **Burst Momentum**: Mentions generate a transient activation burst (`alpha = 0.4`) that decays with a 30-minute half-life (`half_life = 1800s`).
+* **Clean Falloff**: Recent conversation topics gain immediate conversational momentum without permanently distorting baseline long-term retrieval.
+
+### 2. Ebbinghaus Spaced Repetition Stability (`enable_ebbinghaus`)
+Human memory consolidation follows the spacing effect: repeated retrieval over time cements knowledge, whereas single mentions fade.
+* **Dynamic Stability**: Memory stability `S` expands with spaced rehearsals: `S = S0 * (1 + gain * (n - 1))` (where `S0 = 2.0` days, `gain = 0.5`).
+* **Robust Retention**: Frequently confirmed user facts withstand temporal decay, while transient one-off details gracefully yield budget space.
+
+### 3. ACT-R Spreading Activation & The Fan Effect (`enable_spreading_activation`)
+Memories are not isolated strings; they are interconnected nodes in a personal knowledge network.
+* **Associative Spread**: When a query recalls a target entity, activation propagates to related states and entities without requiring heavy graph databases.
+* **Anderson's Fan Effect**: Activation divided by source fan (`Weight / Fan`). Specific, specialized entities (e.g., `"Dr. Rao"`) channel concentrated associative recall, while generic hub nodes (e.g., `"city"`) do not drown out relevant facts.
+
+### 4. Defeasible Epistemic Logic (`enable_defeasible_logic`)
+Human preferences are non-monotonic and context-dependent.
+* **Conditional Invariance**: Orma distinguishes between categorical facts (`"I drink black coffee every morning"`) and defeasible conditional overrides (`"When I have a sore throat, I drink ginger tea with honey"`).
+* **No False Contradictions**: Situational rules and exceptions do not close or overwrite baseline truths in memory consolidation.
+
+---
+
+## Storage & Data Durability (100% Local & Persistent)
+
+* **Single File SQLite Storage**: All memories reside in `~/.orma/memory.db` with Write-Ahead Logging (WAL) enabled.
+* **Survives Restarts & Power Cycles**: You can shut down `orma up`, restart your machine, or close your terminal at any time; your complete memory state, episodic history, and consolidated facts remain permanently stored.
+* **Lossless Append-Only**: Episodes are never destructively overwritten or pruned by hallucinating models. You can inspect or re-consolidate your history anytime with `orma facts --history`.
+
+---
+
 ## Configuration & Ablation Switches
 
-Orma comes with built-in ablation switches in [orma/config.py](file:///c:/Users/Sahil/Desktop/memory_layer/smruti/orma/config.py) to evaluate every mechanism against raw episodic baselines:
+Every mechanism in Orma can be independently configured or ablated in [orma/config.py](file:///c:/Users/Sahil/Desktop/memory_layer/smruti/orma/config.py) or passed via `OrmaConfig`:
 
-* `enable_semantic`: Toggle state and event extraction (off = pure episodic sentence search baseline).
-* `enable_novelty_gate`: Drops near-duplicate records (>= 0.97 cosine similarity).
-* `enable_similarity_weighting`: Calibrates vector similarity against adaptive space noise floor.
-* `enable_base_level`: Enables ACT-R recency and repetition boost.
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `enable_semantic` | `True` | Background consolidation into states & events (off = pure episodic sentence search baseline) |
+| `enable_novelty_gate` | `True` | Drops duplicate sentences (cosine similarity >= 0.97) |
+| `enable_similarity_weighting` | `True` | Calibrates vector similarity against adaptive space noise floor |
+| `enable_base_level` | `True` | ACT-R recency and frequency power-law decay |
+| `enable_hawkes` | `True` | Hawkes self-exciting temporal process for conversational bursts |
+| `enable_ebbinghaus` | `True` | Ebbinghaus spaced repetition stability scaling |
+| `enable_spreading_activation` | `True` | Associative spreading activation with Fan Effect |
+| `enable_defeasible_logic` | `True` | Non-monotonic conditional exception protection |
+| `budget_tokens` | `4096` | Token budget ceiling for injected memory blocks |
+| `search_k` | `30` | Top-k candidates pulled per hybrid search channel |
+| `rrf_k` | `60` | Reciprocal Rank Fusion constant for combining BM25 and vector scores |
 
 ---
 
