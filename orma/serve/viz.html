@@ -391,14 +391,14 @@
       <input type="text" id="search-input" class="search-box" placeholder="Spreading activation search...">
       <div class="filters">
         <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="active">🟢 Active</button>
-        <button class="filter-btn" data-filter="inhibitory">🔴 Forbidden</button>
-        <button class="filter-btn" data-filter="entity">🧠 Entities</button>
-        <button class="filter-btn" data-filter="event">📅 Events</button>
-        <button class="filter-btn" data-filter="superseded">⚪ History</button>
+        <button class="filter-btn" data-filter="active">Active</button>
+        <button class="filter-btn" data-filter="inhibitory">Forbidden</button>
+        <button class="filter-btn" data-filter="entity">Entities</button>
+        <button class="filter-btn" data-filter="event">Events</button>
+        <button class="filter-btn" data-filter="superseded">History</button>
       </div>
-      <button id="recenter-btn" class="btn-action">⚡ Recenter</button>
-      <button id="sleep-btn" class="btn-action btn-sleep">🌙 Sleep Replay</button>
+      <button id="recenter-btn" class="btn-action">Recenter</button>
+      <button id="sleep-btn" class="btn-action btn-sleep">Sleep Replay</button>
     </div>
   </div>
 
@@ -416,20 +416,20 @@
   <!-- Bottom Right Hippocampus Stream Button & Modal -->
   <div class="hippocampus-tray">
     <button id="stream-toggle-btn" class="btn-action hud-card">
-      🧠 Hippocampal Buffer (<span id="stat-pending">0</span>)
+      Hippocampal Buffer (<span id="stat-pending">0</span>)
     </button>
   </div>
   <div id="stream-modal" class="stream-modal">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
       <h4 style="font-size: 13px; font-weight: 700; color: #fff;">RECENT EPISODIC STREAM</h4>
-      <button id="stream-close-btn" class="close-btn" style="position: static;">✕</button>
+      <button id="stream-close-btn" class="close-btn" style="position: static;">&times;</button>
     </div>
     <div id="stream-content"></div>
   </div>
 
   <!-- Synapse Inspector Panel (Right Drawer) -->
   <div id="inspector" class="inspector-panel">
-    <button id="inspector-close" class="close-btn">✕</button>
+    <button id="inspector-close" class="close-btn">&times;</button>
     <div id="inspector-badge" class="node-kind-badge badge-active">ACTIVE CANONICAL STATE</div>
     <h3 id="inspector-title" class="node-title">user.city: Bangalore</h3>
     
@@ -683,8 +683,8 @@
         div.className = 'stream-item';
         const roleClass = ep.role === 'user' ? 'role-user' : (ep.role === 'assistant' ? 'role-assistant' : 'role-note');
         const statusBadge = ep.consolidated
-          ? '<span style="color: var(--emerald); font-size: 10px; float: right;">✓ Consolidated</span>'
-          : '<span style="color: var(--cyan); font-size: 10px; float: right;">● Pending Sleep</span>';
+          ? '<span style="color: var(--emerald); font-size: 10px; float: right;">[Consolidated]</span>'
+          : '<span style="color: var(--cyan); font-size: 10px; float: right;">[Pending Sleep]</span>';
         div.innerHTML = `
           <div class="stream-role ${roleClass}">
             ${ep.role.toUpperCase()} ${statusBadge}

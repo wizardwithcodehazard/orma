@@ -90,6 +90,13 @@ def search(
             typer.echo(f"  {score:.3f}  {event.label(tz)}")
 
 
+def _is_port_in_use(host: str, port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.4)
+        return s.connect_ex((host, port)) == 0
+
+
 @app.command()
 def proxy(
     upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
@@ -113,10 +120,18 @@ def proxy(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    target_port = port
+    if _is_port_in_use(host, target_port):
+        orig_port = target_port
+        while _is_port_in_use(host, target_port):
+            target_port += 1
+        typer.echo(f"Port {orig_port} is busy. Binding proxy to port {target_port} instead.")
+
     memory = _memory(sleep_upstream or upstream, model)
     sleeps_on = f", sleep -> {sleep_upstream}" if sleep_upstream else ""
-    ui_url = f"http://{host}:{port}/#/"
-    typer.echo(f"orma proxy on http://{host}:{port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})")
+    ui_url = f"http://{host}:{target_port}/#/"
+    typer.echo(f"orma proxy on http://{host}:{target_port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})")
     typer.echo(f"Web UI available at: {ui_url}")
 
     if open_browser:
@@ -124,9 +139,9 @@ def proxy(
 
     app_ = create_app(memory, upstream, default_space=space, sleep_poll_seconds=sleep_poll or None)
     try:
-        uvicorn.run(app_, host=host, port=port, log_level="warning")
+        uvicorn.run(app_, host=host, port=target_port, log_level="warning")
     except (KeyboardInterrupt, SystemExit):
-        typer.echo("\nOrma proxy stopped.")
+        typer.echo("Orma proxy stopped.")
     finally:
         memory.close()
 
@@ -166,22 +181,52 @@ def viz(
 ):
     """Launch the interactive 3D Cognitive Connectome visualizer."""
     import threading
+    import urllib.request
     import webbrowser
     import uvicorn
     from orma.serve.proxy import create_app
 
+    target_port = port
+
+    # If the requested port is in use, check if Orma is already running on it
+    if _is_port_in_use(host, target_port):
+        is_orma_running = False
+        try:
+            req = urllib.request.Request(
+                f"http://{host}:{target_port}/_orma/brain?space={space}",
+                headers={"User-Agent": "orma-cli"},
+            )
+            with urllib.request.urlopen(req, timeout=1.0) as resp:
+                if resp.status == 200:
+                    is_orma_running = True
+        except Exception:
+            pass
+
+        if is_orma_running:
+            ui_url = f"http://{host}:{target_port}/_orma/viz"
+            typer.echo(f"Orma proxy is already active on port {target_port}.")
+            typer.echo(f"Opening 3D Connectome at: {ui_url}")
+            if open_browser:
+                webbrowser.open(ui_url)
+            return
+
+        orig_port = target_port
+        while _is_port_in_use(host, target_port):
+            target_port += 1
+        typer.echo(f"Port {orig_port} is busy. Using port {target_port} instead.")
+
     memory = _memory(sleep_upstream or upstream, model)
-    ui_url = f"http://{host}:{port}/_orma/viz"
-    typer.echo(f"🧠 Orma 3D Connectome running at: {ui_url}")
+    ui_url = f"http://{host}:{target_port}/_orma/viz"
+    typer.echo(f"Orma 3D Connectome running at: {ui_url}")
 
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(ui_url)).start()
 
     app_ = create_app(memory, upstream, default_space=space, sleep_poll_seconds=None)
     try:
-        uvicorn.run(app_, host=host, port=port, log_level="warning")
+        uvicorn.run(app_, host=host, port=target_port, log_level="warning")
     except (KeyboardInterrupt, SystemExit):
-        typer.echo("\nOrma visualizer stopped.")
+        typer.echo("Orma visualizer stopped.")
     finally:
         memory.close()
 
@@ -294,3 +339,7 @@ def mcp(
     finally:
         memory.close()
 
+
+
+if __name__ == "__main__":
+    app()

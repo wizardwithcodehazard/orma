@@ -53,3 +53,4 @@ def test_viz_proxy_endpoints(tmp_path):
     assert client.get("/viz").status_code == 200
 
     mem.close()
+
