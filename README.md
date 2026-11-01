@@ -19,7 +19,7 @@ Everything runs locally in SQLite with `sqlite-vec` and fast on-device embedding
 ## Quick Navigation
 
 - [Why Orma? (Comparison with Mem0 & Cognee)](#why-orma-vs-mem0--cognee)
-- [Empirical Benchmarks: Tokens & Latency](#empirical-benchmarks-tokens--latency)
+- [Real Benchmarks: Latency, Tokens & Accuracy](#real-benchmarks-latency-tokens--accuracy)
 - [Architecture & Data Flow](#architecture--data-flow)
 - [Installation & Quickstart](#installation)
 - [Usage Options](#usage-options)
@@ -61,15 +61,15 @@ Most agent memory frameworks (like Mem0 or Cognee) were designed for massive clo
 
 ---
 
-## Empirical Benchmarks: Tokens, Latency & Accuracy
+## Real Benchmarks: Latency, Tokens & Accuracy
 
-To avoid synthetic claims or AI-generated slop, Orma is benchmarked against real, peer-reviewed published research data from **Mem0** (*"Building Production-Ready AI Agents with Scalable Long-Term Memory"*, [arXiv:2504.19413](https://arxiv.org/abs/2504.19413), Table 2) and **Cognee** on standard conversational memory benchmarks (**LOCOMO** and **BEAM**), alongside Orma's own reproducible local test harness (`scripts/latency_smoke.py` and `eval/run.py`).
+No made-up numbers or synthetic marketing charts. Here is how Orma actually stacks up against published figures from **Mem0** ([arXiv:2504.19413](https://arxiv.org/abs/2504.19413), Table 2 on LOCOMO) and **Cognee** (BEAM benchmarks), alongside local measurements from Orma's test suite (`scripts/latency_smoke.py` and `eval/run.py`).
 
 ---
 
-### 1. Retrieval Latency Comparison (p95 End-to-End)
+### 1. Retrieval Latency (p95 End-to-End)
 
-Most memory frameworks make synchronous LLM calls (or multi-hop graph traversals) during the user's critical request path. Orma executes **100% zero-LLM hybrid retrieval** (FTS5 BM25 + `sqlite-vec` + spreading activation) directly in embedded SQLite.
+Most memory systems block your chat turn to call an LLM or walk an entity graph before replying. Orma never calls an LLM during recall—it runs hybrid search (BM25 + sqlite-vec) directly in SQLite, keeping retrieval under 20ms.
 
 | Architecture | Retrieval Mechanism | p95 Latency | Relative Speedup | Data Source |
 | :--- | :--- | :--- | :--- | :--- |
@@ -89,9 +89,9 @@ xychart-beta
 
 ---
 
-### 2. Context Token Footprint on Long-Horizon Benchmarks
+### 2. Context Token Footprint
 
-When feeding memory into local 3B–8B models, context efficiency is critical: smaller models degrade rapidly and generate slowly under large system prompts.
+When running 3B–8B models locally, tokens directly cost speed and attention span. Stuffing thousands of memory tokens into the prompt causes small models to slow down and lose track. Orma's Sutra packing compresses facts into dense brackets (`[user.city: Pune]`), delivering the exact same context at a fraction of the token cost.
 
 | Memory System | Memory Payload Format | Mean Context Tokens | Token Reduction vs Full Context |
 | :--- | :--- | :--- | :--- |
@@ -112,9 +112,9 @@ xychart-beta
 
 ---
 
-### 3. Accuracy & Question Answering on Small Models (Qwen 2.5 3B)
+### 3. Accuracy on Small Models (Qwen 2.5 3B)
 
-Tested against Orma's evaluation suite (`eval/run.py` & `eval/cases.json`) on realistic multi-session conversational scenarios (identity, relocation updates, contradictory states, and temporal events):
+Tested on Qwen 2.5 3B across 30 multi-session evaluation scenarios (`eval/run.py` & `eval/cases.json`): fact recall, profile updates (superseding old cities/jobs), avoiding misattributions to family members, and temporal grounding:
 
 ```
 Scenario                       Without Memory (Raw Model)    With Orma Cognitive Memory
@@ -129,9 +129,11 @@ Total Evaluation Correctness:         1 / 10  (10.0%)              29 / 30  (96.
 
 ---
 
-### 4. Inhibitory Control Compliance Rate (Anti-Pattern Suppression)
+### 4. Inhibitory Control (Stopping Repeated Mistakes)
 
-Standard autoregressive Transformers suffer from **token attention bias**: when told *"Never use semicolons in PowerShell"*, attention activates heavily on the forbidden word *semicolon*, causing high failure rates. Orma's **Top-of-Prompt Inhibitory Hoisting (`[FORBIDDEN: ...]`)** with dynamic negative framing semantics creates an absolute negative boundary:
+Small models love doing what you tell them not to do. If you write *"Never chain PowerShell commands with semicolons"*, autoregressive attention latches onto *"semicolon"* and emits it anyway.
+
+Orma isolates negative rules into top-of-prompt inhibitory directives (`[FORBIDDEN: ...]`) with negative framing semantics, getting 100% compliance on small models without fine-tuning:
 
 | Approach | Negative Prompt Strategy | Qwen 2.5 3B Compliance | Observed Behavior |
 | :--- | :--- | :--- | :--- |
@@ -420,7 +422,7 @@ npx -y @smithery/cli install orma-ai --client cursor
 
 ## Inhibitory Control & Anti-Pattern Prevention (Negative Memory)
 
-A pervasive failure mode in AI coding assistants and small LLMs is **forbidden mistake recurrence**: when a user says *"Stop using semicolons to chain terminal commands in PowerShell"*, standard autoregressive models place high attention weight on the word *semicolon* and continue repeating the exact same error.
+Anyone using coding assistants knows this pain: you tell the model *"Stop using semicolons to chain commands in PowerShell"*, and two turns later it does it again. Autoregressive attention latches onto the forbidden token and repeats the exact error you asked it to avoid.
 
 ```mermaid
 flowchart TD
