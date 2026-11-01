@@ -520,10 +520,10 @@ class Store:
                 "label": r["name"],
                 "type": "entity",
                 "subtype": r["type"],
-                "val": max(6, min(24, 6 + r["mention_count"] * 2)),
-                "color": "#a855f7" if is_user else "#38bdf8",
+                "val": max(8, min(26, 8 + r["mention_count"] * 2)),
+                "color": "#b026ff" if is_user else "#00e5ff",
                 "details": {
-                    "kind": "Entity",
+                    "kind": "User Identity" if is_user else f"Entity ({r['type']})",
                     "name": r["name"],
                     "category": r["type"],
                     "mention_count": r["mention_count"],
@@ -548,6 +548,11 @@ class Store:
                 or attr.startswith("avoid_")
                 or attr.startswith("no_")
                 or "forbidden" in attr
+                or "prohibited" in attr
+                or val_text.lower().startswith("never ")
+                or val_text.lower().startswith("do not ")
+                or val_text.lower().startswith("avoid ")
+                or "[forbidden]" in val_text.lower()
             )
             is_conditional = any(
                 prefix in val_text.lower()
@@ -557,19 +562,19 @@ class Store:
 
             if is_inhibitory:
                 status = "inhibitory"
-                color = "#ef4444"
+                color = "#ff0055"
                 badge = "Inhibitory Rule [FORBIDDEN]"
             elif is_conditional:
                 status = "conditional"
-                color = "#f59e0b"
+                color = "#ffab00"
                 badge = "Defeasible Condition"
             elif is_active:
                 status = "active"
-                color = "#10b981"
+                color = "#00ff88"
                 badge = "Active Canonical State"
             else:
                 status = "superseded"
-                color = "#64748b"
+                color = "#475569"
                 badge = "Superseded History"
 
             nodes.append({
@@ -648,7 +653,7 @@ class Store:
                 "label": ev["gist"],
                 "type": "event",
                 "val": 7,
-                "color": "#ec4899",
+                "color": "#ff007f",
                 "details": {
                     "kind": "Dated Event",
                     "gist": ev["gist"],

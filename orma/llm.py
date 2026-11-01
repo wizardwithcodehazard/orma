@@ -36,7 +36,7 @@ def _loads(text: str):
 
 class LLMClient:
     def __init__(self, base_url: str, model: str | None = None, api_key: str | None = None,
-                 timeout: float = 120.0, transport: httpx.BaseTransport | None = None):
+                 timeout: float = 300.0, transport: httpx.BaseTransport | None = None):
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.model = model
         self.json_schema_supported = True  # cleared once the upstream rejects response_format json_schema

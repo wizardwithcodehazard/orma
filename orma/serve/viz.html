@@ -11,20 +11,21 @@
   <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
   <style>
     :root {
-      --bg: #04060a;
-      --panel-bg: rgba(9, 13, 22, 0.82);
-      --panel-border: rgba(56, 189, 248, 0.16);
-      --panel-glow: rgba(56, 189, 248, 0.12);
-      --text-main: #f1f5f9;
+      --bg: #030712;
+      --panel-bg: rgba(9, 14, 26, 0.85);
+      --panel-border: rgba(0, 229, 255, 0.18);
+      --panel-glow: rgba(0, 229, 255, 0.12);
+      --text-main: #f8fafc;
       --text-muted: #94a3b8;
-      --text-dim: #475569;
-      --accent: #38bdf8;
-      --emerald: #10b981;
-      --crimson: #ef4444;
-      --amber: #f59e0b;
-      --purple: #a855f7;
-      --pink: #ec4899;
-      --slate: #64748b;
+      --text-dim: #64748b;
+      --accent: #00e5ff;       /* Electric Cyan - Entities */
+      --user-core: #b026ff;    /* Royal Violet - User Core */
+      --emerald: #00ff88;      /* Bioluminescent Emerald - Active Facts */
+      --crimson: #ff0055;      /* Laser Crimson - Forbidden Constraints */
+      --amber: #ffab00;        /* Sunburst Amber - Conditional */
+      --purple: #b026ff;       /* Hippocampus / User */
+      --pink: #ff007f;         /* Holographic Magenta - Events */
+      --slate: #475569;        /* Translucent Slate - History */
     }
     * {
       box-sizing: border-box;
@@ -145,9 +146,33 @@
     }
     .filter-btn.active {
       color: #fff;
-      background: rgba(56, 189, 248, 0.18);
+      background: rgba(0, 229, 255, 0.2);
       border-color: var(--accent);
-      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+      box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+    }
+    .legend-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-left: 10px;
+      padding-left: 12px;
+      border-left: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      box-shadow: 0 0 6px currentColor;
     }
 
     /* Actions */
@@ -335,12 +360,13 @@
       margin-bottom: 10px;
       letter-spacing: 0.5px;
     }
-    .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.35); }
-    .badge-inhibitory { background: rgba(239, 68, 68, 0.18); color: var(--crimson); border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); }
-    .badge-conditional { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.35); }
-    .badge-superseded { background: rgba(100, 116, 139, 0.15); color: var(--slate); border: 1px solid rgba(100, 116, 139, 0.35); }
-    .badge-entity { background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.35); }
-    .badge-event { background: rgba(236, 72, 153, 0.15); color: var(--pink); border: 1px solid rgba(236, 72, 153, 0.35); }
+    .badge-active { background: rgba(0, 255, 136, 0.15); color: var(--emerald); border: 1px solid rgba(0, 255, 136, 0.35); }
+    .badge-inhibitory { background: rgba(255, 0, 85, 0.18); color: var(--crimson); border: 1px solid rgba(255, 0, 85, 0.5); box-shadow: 0 0 12px rgba(255, 0, 85, 0.35); }
+    .badge-conditional { background: rgba(255, 171, 0, 0.15); color: var(--amber); border: 1px solid rgba(255, 171, 0, 0.35); }
+    .badge-superseded { background: rgba(71, 85, 105, 0.2); color: var(--slate); border: 1px solid rgba(71, 85, 105, 0.4); }
+    .badge-entity { background: rgba(0, 229, 255, 0.15); color: var(--accent); border: 1px solid rgba(0, 229, 255, 0.35); }
+    .badge-user { background: rgba(176, 38, 255, 0.18); color: var(--user-core); border: 1px solid rgba(176, 38, 255, 0.4); }
+    .badge-event { background: rgba(255, 0, 127, 0.15); color: var(--pink); border: 1px solid rgba(255, 0, 127, 0.35); }
 
     .inspector-title {
       font-size: 16px;
@@ -439,6 +465,14 @@
         <button class="filter-btn" data-filter="entity">Entities</button>
         <button class="filter-btn" data-filter="event">Events</button>
         <button class="filter-btn" data-filter="superseded">History</button>
+      </div>
+      <div class="legend-group">
+        <span class="legend-item"><span class="legend-dot" style="background: var(--emerald); color: var(--emerald)"></span>Active</span>
+        <span class="legend-item"><span class="legend-dot" style="background: var(--crimson); color: var(--crimson)"></span>Forbidden</span>
+        <span class="legend-item"><span class="legend-dot" style="background: var(--accent); color: var(--accent)"></span>Entities</span>
+        <span class="legend-item"><span class="legend-dot" style="background: var(--user-core); color: var(--user-core)"></span>User</span>
+        <span class="legend-item"><span class="legend-dot" style="background: var(--amber); color: var(--amber)"></span>Conditional</span>
+        <span class="legend-item"><span class="legend-dot" style="background: var(--pink); color: var(--pink)"></span>Events</span>
       </div>
     </div>
 
@@ -701,51 +735,125 @@
           .nodeThreeObject(node => {
             const isRecalled = recallNodeIds.has(node.id);
             const isHovered = hoveredNode === node;
-            const size = node.val ? Math.max(3.5, node.val * 0.6) : 4.5;
+            const isUser = node.type === 'entity' && (node.label === 'user' || node.details?.name === 'user');
+            const isEntity = node.type === 'entity' && !isUser;
+            const isInhibitory = node.status === 'inhibitory';
+            const isActive = node.status === 'active';
+            const isEvent = node.type === 'event';
+            const isConditional = node.status === 'conditional';
+            const isSuperseded = node.status === 'superseded';
+
+            const nodeColor = isRecalled ? '#ffab00' : (node.color || (isUser ? '#b026ff' : isEntity ? '#00e5ff' : isInhibitory ? '#ff0055' : isActive ? '#00ff88' : '#64748b'));
+            const size = node.val ? Math.max(3.8, node.val * 0.6) : 4.5;
 
             const group = new THREE.Group();
 
-            // Core sphere
-            const sphereGeom = new THREE.SphereGeometry(size, 16, 16);
-            const sphereMat = new THREE.MeshPhongMaterial({
-              color: isRecalled ? 0xf59e0b : (node.color || 0x38bdf8),
-              emissive: isRecalled ? 0xf59e0b : (node.color || 0x38bdf8),
-              emissiveIntensity: isRecalled ? 0.9 : 0.5,
-              shininess: 90
-            });
-            const sphere = new THREE.Mesh(sphereGeom, sphereMat);
-            group.add(sphere);
+            // Core geometry based on semantic kind
+            let coreGeom;
+            if (isUser) {
+              coreGeom = new THREE.DodecahedronGeometry(size * 1.15, 0);
+            } else if (isEntity) {
+              coreGeom = new THREE.OctahedronGeometry(size, 0);
+            } else if (isEvent) {
+              coreGeom = new THREE.TetrahedronGeometry(size * 1.1, 0);
+            } else {
+              coreGeom = new THREE.SphereGeometry(size, 16, 16);
+            }
 
-            // Glowing halo for active or recalled nodes
-            if (node.status === 'active' || node.status === 'inhibitory' || isRecalled) {
-              const haloGeom = new THREE.SphereGeometry(size * 1.45, 12, 12);
-              const haloMat = new THREE.MeshBasicMaterial({
-                color: isRecalled ? 0xf59e0b : (node.status === 'inhibitory' ? 0xef4444 : 0x10b981),
+            const coreMat = new THREE.MeshPhongMaterial({
+              color: nodeColor,
+              emissive: nodeColor,
+              emissiveIntensity: isRecalled ? 0.95 : (isInhibitory ? 0.85 : 0.65),
+              shininess: 100,
+              transparent: isSuperseded,
+              opacity: isSuperseded ? 0.35 : 1.0
+            });
+            const coreMesh = new THREE.Mesh(coreGeom, coreMat);
+            group.add(coreMesh);
+
+            // Radiant Beacon Ring for Forbidden Constraints (warning beacon)
+            if (isInhibitory) {
+              const ringGeom = new THREE.RingGeometry(size * 1.5, size * 1.85, 24);
+              const ringMat = new THREE.MeshBasicMaterial({
+                color: 0xff0055,
+                side: THREE.DoubleSide,
                 transparent: true,
-                opacity: isRecalled ? 0.5 : 0.22,
+                opacity: 0.75,
+                blending: THREE.AdditiveBlending
+              });
+              const ring = new THREE.Mesh(ringGeom, ringMat);
+              ring.rotation.x = Math.PI / 2;
+              group.add(ring);
+
+              const haloGeom = new THREE.SphereGeometry(size * 2.2, 12, 12);
+              const haloMat = new THREE.MeshBasicMaterial({
+                color: 0xff0055,
                 wireframe: true,
+                transparent: true,
+                opacity: 0.35,
+                blending: THREE.AdditiveBlending
+              });
+              group.add(new THREE.Mesh(haloGeom, haloMat));
+            } else if (isEntity || isUser) {
+              // Glowing orbital halo for Entities / User core
+              const haloGeom = new THREE.SphereGeometry(size * 1.5, 12, 12);
+              const haloMat = new THREE.MeshBasicMaterial({
+                color: isUser ? 0xb026ff : 0x00e5ff,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.4,
+                blending: THREE.AdditiveBlending
+              });
+              group.add(new THREE.Mesh(haloGeom, haloMat));
+            } else if (isActive || isRecalled) {
+              const haloGeom = new THREE.SphereGeometry(size * 1.35, 12, 12);
+              const haloMat = new THREE.MeshBasicMaterial({
+                color: isRecalled ? 0xffab00 : 0x00ff88,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.25,
                 blending: THREE.AdditiveBlending
               });
               group.add(new THREE.Mesh(haloGeom, haloMat));
             }
 
-            // Floating 3D Text Billboard Label
+            // Crisp 3D Text Billboard Label with rounded background pill
             const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 64;
+            canvas.width = 320;
+            canvas.height = 70;
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = 'transparent';
-            ctx.fillRect(0, 0, 256, 64);
-            ctx.font = 'bold 22px Inter, sans-serif';
+
+            // Draw rounded pill badge
+            ctx.fillStyle = 'rgba(7, 11, 22, 0.88)';
+            ctx.strokeStyle = nodeColor;
+            ctx.lineWidth = 2.5;
+            const rx = 12, ry = 8, rw = 296, rh = 54, rad = 14;
+            ctx.beginPath();
+            ctx.moveTo(rx + rad, ry);
+            ctx.lineTo(rx + rw - rad, ry);
+            ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rad);
+            ctx.lineTo(rx + rw, ry + rh - rad);
+            ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rad, ry + rh);
+            ctx.lineTo(rx + rad, ry + rh);
+            ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rad);
+            ctx.lineTo(rx, ry + rad);
+            ctx.quadraticCurveTo(rx, ry, rx + rad, ry);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Label text
+            ctx.font = 'bold 20px Inter, sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillStyle = isRecalled ? '#fbbf24' : (node.status === 'inhibitory' ? '#fca5a5' : '#e2e8f0');
-            ctx.fillText(node.label || node.id, 128, 38);
+            ctx.fillStyle = isRecalled ? '#ffab00' : (isInhibitory ? '#ff8099' : '#ffffff');
+            const displayText = (node.label || node.id).length > 24 ? (node.label || node.id).substring(0, 22) + '...' : (node.label || node.id);
+            ctx.fillText(displayText, 160, 42);
 
             const texture = new THREE.CanvasTexture(canvas);
-            const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.85 });
+            const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: isSuperseded ? 0.45 : 0.92 });
             const sprite = new THREE.Sprite(spriteMat);
-            sprite.scale.set(36, 9, 1);
-            sprite.position.set(0, size + 8, 0);
+            sprite.scale.set(38, 9, 1);
+            sprite.position.set(0, size + 9, 0);
             group.add(sprite);
 
             return group;
@@ -827,8 +935,9 @@
         badge.classList.add('badge-superseded');
         badge.innerText = 'SUPERSEDED MEMORY';
       } else if (node.type === 'entity') {
-        badge.classList.add('badge-entity');
-        badge.innerText = `ENTITY (${node.subtype || 'general'})`;
+        const isUserNode = node.label === 'user' || node.details?.name === 'user';
+        badge.classList.add(isUserNode ? 'badge-user' : 'badge-entity');
+        badge.innerText = isUserNode ? 'USER IDENTITY CORE' : `ENTITY (${node.subtype || 'general'})`;
       } else if (node.type === 'event') {
         badge.classList.add('badge-event');
         badge.innerText = 'DATED EVENT';
