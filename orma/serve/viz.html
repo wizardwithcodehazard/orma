@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orma // Cognitive Connectome 3D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
+  <style>
+    :root {
+      --bg: #07090e;
+      --panel-bg: rgba(13, 17, 23, 0.82);
+      --panel-border: rgba(56, 189, 248, 0.18);
+      --text-main: #f1f5f9;
+      --text-dim: #94a3b8;
+      --emerald: #10b981;
+      --crimson: #ef4444;
+      --amber: #f59e0b;
+      --cyan: #38bdf8;
+      --purple: #a855f7;
+      --pink: #ec4899;
+      --slate: #64748b;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #graph-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Top Navigation HUD */
+    .top-hud {
+      position: absolute;
+      top: 16px;
+      left: 20px;
+      right: 20px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+    .hud-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-radius: 12px;
+      padding: 10px 16px;
+      pointer-events: auto;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-title .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+      animation: pulse-glow 2s infinite ease-in-out;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.6; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 14px var(--cyan); }
+    }
+    .brand-sub {
+      color: var(--text-dim);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      padding-left: 6px;
+      border-left: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    /* Search & Filters */
+    .search-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 6px 12px;
+      color: #fff;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      width: 240px;
+      transition: all 0.2s ease;
+      pointer-events: auto;
+    }
+    .search-box:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+      width: 290px;
+    }
+    .filters {
+      display: flex;
+      gap: 6px;
+    }
+    .filter-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-dim);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .filter-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .filter-btn.active {
+      color: #fff;
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--cyan);
+    }
+    .btn-action {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid var(--panel-border);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-action:hover {
+      background: rgba(56, 189, 248, 0.25);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+    }
+    .btn-sleep {
+      background: rgba(168, 85, 247, 0.15);
+      border-color: rgba(168, 85, 247, 0.35);
+    }
+    .btn-sleep:hover {
+      background: rgba(168, 85, 247, 0.3);
+      box-shadow: 0 0 12px rgba(168, 85, 247, 0.4);
+    }
+
+    /* Bottom Status HUD */
+    .bottom-hud {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      pointer-events: none;
+    }
+    .metric-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .metric-badge b {
+      color: #fff;
+    }
+
+    /* Right Inspector HUD (Drawer) */
+    .inspector-panel {
+      position: absolute;
+      top: 76px;
+      right: 20px;
+      width: 360px;
+      max-height: calc(100vh - 110px);
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+      z-index: 20;
+      overflow-y: auto;
+      transform: translateX(400px);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .inspector-panel.open {
+      transform: translateX(0);
+    }
+    .close-btn {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .close-btn:hover {
+      color: #fff;
+    }
+    .node-kind-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .badge-active { background: rgba(16, 185, 129, 0.2); color: var(--emerald); border: 1px solid var(--emerald); }
+    .badge-inhibitory { background: rgba(239, 68, 68, 0.2); color: var(--crimson); border: 1px solid var(--crimson); }
+    .badge-conditional { background: rgba(245, 158, 11, 0.2); color: var(--amber); border: 1px solid var(--amber); }
+    .badge-superseded { background: rgba(100, 116, 139, 0.2); color: var(--slate); border: 1px solid var(--slate); }
+    .badge-entity { background: rgba(56, 189, 248, 0.2); color: var(--cyan); border: 1px solid var(--cyan); }
+    .badge-event { background: rgba(236, 72, 153, 0.2); color: var(--pink); border: 1px solid var(--pink); }
+
+    .node-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.35;
+      margin-bottom: 12px;
+      word-break: break-word;
+    }
+    .citation-card {
+      background: rgba(0, 0, 0, 0.4);
+      border-left: 3px solid var(--cyan);
+      padding: 10px 12px;
+      border-radius: 4px 8px 8px 4px;
+      margin: 14px 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #cbd5e1;
+    }
+    .citation-header {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
+    .prop-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 12px;
+    }
+    .prop-key {
+      color: var(--text-dim);
+    }
+    .prop-val {
+      font-family: 'JetBrains Mono', monospace;
+      color: #fff;
+      text-align: right;
+    }
+    .neighbors-list {
+      margin-top: 14px;
+    }
+    .neighbor-pill {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: #e2e8f0;
+      margin: 3px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .neighbor-pill:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--cyan);
+    }
+
+    /* Hippocampus Bottom Drawer */
+    .hippocampus-tray {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      z-index: 10;
+      pointer-events: auto;
+    }
+    .stream-modal {
+      position: absolute;
+      bottom: 60px;
+      right: 20px;
+      width: 440px;
+      max-height: 380px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+      display: none;
+      overflow-y: auto;
+      z-index: 25;
+    }
+    .stream-modal.show {
+      display: block;
+    }
+    .stream-item {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .stream-role {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+    .role-user { color: var(--cyan); }
+    .role-assistant { color: var(--purple); }
+    .role-note { color: var(--amber); }
+
+    /* Toast Notification */
+    .toast {
+      position: absolute;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(16, 185, 129, 0.9);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 100;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <div id="graph-container"></div>
+
+  <!-- Top Navigation HUD -->
+  <div class="top-hud">
+    <div class="hud-card">
+      <div class="brand-title">
+        <div class="dot"></div>
+        ORMA // CONNECTOME 3D
+      </div>
+      <div class="brand-sub">EPISODE-FIRST COGNITIVE ENGINE</div>
+    </div>
+
+    <div class="hud-card">
+      <input type="text" id="search-input" class="search-box" placeholder="Spreading activation search...">
+      <div class="filters">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="active">🟢 Active</button>
+        <button class="filter-btn" data-filter="inhibitory">🔴 Forbidden</button>
+        <button class="filter-btn" data-filter="entity">🧠 Entities</button>
+        <button class="filter-btn" data-filter="event">📅 Events</button>
+        <button class="filter-btn" data-filter="superseded">⚪ History</button>
+      </div>
+      <button id="recenter-btn" class="btn-action">⚡ Recenter</button>
+      <button id="sleep-btn" class="btn-action btn-sleep">🌙 Sleep Replay</button>
+    </div>
+  </div>
+
+  <!-- Bottom Left Status HUD -->
+  <div class="bottom-hud">
+    <div class="hud-card">
+      <div class="metric-badge">Synapses: <b id="stat-synapses">0</b></div>
+      <div class="metric-badge">Active: <b id="stat-active" style="color: var(--emerald)">0</b></div>
+      <div class="metric-badge">Inhibitory: <b id="stat-inhibitory" style="color: var(--crimson)">0</b></div>
+      <div class="metric-badge">Entities: <b id="stat-entities" style="color: var(--cyan)">0</b></div>
+      <div class="metric-badge">Recall: <b style="color: #a855f7">&lt;18ms</b></div>
+    </div>
+  </div>
+
+  <!-- Bottom Right Hippocampus Stream Button & Modal -->
+  <div class="hippocampus-tray">
+    <button id="stream-toggle-btn" class="btn-action hud-card">
+      🧠 Hippocampal Buffer (<span id="stat-pending">0</span>)
+    </button>
+  </div>
+  <div id="stream-modal" class="stream-modal">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h4 style="font-size: 13px; font-weight: 700; color: #fff;">RECENT EPISODIC STREAM</h4>
+      <button id="stream-close-btn" class="close-btn" style="position: static;">✕</button>
+    </div>
+    <div id="stream-content"></div>
+  </div>
+
+  <!-- Synapse Inspector Panel (Right Drawer) -->
+  <div id="inspector" class="inspector-panel">
+    <button id="inspector-close" class="close-btn">✕</button>
+    <div id="inspector-badge" class="node-kind-badge badge-active">ACTIVE CANONICAL STATE</div>
+    <h3 id="inspector-title" class="node-title">user.city: Bangalore</h3>
+    
+    <div id="inspector-citation-box" class="citation-card">
+      <div class="citation-header">EXACT PROVENANCE CITATION</div>
+      <div id="inspector-citation-text">"I moved to Indiranagar, Bangalore last week."</div>
+    </div>
+
+    <div class="prop-row">
+      <span class="prop-key">Type</span>
+      <span id="inspector-type" class="prop-val">state</span>
+    </div>
+    <div class="prop-row">
+      <span class="prop-key">Subject / Node</span>
+      <span id="inspector-subject" class="prop-val">user</span>
+    </div>
+    <div class="prop-row" id="row-attribute">
+      <span class="prop-key">Attribute</span>
+      <span id="inspector-attribute" class="prop-val">city</span>
+    </div>
+    <div class="prop-row">
+      <span class="prop-key">Status</span>
+      <span id="inspector-status" class="prop-val">active</span>
+    </div>
+    <div class="prop-row">
+      <span class="prop-key">Sentence ID</span>
+      <span id="inspector-sentence-id" class="prop-val">[s14]</span>
+    </div>
+
+    <div class="neighbors-list">
+      <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase;">
+        Connected Synaptic Links
+      </div>
+      <div id="inspector-neighbors"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Sleep consolidation completed!</div>
+
+  <script>
+    let rawData = null;
+    let Graph = null;
+    let activeFilter = 'all';
+    let currentSelectedNode = null;
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    async function loadConnectome() {
+      try {
+        const res = await fetch('/_orma/brain');
+        if (!res.ok) throw new Error('Failed to fetch connectome');
+        rawData = await res.json();
+        updateStats(rawData.stats);
+        renderHippocampus(rawData.hippocampus || []);
+        initOrUpdateGraph(filterData(rawData, activeFilter));
+      } catch (err) {
+        console.error('Error loading brain connectome:', err);
+      }
+    }
+
+    function updateStats(stats) {
+      if (!stats) return;
+      document.getElementById('stat-synapses').innerText = stats.total_nodes || 0;
+      document.getElementById('stat-active').innerText = stats.active_states || 0;
+      document.getElementById('stat-inhibitory').innerText = stats.inhibitory_rules || 0;
+      document.getElementById('stat-entities').innerText = stats.entities || 0;
+      document.getElementById('stat-pending').innerText = `${stats.pending_episodes || 0} pending`;
+    }
+
+    function filterData(data, filter) {
+      if (!data) return { nodes: [], links: [] };
+      if (filter === 'all') return data;
+      
+      const filteredNodes = data.nodes.filter(n => {
+        if (filter === 'active') return n.status === 'active';
+        if (filter === 'inhibitory') return n.status === 'inhibitory';
+        if (filter === 'entity') return n.type === 'entity';
+        if (filter === 'event') return n.type === 'event';
+        if (filter === 'superseded') return n.status === 'superseded';
+        return true;
+      });
+      const validNodeIds = new Set(filteredNodes.map(n => n.id));
+      const filteredLinks = data.links.filter(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        return validNodeIds.has(src) && validNodeIds.has(tgt);
+      });
+      return { nodes: filteredNodes, links: filteredLinks };
+    }
+
+    function initOrUpdateGraph(gData) {
+      if (!Graph) {
+        const container = document.getElementById('graph-container');
+        Graph = ForceGraph3D()(container)
+          .backgroundColor('#07090e')
+          .nodeLabel(node => `${node.label} (${node.details?.kind || node.type})`)
+          .nodeColor(node => node.color || '#38bdf8')
+          .nodeVal(node => node.val || 5)
+          .nodeResolution(16)
+          .linkDirectionalParticles(link => link.particles || 1)
+          .linkDirectionalParticleWidth(1.6)
+          .linkDirectionalParticleSpeed(link => (link.value || 1) * 0.005)
+          .linkColor(link => link.color || '#ffffff33')
+          .linkWidth(link => link.value ? Math.min(2.5, link.value) : 1)
+          .onNodeClick(node => focusOnNode(node))
+          .graphData(gData);
+
+        // Adjust 3D force physics
+        Graph.d3Force('charge').strength(-180);
+        Graph.d3Force('link').distance(50);
+      } else {
+        Graph.graphData(gData);
+      }
+    }
+
+    function focusOnNode(node) {
+      currentSelectedNode = node;
+      const distance = 90;
+      const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
+
+      Graph.cameraPosition(
+        { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
+        node,
+        1500
+      );
+
+      openInspector(node);
+      triggerSpreadingActivation(node);
+    }
+
+    function triggerSpreadingActivation(targetNode) {
+      // Find connected links and boost particle flow
+      const connectedNodeIds = new Set();
+      const currentData = Graph.graphData();
+      
+      currentData.links.forEach(l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (srcId === targetNode.id) connectedNodeIds.add(tgtId);
+        if (tgtId === targetNode.id) connectedNodeIds.add(srcId);
+      });
+
+      // Temporarily speed up particle flow to simulate neural firing
+      Graph.linkDirectionalParticleSpeed(link => {
+        const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+        const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+        if (srcId === targetNode.id || tgtId === targetNode.id) {
+          return 0.025; // 5x speed boost
+        }
+        return (link.value || 1) * 0.005;
+      });
+
+      setTimeout(() => {
+        Graph.linkDirectionalParticleSpeed(link => (link.value || 1) * 0.005);
+      }, 3500);
+    }
+
+    function openInspector(node) {
+      const panel = document.getElementById('inspector');
+      const badge = document.getElementById('inspector-badge');
+      const title = document.getElementById('inspector-title');
+      const citationBox = document.getElementById('inspector-citation-box');
+      const citationText = document.getElementById('inspector-citation-text');
+      const typeEl = document.getElementById('inspector-type');
+      const subjectEl = document.getElementById('inspector-subject');
+      const attrEl = document.getElementById('inspector-attribute');
+      const statusEl = document.getElementById('inspector-status');
+      const sentenceIdEl = document.getElementById('inspector-sentence-id');
+      const neighborsContainer = document.getElementById('inspector-neighbors');
+
+      title.innerText = node.label || node.id;
+      typeEl.innerText = node.type;
+      subjectEl.innerText = node.subject || node.details?.name || 'user';
+      attrEl.innerText = node.attribute || node.details?.category || '-';
+      statusEl.innerText = node.status || 'established';
+      sentenceIdEl.innerText = node.details?.sentence_id ? `[s${node.details.sentence_id}]` : '-';
+
+      // Badge style
+      badge.className = 'node-kind-badge';
+      if (node.status === 'inhibitory') {
+        badge.classList.add('badge-inhibitory');
+        badge.innerText = 'INHIBITORY RULE [FORBIDDEN]';
+      } else if (node.status === 'conditional') {
+        badge.classList.add('badge-conditional');
+        badge.innerText = 'DEFEASIBLE CONDITION';
+      } else if (node.status === 'superseded') {
+        badge.classList.add('badge-superseded');
+        badge.innerText = 'SUPERSEDED HISTORY';
+      } else if (node.type === 'entity') {
+        badge.classList.add('badge-entity');
+        badge.innerText = `ENTITY (${node.subtype || 'general'})`;
+      } else if (node.type === 'event') {
+        badge.classList.add('badge-event');
+        badge.innerText = 'DATED EVENT';
+      } else {
+        badge.classList.add('badge-active');
+        badge.innerText = 'ACTIVE CANONICAL STATE';
+      }
+
+      // Sentence citation
+      if (node.details?.citation) {
+        citationBox.style.display = 'block';
+        citationText.innerText = `"${node.details.citation}"`;
+      } else {
+        citationBox.style.display = 'none';
+      }
+
+      // Populate neighbor pills
+      neighborsContainer.innerHTML = '';
+      const currentData = Graph.graphData();
+      const connected = [];
+
+      currentData.links.forEach(l => {
+        const src = typeof l.source === 'object' ? l.source : currentData.nodes.find(n => n.id === l.source);
+        const tgt = typeof l.target === 'object' ? l.target : currentData.nodes.find(n => n.id === l.target);
+        if (src && tgt) {
+          if (src.id === node.id && !connected.includes(tgt)) connected.push(tgt);
+          if (tgt.id === node.id && !connected.includes(src)) connected.push(src);
+        }
+      });
+
+      if (connected.length === 0) {
+        neighborsContainer.innerHTML = '<span style="font-size: 11px; color: var(--text-dim);">No direct neighbors.</span>';
+      } else {
+        connected.forEach(neighbor => {
+          const pill = document.createElement('span');
+          pill.className = 'neighbor-pill';
+          pill.innerText = neighbor.label || neighbor.id;
+          pill.onclick = () => focusOnNode(neighbor);
+          neighborsContainer.appendChild(pill);
+        });
+      }
+
+      panel.classList.add('open');
+    }
+
+    function renderHippocampus(episodes) {
+      const container = document.getElementById('stream-content');
+      container.innerHTML = '';
+      if (!episodes || episodes.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-dim); font-size: 12px;">No recent episodes in memory.</div>';
+        return;
+      }
+      episodes.forEach(ep => {
+        const div = document.createElement('div');
+        div.className = 'stream-item';
+        const roleClass = ep.role === 'user' ? 'role-user' : (ep.role === 'assistant' ? 'role-assistant' : 'role-note');
+        const statusBadge = ep.consolidated
+          ? '<span style="color: var(--emerald); font-size: 10px; float: right;">✓ Consolidated</span>'
+          : '<span style="color: var(--cyan); font-size: 10px; float: right;">● Pending Sleep</span>';
+        div.innerHTML = `
+          <div class="stream-role ${roleClass}">
+            ${ep.role.toUpperCase()} ${statusBadge}
+          </div>
+          <div style="color: #cbd5e1">${ep.text.slice(0, 180)}${ep.text.length > 180 ? '...' : ''}</div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    // Event listeners
+    document.getElementById('inspector-close').onclick = () => {
+      document.getElementById('inspector').classList.remove('open');
+    };
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilter = btn.getAttribute('data-filter');
+        initOrUpdateGraph(filterData(rawData, activeFilter));
+      };
+    });
+
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      const query = e.target.value.trim().toLowerCase();
+      if (!query || !rawData) return;
+      const match = rawData.nodes.find(n => (n.label && n.label.toLowerCase().includes(query)) || (n.id && n.id.toLowerCase().includes(query)));
+      if (match) {
+        focusOnNode(match);
+      }
+    });
+
+    document.getElementById('recenter-btn').onclick = () => {
+      if (Graph) Graph.zoomToFit(1000, 80);
+    };
+
+    document.getElementById('sleep-btn').onclick = async () => {
+      showToast('Consolidating memories during sleep replay...');
+      try {
+        const res = await fetch('/_orma/sleep', { method: 'POST' });
+        if (res.ok) {
+          const report = await res.json();
+          showToast(`Sleep complete! Added ${report.states_added || 0} states, ${report.events_added || 0} events.`);
+          await loadConnectome();
+        } else {
+          showToast('Sleep consolidation triggered.');
+          await loadConnectome();
+        }
+      } catch (e) {
+        showToast('Sleep triggered.');
+        await loadConnectome();
+      }
+    };
+
+    document.getElementById('stream-toggle-btn').onclick = () => {
+      const modal = document.getElementById('stream-modal');
+      modal.classList.toggle('show');
+    };
+    document.getElementById('stream-close-btn').onclick = () => {
+      document.getElementById('stream-modal').classList.remove('show');
+    };
+
+    // Initial load
+    window.onload = loadConnectome;
+  </script>
+</body>
+</html>

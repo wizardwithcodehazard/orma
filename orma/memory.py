@@ -113,6 +113,10 @@ class Memory:
 
     # --- inspecting ----------------------------------------------------------------
 
+    def export_connectome(self, space: str = "default") -> dict:
+        """Exports the Neocortex graph and Hippocampal buffer for 3D connectome visualization."""
+        return self.store.export_connectome(space)
+
     def stats(self, space: str = "default") -> dict[str, int]:
         return self.store.stats(space)
 

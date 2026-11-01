@@ -154,6 +154,38 @@ def up(
     )
 
 
+@app.command()
+def viz(
+    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    host: str = typer.Option("127.0.0.1", help="Interface to listen on."),
+    port: int = typer.Option(8080, help="Port to listen on."),
+    model: str | None = typer.Option(None, help="Model for sleep consolidation."),
+    sleep_upstream: str | None = typer.Option(None, help="Base URL for sleep consolidation."),
+    space: str = typer.Option("default", help="Memory space to visualize."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the 3D Connectome in your browser."),
+):
+    """Launch the interactive 3D Cognitive Connectome visualizer."""
+    import threading
+    import webbrowser
+    import uvicorn
+    from orma.serve.proxy import create_app
+
+    memory = _memory(sleep_upstream or upstream, model)
+    ui_url = f"http://{host}:{port}/_orma/viz"
+    typer.echo(f"🧠 Orma 3D Connectome running at: {ui_url}")
+
+    if open_browser:
+        threading.Timer(0.8, lambda: webbrowser.open(ui_url)).start()
+
+    app_ = create_app(memory, upstream, default_space=space, sleep_poll_seconds=None)
+    try:
+        uvicorn.run(app_, host=host, port=port, log_level="warning")
+    except (KeyboardInterrupt, SystemExit):
+        typer.echo("\nOrma visualizer stopped.")
+    finally:
+        memory.close()
+
+
 def _report(report) -> str:
     return (f"Consolidated {report.episodes} records in {report.batches} batches "
             f"({report.failed_batches} failed): {report.consolidation}")

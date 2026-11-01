@@ -437,7 +437,274 @@ class Store:
             c.execute("UPDATE episodes SET consolidated_at = NULL, sleep_attempts = 0, sleep_error = NULL "
                       "WHERE space = ?", (space,))
 
-    # --- Introspection -----------------------------------------------------------------
+    # --- Introspection & Connectome Export ----------------------------------------------
+
+    def export_connectome(self, space: str = "default") -> dict:
+        """Exports the full cognitive connectome: Neocortex (entities, states, events, links)
+        and Hippocampal buffer (recent episodic turns) for 3D WebGL visualization."""
+        # Ensure user anchor entity exists in this space
+        self.user_entity(space)
+
+        with self.lock:
+            # 1. Entities
+            entity_rows = self._rows(
+                "SELECT id, name, type, mention_count, last_seen FROM entities WHERE space = ? ORDER BY mention_count DESC",
+                (space,),
+            )
+            entity_map = {r["id"]: r for r in entity_rows}
+            name_to_id = {r["name"].strip().lower(): r["id"] for r in entity_rows}
+
+            # 2. States with subject, attribute, and sentence text
+            state_rows = self._rows(
+                """
+                SELECT st.id, st.subject_id, st.attribute_id, st.value, st.valid_from,
+                       st.valid_from_stated, st.valid_to, st.sentence_id, st.ended_by,
+                       e.name AS subject, a.name AS attribute,
+                       sn.text AS sentence_text, sn.created_at AS sentence_time
+                FROM states st
+                JOIN entities e ON e.id = st.subject_id
+                JOIN attributes a ON a.id = st.attribute_id
+                LEFT JOIN sentences sn ON sn.id = st.sentence_id
+                WHERE st.space = ?
+                ORDER BY st.id
+                """,
+                (space,),
+            )
+
+            # 3. Events with participants
+            event_rows = self._rows(
+                """
+                SELECT ev.id, ev.gist, ev.occurred_at, ev.occurred_stated, ev.created_at,
+                       ev.sentence_id, sn.text AS sentence_text
+                FROM events ev
+                LEFT JOIN sentences sn ON sn.id = ev.sentence_id
+                WHERE ev.space = ?
+                ORDER BY ev.occurred_at, ev.id
+                """,
+                (space,),
+            )
+            event_parts: dict[int, list[int]] = {}
+            for r in self._rows(
+                """
+                SELECT ep.event_id, ep.entity_id
+                FROM event_participants ep
+                JOIN events ev ON ev.id = ep.event_id
+                WHERE ev.space = ?
+                """,
+                (space,),
+            ):
+                event_parts.setdefault(r["event_id"], []).append(r["entity_id"])
+
+            # 4. Recent episodes (Hippocampus)
+            episode_rows = self._rows(
+                """
+                SELECT id, role, text, created_at, consolidated_at, source, speaker
+                FROM episodes
+                WHERE space = ?
+                ORDER BY created_at DESC
+                LIMIT 30
+                """,
+                (space,),
+            )
+
+        nodes = []
+        links = []
+        node_ids = set()
+
+        # Add Entity nodes
+        for r in entity_rows:
+            e_id = f"entity_{r['id']}"
+            is_user = r["name"].lower() == "user"
+            nodes.append({
+                "id": e_id,
+                "label": r["name"],
+                "type": "entity",
+                "subtype": r["type"],
+                "val": max(6, min(24, 6 + r["mention_count"] * 2)),
+                "color": "#a855f7" if is_user else "#38bdf8",
+                "details": {
+                    "kind": "Entity",
+                    "name": r["name"],
+                    "category": r["type"],
+                    "mention_count": r["mention_count"],
+                    "last_seen": r["last_seen"],
+                },
+            })
+            node_ids.add(e_id)
+
+        # Track supersession mapping: (subject_id, attribute_id) -> list of states in order
+        state_timeline: dict[tuple[int, int], list] = {}
+        for st in state_rows:
+            key = (st["subject_id"], st["attribute_id"])
+            state_timeline.setdefault(key, []).append(st)
+
+        # Add State nodes and links
+        for st in state_rows:
+            s_id = f"state_{st['id']}"
+            attr = st["attribute"].lower()
+            val_text = st["value"]
+            is_inhibitory = (
+                attr.startswith("forbidden_")
+                or attr.startswith("avoid_")
+                or attr.startswith("no_")
+                or "forbidden" in attr
+            )
+            is_conditional = any(
+                prefix in val_text.lower()
+                for prefix in ("when ", "if ", "unless ", "during ", "sometimes ")
+            )
+            is_active = st["valid_to"] is None
+
+            if is_inhibitory:
+                status = "inhibitory"
+                color = "#ef4444"
+                badge = "Inhibitory Rule [FORBIDDEN]"
+            elif is_conditional:
+                status = "conditional"
+                color = "#f59e0b"
+                badge = "Defeasible Condition"
+            elif is_active:
+                status = "active"
+                color = "#10b981"
+                badge = "Active Canonical State"
+            else:
+                status = "superseded"
+                color = "#64748b"
+                badge = "Superseded History"
+
+            nodes.append({
+                "id": s_id,
+                "label": f"{st['subject']}.{st['attribute']}: {val_text}",
+                "type": "state",
+                "status": status,
+                "subject": st["subject"],
+                "attribute": st["attribute"],
+                "value": val_text,
+                "val": 8 if is_active else 4,
+                "color": color,
+                "details": {
+                    "kind": badge,
+                    "subject": st["subject"],
+                    "attribute": st["attribute"],
+                    "value": val_text,
+                    "status": status,
+                    "sentence_id": st["sentence_id"],
+                    "citation": st["sentence_text"] or "",
+                    "valid_from": st["valid_from"],
+                    "valid_to": st["valid_to"],
+                },
+            })
+            node_ids.add(s_id)
+
+            # Link: Entity -> State
+            e_id = f"entity_{st['subject_id']}"
+            if e_id in node_ids:
+                links.append({
+                    "source": e_id,
+                    "target": s_id,
+                    "label": st["attribute"],
+                    "color": color,
+                    "particles": 2 if is_active else 0,
+                    "value": 1.5 if is_active else 0.5,
+                })
+
+            # If state value mentions another entity, link state -> entity
+            clean_val = val_text.strip().lower()
+            for other_name, other_id in name_to_id.items():
+                if other_id != st["subject_id"] and (other_name == clean_val or other_name in clean_val):
+                    target_e = f"entity_{other_id}"
+                    if target_e in node_ids:
+                        links.append({
+                            "source": s_id,
+                            "target": target_e,
+                            "label": "references",
+                            "color": "#38bdf888",
+                            "particles": 1 if is_active else 0,
+                            "value": 1.0,
+                        })
+                        break
+
+        # Connect superseded states to their superseding state
+        for key, timeline in state_timeline.items():
+            if len(timeline) > 1:
+                for i in range(len(timeline) - 1):
+                    prior = timeline[i]
+                    later = timeline[i + 1]
+                    links.append({
+                        "source": f"state_{prior['id']}",
+                        "target": f"state_{later['id']}",
+                        "label": "superseded_by",
+                        "color": "#ef444466",
+                        "particles": 0,
+                        "dashed": True,
+                        "value": 0.8,
+                    })
+
+        # Add Event nodes and links
+        for ev in event_rows:
+            ev_id = f"event_{ev['id']}"
+            nodes.append({
+                "id": ev_id,
+                "label": ev["gist"],
+                "type": "event",
+                "val": 7,
+                "color": "#ec4899",
+                "details": {
+                    "kind": "Dated Event",
+                    "gist": ev["gist"],
+                    "occurred_at": ev["occurred_at"],
+                    "sentence_id": ev["sentence_id"],
+                    "citation": ev["sentence_text"] or "",
+                    "created_at": ev["created_at"],
+                },
+            })
+            node_ids.add(ev_id)
+
+            for participant_id in event_parts.get(ev["id"], []):
+                e_id = f"entity_{participant_id}"
+                if e_id in node_ids:
+                    links.append({
+                        "source": e_id,
+                        "target": ev_id,
+                        "label": "participated_in",
+                        "color": "#ec489988",
+                        "particles": 1,
+                        "value": 1.2,
+                    })
+
+        # Assemble Hippocampus buffer
+        hippocampus = []
+        for ep in episode_rows:
+            hippocampus.append({
+                "id": ep["id"],
+                "role": ep["role"],
+                "text": ep["text"],
+                "created_at": ep["created_at"],
+                "consolidated": ep["consolidated_at"] is not None,
+                "source": ep["source"],
+                "speaker": ep["speaker"],
+            })
+
+        stats = {
+            "total_nodes": len(nodes),
+            "total_links": len(links),
+            "entities": len(entity_rows),
+            "active_states": sum(1 for n in nodes if n.get("status") == "active"),
+            "inhibitory_rules": sum(1 for n in nodes if n.get("status") == "inhibitory"),
+            "conditional_rules": sum(1 for n in nodes if n.get("status") == "conditional"),
+            "superseded_states": sum(1 for n in nodes if n.get("status") == "superseded"),
+            "events": len(event_rows),
+            "hippocampal_episodes": len(hippocampus),
+            "pending_episodes": sum(1 for h in hippocampus if not h["consolidated"]),
+        }
+
+        return {
+            "space": space,
+            "nodes": nodes,
+            "links": links,
+            "hippocampus": hippocampus,
+            "stats": stats,
+        }
 
     def stats(self, space: str) -> dict[str, int]:
         counts = {

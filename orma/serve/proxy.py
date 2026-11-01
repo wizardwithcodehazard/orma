@@ -9,6 +9,7 @@ errors are logged.
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import anyio
 import httpx
@@ -16,7 +17,7 @@ from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from orma.memory import Memory
@@ -178,6 +179,29 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
         except httpx.HTTPError as exc:
             return upstream_error(exc)
 
+    viz_html_path = Path(__file__).parent / "viz.html"
+    viz_html_content = viz_html_path.read_text(encoding="utf-8") if viz_html_path.exists() else "<h1>Orma Viz</h1>"
+
+    async def get_brain_connectome(request: Request) -> JSONResponse:
+        space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        data = await run_in_threadpool(memory.export_connectome, space)
+        return JSONResponse(data)
+
+    async def get_brain_viz(request: Request) -> HTMLResponse:
+        return HTMLResponse(viz_html_content)
+
+    async def trigger_sleep(request: Request) -> JSONResponse:
+        space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        try:
+            report = await run_in_threadpool(memory.sleep, space)
+            return JSONResponse({
+                "states_added": report.states_added,
+                "events_added": report.events_added,
+                "episodes_read": report.episodes_read,
+            })
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
     @asynccontextmanager
     async def lifespan(app):
         if scheduler is not None:
@@ -196,6 +220,12 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
 
     return Starlette(
         routes=[
+            Route("/_orma/brain", get_brain_connectome, methods=["GET"]),
+            Route("/_orma/viz", get_brain_viz, methods=["GET"]),
+            Route("/_orma", get_brain_viz, methods=["GET"]),
+            Route("/brain", get_brain_viz, methods=["GET"]),
+            Route("/viz", get_brain_viz, methods=["GET"]),
+            Route("/_orma/sleep", trigger_sleep, methods=["POST"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
             Route("/chat/completions", chat_completions, methods=["POST"]),
             Route("/v1/{path:path}", passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),

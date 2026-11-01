@@ -25,8 +25,9 @@ Everything runs locally in SQLite with `sqlite-vec` and fast on-device embedding
 - [Usage Options](#usage-options)
   - [1. Python SDK](#usage-option-1-python-sdk-direct-in-code-integration)
   - [2. Zero-Code Proxy (Ollama / llama.cpp)](#usage-option-2-zero-code-proxy-openai-sdk-langchain-cursor-open-webui)
-  - [3. One-Command Web UI (`orma up`)](#usage-option-3-one-command-web-ui-orma-up)
-  - [4. Model Context Protocol (MCP Server for Coding Agents)](#usage-option-4-model-context-protocol-mcp-server-for-coding-assistants)
+  - [3. Interactive 3D Connectome (`orma viz`)](#usage-option-3-interactive-3d-connectome-visualizer-orma-viz)
+  - [4. One-Command Web UI (`orma up`)](#usage-option-4-one-command-web-ui-orma-up)
+  - [5. Model Context Protocol (MCP Server for Coding Assistants)](#usage-option-5-model-context-protocol-mcp-server-for-coding-assistants)
 - [Inhibitory Control & Anti-Pattern Prevention (Negative Memory)](#inhibitory-control--anti-pattern-prevention-negative-memory)
 - [Multi-User & Multi-Tenant Isolation](#multi-user--multi-tenant-isolation)
 - [CLI Reference](#cli-reference)
@@ -324,7 +325,24 @@ llm = ChatOpenAI(
 
 ---
 
-## Usage Option 3: One-Command Web UI (`orma up`)
+## Usage Option 3: Interactive 3D Connectome Visualizer (`orma viz`)
+
+Visualize your model's cognitive memory graph in real-time WebGL:
+
+```bash
+orma viz
+```
+
+This starts the memory visualizer and opens your browser directly to `http://127.0.0.1:8080/_orma/viz`:
+* **Neocortical Connectome:** Interactive 3D WebGL neural network showing active states (green), hard anti-patterns (crimson), defeasible rules (amber), and entity hubs (cyan).
+* **Action Potential Pulses:** Synaptic edges animate with directional photon particles based on recency and Hawkes burst frequency.
+* **Spreading Activation:** Search any topic to fly the 3D camera to that node and watch activation ripple across connected neighbors.
+* **Synapse Inspector:** Click any node to see its exact sentence provenance citation (`[s14]`) and historical timeline.
+* **Hippocampal Buffer:** Live drawer displaying the recent episodic turn stream and pending sleep consolidations.
+
+---
+
+## Usage Option 4: One-Command Web UI (`orma up`)
 
 If you are using llama.cpp or Ollama with a browser web UI, run:
 
@@ -339,7 +357,7 @@ This immediately:
 
 ---
 
-## Usage Option 4: Model Context Protocol (MCP) Server for Coding Assistants
+## Usage Option 5: Model Context Protocol (MCP) Server for Coding Assistants
 
 Orma natively speaks the Model Context Protocol (MCP) over standard `stdio`. This gives coding agents (Claude Code, Cursor, Antigravity IDE, Windsurf, Roo Code, Hermes) persistent, zero-latency memory across editing sessions without session amnesia.
 
@@ -501,6 +519,9 @@ orma forget 12
 
 # Database statistics
 orma stats
+
+# Launch interactive 3D Cognitive Connectome WebGL visualizer
+orma viz
 
 # Run as an MCP server for Claude Code / Cursor / Windsurf
 orma mcp
