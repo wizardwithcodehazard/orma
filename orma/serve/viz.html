@@ -3,24 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Orma Memory Graph</title>
+  <title>Orma Memory // Neural Brain Visualizer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/force-graph@1.43.5/dist/force-graph.min.js"></script>
   <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
   <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
   <style>
     :root {
-      --bg: #090a0f;
-      --card-bg: rgba(15, 18, 26, 0.88);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --card-hover: rgba(255, 255, 255, 0.14);
-      --text-main: #f8fafc;
+      --bg: #04060a;
+      --panel-bg: rgba(9, 13, 22, 0.82);
+      --panel-border: rgba(56, 189, 248, 0.16);
+      --panel-glow: rgba(56, 189, 248, 0.12);
+      --text-main: #f1f5f9;
       --text-muted: #94a3b8;
-      --text-dim: #64748b;
+      --text-dim: #475569;
       --accent: #38bdf8;
-      --accent-glow: rgba(56, 189, 248, 0.25);
       --emerald: #10b981;
       --crimson: #ef4444;
       --amber: #f59e0b;
@@ -42,7 +40,7 @@
       width: 100vw;
       height: 100vh;
     }
-    #viewport-container {
+    #3d-container {
       position: absolute;
       top: 0;
       left: 0;
@@ -51,65 +49,65 @@
       z-index: 1;
     }
 
-    /* Top Navigation HUD */
-    .top-bar {
+    /* Floating Top HUD */
+    .top-hud {
       position: absolute;
-      top: 14px;
-      left: 16px;
-      right: 16px;
+      top: 16px;
+      left: 18px;
+      right: 18px;
       z-index: 20;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
       pointer-events: none;
     }
-    .hud-surface {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
+    .hud-glass {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 8px 14px;
       pointer-events: auto;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65), 0 0 16px var(--panel-glow);
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
-    .brand {
+    .brand-title {
       font-size: 14px;
       font-weight: 700;
-      letter-spacing: 0.3px;
-      color: #fff;
+      letter-spacing: 0.8px;
       display: flex;
       align-items: center;
       gap: 8px;
+      color: #fff;
     }
-    .brand-tag {
+    .brand-pill {
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
       color: var(--accent);
       background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      padding: 2px 6px;
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      padding: 2px 7px;
       border-radius: 4px;
+      letter-spacing: 0.5px;
     }
 
     /* Search & Recall Simulator */
-    .simulator-box {
+    .simulator-wrap {
       display: flex;
       align-items: center;
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.45);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 8px;
-      padding: 2px 8px;
-      transition: all 0.2s;
+      padding: 3px 10px;
+      transition: all 0.2s ease;
     }
-    .simulator-box:focus-within {
+    .simulator-wrap:focus-within {
       border-color: var(--accent);
-      box-shadow: 0 0 12px var(--accent-glow);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
     }
     .simulator-input {
       background: transparent;
@@ -118,46 +116,47 @@
       color: #fff;
       font-size: 13px;
       font-family: 'Inter', sans-serif;
-      padding: 6px 4px;
-      width: 260px;
+      padding: 5px 4px;
+      width: 270px;
     }
     .simulator-input::placeholder {
       color: var(--text-dim);
     }
 
-    /* Filter Chips */
+    /* Filters */
     .filter-group {
       display: flex;
       gap: 4px;
     }
-    .filter-chip {
-      background: transparent;
-      border: 1px solid transparent;
+    .filter-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       color: var(--text-muted);
-      padding: 5px 9px;
+      padding: 5px 10px;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: all 0.15s ease;
     }
-    .filter-chip:hover {
+    .filter-btn:hover {
       color: #fff;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.1);
     }
-    .filter-chip.active {
+    .filter-btn.active {
       color: #fff;
-      background: rgba(56, 189, 248, 0.15);
-      border-color: rgba(56, 189, 248, 0.3);
+      background: rgba(56, 189, 248, 0.18);
+      border-color: var(--accent);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
     }
 
-    /* Action Buttons */
+    /* Actions */
     .btn {
       background: rgba(255, 255, 255, 0.06);
-      border: 1px solid var(--card-border);
-      color: var(--text-main);
+      border: 1px solid var(--panel-border);
+      color: #fff;
       padding: 6px 12px;
-      border-radius: 6px;
+      border-radius: 8px;
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
@@ -167,24 +166,24 @@
       transition: all 0.15s;
     }
     .btn:hover {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.14);
     }
-    .btn-primary {
+    .btn-accent {
       background: rgba(56, 189, 248, 0.15);
       border-color: rgba(56, 189, 248, 0.35);
       color: var(--accent);
     }
-    .btn-primary:hover {
+    .btn-accent:hover {
       background: rgba(56, 189, 248, 0.28);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
     }
 
-    /* Bottom Control Bar */
-    .bottom-bar {
+    /* Floating Bottom HUD */
+    .bottom-hud {
       position: absolute;
-      bottom: 16px;
-      left: 16px;
-      right: 16px;
+      bottom: 18px;
+      left: 18px;
+      right: 18px;
       z-index: 20;
       display: flex;
       justify-content: space-between;
@@ -202,95 +201,131 @@
       color: #fff;
     }
 
-    /* Add Note Playground */
-    .add-box {
+    /* Quick Memory Adder */
+    .quick-add-wrap {
       display: flex;
       gap: 6px;
     }
-    .add-input {
-      background: rgba(0, 0, 0, 0.4);
+    .quick-add-input {
+      background: rgba(0, 0, 0, 0.5);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 6px;
-      padding: 6px 10px;
+      padding: 6px 12px;
       color: #fff;
       font-size: 12px;
       font-family: 'Inter', sans-serif;
-      width: 240px;
+      width: 260px;
       outline: none;
     }
-    .add-input:focus {
+    .quick-add-input:focus {
       border-color: var(--accent);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
     }
 
-    /* Recall Prompt Preview Drawer */
-    .recall-preview-drawer {
+    /* Recall Prompt Preview Card */
+    .recall-card {
       position: absolute;
-      bottom: 64px;
-      left: 16px;
-      width: 440px;
-      background: var(--card-bg);
+      bottom: 68px;
+      left: 18px;
+      width: 460px;
+      background: var(--panel-bg);
       border: 1px solid var(--accent);
-      backdrop-filter: blur(16px);
-      border-radius: 10px;
+      backdrop-filter: blur(20px);
+      border-radius: 12px;
       padding: 14px;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 20px rgba(56, 189, 248, 0.25);
       display: none;
       z-index: 25;
       font-family: 'JetBrains Mono', monospace;
     }
-    .recall-preview-drawer.open {
+    .recall-card.open {
       display: block;
     }
-    .prompt-block-text {
-      background: rgba(0, 0, 0, 0.5);
-      border-radius: 6px;
-      padding: 10px;
+    .prompt-box {
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 8px;
+      padding: 10px 12px;
       font-size: 11px;
-      color: #a7f3d0;
+      color: #6ee7b7;
       max-height: 180px;
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-word;
-      line-height: 1.45;
+      line-height: 1.5;
       margin-top: 8px;
     }
 
-    /* Node Details Inspector (Right Drawer) */
+    /* Hippocampus Buffer Tray */
+    .buffer-modal {
+      position: absolute;
+      bottom: 68px;
+      right: 18px;
+      width: 440px;
+      max-height: 380px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(20px);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+      display: none;
+      overflow-y: auto;
+      z-index: 25;
+    }
+    .buffer-modal.open {
+      display: block;
+    }
+    .turn-row {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .turn-header {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Synapse Inspector (Right HUD Drawer) */
     .inspector {
       position: absolute;
-      top: 70px;
-      right: 16px;
+      top: 76px;
+      right: 18px;
       width: 380px;
-      max-height: calc(100vh - 100px);
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+      max-height: calc(100vh - 110px);
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 0 24px rgba(56, 189, 248, 0.15);
       z-index: 30;
       overflow-y: auto;
-      transform: translateX(420px);
-      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translateX(440px);
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .inspector.open {
       transform: translateX(0);
     }
-    .inspector-close-btn {
+    .close-btn {
       position: absolute;
-      top: 14px;
+      top: 16px;
       right: 16px;
       background: none;
       border: none;
-      color: var(--text-muted);
-      font-size: 16px;
+      color: var(--text-dim);
+      font-size: 18px;
       cursor: pointer;
     }
-    .inspector-close-btn:hover {
+    .close-btn:hover {
       color: #fff;
     }
-    .type-badge {
+    .type-pill {
       display: inline-block;
       font-size: 11px;
       font-weight: 600;
@@ -298,34 +333,34 @@
       padding: 3px 8px;
       border-radius: 4px;
       margin-bottom: 10px;
-      letter-spacing: 0.4px;
+      letter-spacing: 0.5px;
     }
-    .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .badge-inhibitory { background: rgba(239, 68, 68, 0.15); color: var(--crimson); border: 1px solid rgba(239, 68, 68, 0.35); }
-    .badge-conditional { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
-    .badge-superseded { background: rgba(100, 116, 139, 0.15); color: var(--slate); border: 1px solid rgba(100, 116, 139, 0.3); }
-    .badge-entity { background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
-    .badge-event { background: rgba(236, 72, 153, 0.15); color: var(--pink); border: 1px solid rgba(236, 72, 153, 0.3); }
+    .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.35); }
+    .badge-inhibitory { background: rgba(239, 68, 68, 0.18); color: var(--crimson); border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); }
+    .badge-conditional { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.35); }
+    .badge-superseded { background: rgba(100, 116, 139, 0.15); color: var(--slate); border: 1px solid rgba(100, 116, 139, 0.35); }
+    .badge-entity { background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.35); }
+    .badge-event { background: rgba(236, 72, 153, 0.15); color: var(--pink); border: 1px solid rgba(236, 72, 153, 0.35); }
 
     .inspector-title {
       font-size: 16px;
       font-weight: 700;
       color: #fff;
       line-height: 1.4;
-      margin-bottom: 14px;
+      margin-bottom: 16px;
       word-break: break-word;
     }
     .citation-box {
-      background: rgba(0, 0, 0, 0.4);
+      background: rgba(0, 0, 0, 0.45);
       border-left: 3px solid var(--accent);
-      padding: 10px 12px;
+      padding: 10px 14px;
       border-radius: 0 8px 8px 0;
       margin: 14px 0;
       font-size: 12px;
       color: #cbd5e1;
       line-height: 1.5;
     }
-    .citation-label {
+    .citation-tag {
       font-family: 'JetBrains Mono', monospace;
       font-size: 10px;
       color: var(--accent);
@@ -333,20 +368,20 @@
       margin-bottom: 4px;
       text-transform: uppercase;
     }
-    .meta-row {
+    .prop-item {
       display: flex;
       justify-content: space-between;
       padding: 6px 0;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       font-size: 12px;
     }
-    .meta-k { color: var(--text-dim); }
-    .meta-v { font-family: 'JetBrains Mono', monospace; color: #fff; }
+    .prop-k { color: var(--text-dim); }
+    .prop-v { font-family: 'JetBrains Mono', monospace; color: #fff; }
 
-    .neighbors-container {
+    .neighbors-box {
       margin-top: 16px;
     }
-    .neighbor-tag {
+    .neighbor-pill {
       display: inline-block;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -358,227 +393,193 @@
       cursor: pointer;
       transition: all 0.15s;
     }
-    .neighbor-tag:hover {
+    .neighbor-pill:hover {
       background: rgba(56, 189, 248, 0.2);
       border-color: var(--accent);
     }
 
-    /* Episodic Buffer Modal */
-    .episodes-modal {
-      position: absolute;
-      bottom: 60px;
-      right: 16px;
-      width: 440px;
-      max-height: 380px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      backdrop-filter: blur(16px);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-      display: none;
-      overflow-y: auto;
-      z-index: 25;
-    }
-    .episodes-modal.open {
-      display: block;
-    }
-    .turn-card {
-      padding: 8px 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .turn-header {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      font-weight: 600;
-      margin-bottom: 3px;
-      display: flex;
-      justify-content: space-between;
-    }
-
     /* Toast */
-    .toast-msg {
+    .toast {
       position: absolute;
-      top: 72px;
+      top: 76px;
       left: 50%;
       transform: translateX(-50%) translateY(-10px);
       background: rgba(16, 185, 129, 0.95);
       color: #fff;
-      padding: 8px 16px;
-      border-radius: 6px;
+      padding: 8px 18px;
+      border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
       opacity: 0;
       pointer-events: none;
       transition: all 0.2s ease;
       z-index: 100;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     }
-    .toast-msg.show {
+    .toast.show {
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
   </style>
 </head>
 <body>
-  <div id="viewport-container"></div>
+  <div id="3d-container"></div>
 
-  <!-- Top Bar -->
-  <div class="top-bar">
-    <div class="hud-surface">
-      <div class="brand">
+  <!-- Top Floating Navigation -->
+  <div class="top-hud">
+    <div class="hud-glass">
+      <div class="brand-title">
         ORMA
-        <span class="brand-tag">MEMORY GRAPH</span>
+        <span class="brand-pill">NEURAL BRAIN</span>
       </div>
       <div class="filter-group">
-        <button class="filter-chip active" data-filter="all">All</button>
-        <button class="filter-chip" data-filter="active">Active</button>
-        <button class="filter-chip" data-filter="inhibitory">Forbidden</button>
-        <button class="filter-chip" data-filter="entity">Entities</button>
-        <button class="filter-chip" data-filter="event">Events</button>
-        <button class="filter-chip" data-filter="superseded">History</button>
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="active">Active</button>
+        <button class="filter-btn" data-filter="inhibitory">Forbidden</button>
+        <button class="filter-btn" data-filter="entity">Entities</button>
+        <button class="filter-btn" data-filter="event">Events</button>
+        <button class="filter-btn" data-filter="superseded">History</button>
       </div>
     </div>
 
-    <div class="hud-surface">
+    <div class="hud-glass">
       <!-- Live Recall Simulator -->
-      <div class="simulator-box">
-        <input type="text" id="recall-search-input" class="simulator-input" placeholder="Simulate recall query...">
+      <div class="simulator-wrap">
+        <input type="text" id="recall-input" class="simulator-input" placeholder="Simulate recall query (e.g. where do I work)...">
       </div>
-      <button id="toggle-view-btn" class="btn">3D Mode</button>
       <button id="recenter-btn" class="btn">Recenter</button>
-      <button id="sleep-btn" class="btn btn-primary">Sleep Consolidation</button>
+      <button id="sleep-btn" class="btn btn-accent">Sleep Replay</button>
     </div>
   </div>
 
-  <!-- Bottom Control Bar -->
-  <div class="bottom-bar">
-    <div class="hud-surface">
+  <!-- Bottom Floating HUD -->
+  <div class="bottom-hud">
+    <div class="hud-glass">
       <div class="status-group">
-        <span>Nodes: <b id="stat-total">0</b></span>
+        <span>Neurons: <b id="stat-neurons">0</b></span>
         <span>Active: <b id="stat-active" style="color: var(--emerald)">0</b></span>
         <span>Forbidden: <b id="stat-inhibitory" style="color: var(--crimson)">0</b></span>
         <span>Entities: <b id="stat-entities" style="color: var(--accent)">0</b></span>
-        <span>Recall: <b style="color: var(--purple)">&lt;18ms</b></span>
+        <span>Hippocampus: <b id="stat-buffer" style="color: var(--purple)">0</b></span>
+        <span>Recall: <b style="color: #38bdf8">&lt;18ms</b></span>
       </div>
     </div>
 
-    <div class="hud-surface">
-      <div class="add-box">
-        <input type="text" id="add-note-input" class="add-input" placeholder="Teach memory: e.g. I live in Pune">
-        <button id="add-note-btn" class="btn btn-primary">Add</button>
+    <div class="hud-glass">
+      <div class="quick-add-wrap">
+        <input type="text" id="add-input" class="quick-add-input" placeholder="Teach memory: e.g. I work at Zerodha">
+        <button id="add-btn" class="btn btn-accent">Add</button>
       </div>
-      <button id="episodes-toggle-btn" class="btn">
-        Recent Episodes (<span id="stat-pending">0</span>)
+      <button id="buffer-toggle-btn" class="btn">
+        Hippocampus Feed (<span id="stat-pending">0</span>)
       </button>
     </div>
   </div>
 
-  <!-- Recall Preview Prompt Drawer -->
-  <div id="recall-drawer" class="recall-preview-drawer">
+  <!-- Recall Simulation Injection Preview -->
+  <div id="recall-card" class="recall-card">
     <div style="display: flex; justify-content: space-between; align-items: center;">
-      <span style="font-size: 11px; font-weight: 600; color: var(--accent);">RECALL INJECTION PREVIEW</span>
-      <button id="recall-drawer-close" style="background: none; border: none; color: var(--text-dim); cursor: pointer;">&times;</button>
+      <span style="font-size: 11px; font-weight: 600; color: var(--accent);">PROMPT INJECTION PREVIEW</span>
+      <button id="recall-close" class="close-btn" style="position: static;">&times;</button>
     </div>
-    <div id="recall-prompt-text" class="prompt-block-text"></div>
+    <div id="recall-prompt-content" class="prompt-box"></div>
   </div>
 
-  <!-- Episodic Buffer Modal -->
-  <div id="episodes-modal" class="episodes-modal">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <span style="font-size: 12px; font-weight: 600; color: #fff;">EPISODIC TURN STREAM</span>
-      <button id="episodes-close-btn" style="background: none; border: none; color: var(--text-muted); cursor: pointer;">&times;</button>
+  <!-- Hippocampal Buffer Modal -->
+  <div id="buffer-modal" class="buffer-modal">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <span style="font-size: 12px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">HIPPOCAMPUS EPISODIC STREAM</span>
+      <button id="buffer-close" class="close-btn" style="position: static;">&times;</button>
     </div>
-    <div id="episodes-list"></div>
+    <div id="buffer-list"></div>
   </div>
 
-  <!-- Node Details Inspector -->
+  <!-- Synapse Inspector -->
   <div id="inspector" class="inspector">
-    <button id="inspector-close-btn" class="inspector-close-btn">&times;</button>
-    <div id="node-badge" class="type-badge badge-active">ACTIVE CANONICAL STATE</div>
+    <button id="inspector-close" class="close-btn">&times;</button>
+    <div id="node-badge" class="type-pill badge-active">ACTIVE CANONICAL FACT</div>
     <h3 id="node-title" class="inspector-title">user.city: Bangalore</h3>
 
-    <div id="citation-card" class="citation-box">
-      <div class="citation-label">Quoted Provenance Citation</div>
+    <div id="citation-box" class="citation-box">
+      <div class="citation-tag">Exact Quoted Provenance</div>
       <div id="citation-text">"I moved to Indiranagar, Bangalore last week."</div>
     </div>
 
-    <div class="meta-row">
-      <span class="meta-k">Subject</span>
-      <span id="meta-subject" class="meta-v">user</span>
+    <div class="prop-item">
+      <span class="prop-k">Subject</span>
+      <span id="prop-subject" class="prop-v">user</span>
     </div>
-    <div class="meta-row" id="row-attribute">
-      <span class="meta-k">Attribute</span>
-      <span id="meta-attribute" class="meta-v">city</span>
+    <div class="prop-item">
+      <span class="prop-k">Attribute</span>
+      <span id="prop-attribute" class="prop-v">city</span>
     </div>
-    <div class="meta-row">
-      <span class="meta-k">Value</span>
-      <span id="meta-value" class="meta-v">Bangalore</span>
+    <div class="prop-item">
+      <span class="prop-k">Value</span>
+      <span id="prop-value" class="prop-v">Bangalore</span>
     </div>
-    <div class="meta-row">
-      <span class="meta-k">Source ID</span>
-      <span id="meta-sentence-id" class="meta-v">[s14]</span>
+    <div class="prop-item">
+      <span class="prop-k">Sentence ID</span>
+      <span id="prop-sentence-id" class="prop-v">[s14]</span>
     </div>
-    <div class="meta-row">
-      <span class="meta-k">Status</span>
-      <span id="meta-status" class="meta-v">active</span>
+    <div class="prop-item">
+      <span class="prop-k">Status</span>
+      <span id="prop-status" class="prop-v">active</span>
     </div>
 
-    <div class="neighbors-container">
-      <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">
-        Connected Relations
+    <div class="neighbors-box">
+      <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase;">
+        Connected Synaptic Pathways
       </div>
-      <div id="neighbors-list"></div>
+      <div id="neighbors-container"></div>
     </div>
   </div>
 
-  <div id="toast" class="toast-msg">Updated</div>
+  <div id="toast" class="toast">Memory updated</div>
 
   <script>
-    let rawGraphData = null;
+    let rawData = null;
     let currentFilter = 'all';
-    let is3D = false;
-    let graphInstance = null;
+    let Graph = null;
+    let brainMeshGroup = null;
+    let hippocampalHelix = null;
+    let recallNodeIds = new Set();
     let hoveredNode = null;
-    let highlightNodes = new Set();
-    let highlightLinks = new Set();
-    let recallMatchedNodeIds = new Set();
 
-    function showToast(text) {
-      const el = document.getElementById('toast');
-      el.innerText = text;
-      el.classList.add('show');
-      setTimeout(() => el.classList.remove('show'), 2500);
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    async function fetchData() {
+    async function loadData() {
       try {
         const res = await fetch('/_orma/brain');
-        if (!res.ok) throw new Error('Fetch failed');
-        rawGraphData = await res.json();
-        updateStats(rawGraphData.stats);
-        renderEpisodes(rawGraphData.hippocampus || []);
-        buildGraph();
+        if (!res.ok) throw new Error('Failed to load memory');
+        rawData = await res.json();
+        updateHUDStats(rawData.stats);
+        renderBuffer(rawData.hippocampus || []);
+        render3DConnectome();
       } catch (err) {
-        console.error('Error fetching data:', err);
+        console.error(err);
       }
     }
 
-    function updateStats(stats) {
+    function updateHUDStats(stats) {
       if (!stats) return;
-      document.getElementById('stat-total').innerText = stats.total_nodes || 0;
+      document.getElementById('stat-neurons').innerText = stats.total_nodes || 0;
       document.getElementById('stat-active').innerText = stats.active_states || 0;
       document.getElementById('stat-inhibitory').innerText = stats.inhibitory_rules || 0;
       document.getElementById('stat-entities').innerText = stats.entities || 0;
+      document.getElementById('stat-buffer').innerText = stats.hippocampal_episodes || 0;
       document.getElementById('stat-pending').innerText = `${stats.pending_episodes || 0} pending`;
     }
 
-    function getFilteredData() {
-      if (!rawGraphData) return { nodes: [], links: [] };
-      if (currentFilter === 'all') return rawGraphData;
+    function getFiltered() {
+      if (!rawData) return { nodes: [], links: [] };
+      if (currentFilter === 'all') return rawData;
 
-      const nodes = rawGraphData.nodes.filter(n => {
+      const nodes = rawData.nodes.filter(n => {
         if (currentFilter === 'active') return n.status === 'active';
         if (currentFilter === 'inhibitory') return n.status === 'inhibitory';
         if (currentFilter === 'entity') return n.type === 'entity';
@@ -587,7 +588,7 @@
         return true;
       });
       const nodeIds = new Set(nodes.map(n => n.id));
-      const links = rawGraphData.links.filter(l => {
+      const links = rawData.links.filter(l => {
         const s = typeof l.source === 'object' ? l.source.id : l.source;
         const t = typeof l.target === 'object' ? l.target.id : l.target;
         return nodeIds.has(s) && nodeIds.has(t);
@@ -595,137 +596,217 @@
       return { nodes, links };
     }
 
-    function buildGraph() {
-      const container = document.getElementById('viewport-container');
-      container.innerHTML = '';
-      const data = getFilteredData();
+    // --- PROCEDURAL 3D BRAIN CORTEX & HIPPOCAMPUS ---
+    function createProceduralBrainLattice() {
+      const group = new THREE.Group();
 
-      if (!is3D) {
-        // 2D Obsidian-style Canvas with legible labels and hover spotlighting
-        graphInstance = ForceGraph()(container)
-          .backgroundColor('#090a0f')
+      // Generate 4,500 points across Left and Right cerebral hemispheres
+      const count = 4500;
+      const positions = new Float32Array(count * 3);
+      const colors = new Float32Array(count * 3);
+
+      for (let i = 0; i < count; i++) {
+        const u = Math.random();
+        const v = Math.random();
+        const theta = u * Math.PI * 2;
+        const phi = Math.acos(2 * v - 1);
+
+        // Ellipsoidal brain scales
+        const rx = 140;
+        const ry = 110;
+        const rz = 170;
+
+        let x = rx * Math.sin(phi) * Math.cos(theta);
+        let y = ry * Math.cos(phi);
+        let z = rz * Math.sin(phi) * Math.sin(theta);
+
+        // Separate hemispheres along the longitudinal fissure
+        const isRight = x >= 0;
+        x = isRight ? Math.abs(x) * 0.88 + 12 : -Math.abs(x) * 0.88 - 12;
+
+        // Procedural sulci and gyri folds (trigonometric harmonics)
+        const fold1 = Math.sin(x * 0.05) * Math.cos(y * 0.05) * 12;
+        const fold2 = Math.sin(z * 0.06 + x * 0.04) * 8;
+        const totalFold = 1.0 + (fold1 + fold2) / 100;
+
+        x *= totalFold;
+        y *= totalFold;
+        z *= totalFold;
+
+        // Temporal notch
+        if (y < -30 && z < -20) {
+          x *= 0.82;
+          z *= 0.82;
+        }
+
+        positions[i * 3]     = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = z;
+
+        // Bioluminescent cyan-blue gradient with soft purple depth
+        colors[i * 3]     = 0.12 + Math.abs(x) / rx * 0.25;  // Red
+        colors[i * 3 + 1] = 0.55 + (y / ry + 1) * 0.25;     // Green
+        colors[i * 3 + 2] = 0.95;                           // Blue
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const mat = new THREE.PointsMaterial({
+        size: 2.2,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.38,
+        blending: THREE.AdditiveBlending
+      });
+
+      const brainPoints = new THREE.Points(geom, mat);
+      group.add(brainPoints);
+
+      // Add Hippocampus: inner glowing core temporal helix (seahorse arch)
+      const helixCount = 120;
+      const helixGeom = new THREE.BufferGeometry();
+      const helixPositions = new Float32Array(helixCount * 3);
+      for (let j = 0; j < helixCount; j++) {
+        const t = (j / helixCount) * Math.PI * 2.8;
+        helixPositions[j * 3]     = Math.sin(t) * 28;
+        helixPositions[j * 3 + 1] = -15 + Math.sin(t * 1.5) * 12;
+        helixPositions[j * 3 + 2] = -40 + Math.cos(t) * 45;
+      }
+      helixGeom.setAttribute('position', new THREE.BufferAttribute(helixPositions, 3));
+      const helixMat = new THREE.LineBasicMaterial({
+        color: 0xa855f7,
+        transparent: true,
+        opacity: 0.55,
+        linewidth: 2,
+        blending: THREE.AdditiveBlending
+      });
+      const helixLine = new THREE.Line(helixGeom, helixMat);
+      group.add(helixLine);
+
+      return group;
+    }
+
+    function render3DConnectome() {
+      const container = document.getElementById('3d-container');
+      const data = getFiltered();
+
+      if (!Graph) {
+        Graph = ForceGraph3D()(container)
+          .backgroundColor('#04060a')
           .graphData(data)
           .nodeId('id')
-          .nodeVal(n => n.val || 6)
-          .nodeCanvasObject((node, ctx, globalScale) => {
+          .nodeLabel(node => `${node.label} [${node.details?.kind || node.type}]`)
+          .nodeThreeObject(node => {
+            const isRecalled = recallNodeIds.has(node.id);
             const isHovered = hoveredNode === node;
-            const isConnected = highlightNodes.has(node.id);
-            const isRecalled = recallMatchedNodeIds.has(node.id);
-            const hasFocus = highlightNodes.size > 0;
-            const alpha = hasFocus ? (isConnected ? 1.0 : 0.15) : 1.0;
+            const size = node.val ? Math.max(3.5, node.val * 0.6) : 4.5;
 
-            const radius = Math.max(4, (node.val || 6) * 0.9);
-            const label = node.label || node.id;
-            const fontSize = Math.max(10 / globalScale, 3);
+            const group = new THREE.Group();
 
-            ctx.save();
-            ctx.globalAlpha = alpha;
+            // Core sphere
+            const sphereGeom = new THREE.SphereGeometry(size, 16, 16);
+            const sphereMat = new THREE.MeshPhongMaterial({
+              color: isRecalled ? 0xf59e0b : (node.color || 0x38bdf8),
+              emissive: isRecalled ? 0xf59e0b : (node.color || 0x38bdf8),
+              emissiveIntensity: isRecalled ? 0.9 : 0.5,
+              shininess: 90
+            });
+            const sphere = new THREE.Mesh(sphereGeom, sphereMat);
+            group.add(sphere);
 
-            // Halo for recalled or hovered nodes
-            if (isRecalled || isHovered) {
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, radius + 4, 0, 2 * Math.PI, false);
-              ctx.fillStyle = isRecalled ? 'rgba(245, 158, 11, 0.4)' : 'rgba(56, 189, 248, 0.35)';
-              ctx.fill();
-            }
-
-            // Node Circle
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = node.color || '#38bdf8';
-            ctx.fill();
-
-            // Label text
-            if (globalScale > 0.6 || isHovered || isConnected || isRecalled) {
-              ctx.font = `${fontSize}px Inter, sans-serif`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'top';
-              ctx.fillStyle = isRecalled ? '#fbbf24' : (isConnected ? '#ffffff' : '#cbd5e1');
-              ctx.fillText(label, node.x, node.y + radius + 3);
-            }
-            ctx.restore();
-          })
-          .nodePointerAreaPaint((node, color, ctx) => {
-            const radius = Math.max(4, (node.val || 6) * 0.9) + 2;
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = color;
-            ctx.fill();
-          })
-          .linkColor(link => {
-            const isConnected = highlightLinks.has(link);
-            const hasFocus = highlightNodes.size > 0;
-            if (hasFocus) {
-              return isConnected ? (link.color || '#ffffff') : 'rgba(255, 255, 255, 0.04)';
-            }
-            return link.color || 'rgba(255, 255, 255, 0.2)';
-          })
-          .linkWidth(link => highlightLinks.has(link) ? 2 : 1)
-          .linkDirectionalParticles(link => highlightLinks.has(link) ? 3 : 1)
-          .linkDirectionalParticleSpeed(0.005)
-          .onNodeHover(node => {
-            if ((!node && !hoveredNode) || (node && hoveredNode === node)) return;
-            hoveredNode = node || null;
-            highlightNodes.clear();
-            highlightLinks.clear();
-
-            if (node) {
-              highlightNodes.add(node.id);
-              data.links.forEach(l => {
-                const s = typeof l.source === 'object' ? l.source.id : l.source;
-                const t = typeof l.target === 'object' ? l.target.id : l.target;
-                if (s === node.id) {
-                  highlightNodes.add(t);
-                  highlightLinks.add(l);
-                }
-                if (t === node.id) {
-                  highlightNodes.add(s);
-                  highlightLinks.add(l);
-                }
+            // Glowing halo for active or recalled nodes
+            if (node.status === 'active' || node.status === 'inhibitory' || isRecalled) {
+              const haloGeom = new THREE.SphereGeometry(size * 1.45, 12, 12);
+              const haloMat = new THREE.MeshBasicMaterial({
+                color: isRecalled ? 0xf59e0b : (node.status === 'inhibitory' ? 0xef4444 : 0x10b981),
+                transparent: true,
+                opacity: isRecalled ? 0.5 : 0.22,
+                wireframe: true,
+                blending: THREE.AdditiveBlending
               });
+              group.add(new THREE.Mesh(haloGeom, haloMat));
             }
-          })
-          .onNodeClick(node => inspectNode(node));
 
-        graphInstance.d3Force('charge').strength(-140);
-        graphInstance.d3Force('link').distance(45);
-      } else {
-        // 3D Orbital WebGL Mode
-        graphInstance = ForceGraph3D()(container)
-          .backgroundColor('#090a0f')
-          .graphData(data)
-          .nodeLabel(n => `${n.label} (${n.details?.kind || n.type})`)
-          .nodeColor(n => n.color || '#38bdf8')
-          .nodeVal(n => n.val || 6)
-          .nodeResolution(16)
-          .linkDirectionalParticles(2)
-          .linkDirectionalParticleWidth(1.6)
-          .linkColor(l => l.color || '#ffffff33')
-          .onNodeClick(node => {
-            const distance = 80;
-            const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
-            graphInstance.cameraPosition(
-              { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
-              node,
-              1200
-            );
-            inspectNode(node);
+            // Floating 3D Text Billboard Label
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'transparent';
+            ctx.fillRect(0, 0, 256, 64);
+            ctx.font = 'bold 22px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = isRecalled ? '#fbbf24' : (node.status === 'inhibitory' ? '#fca5a5' : '#e2e8f0');
+            ctx.fillText(node.label || node.id, 128, 38);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.85 });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.scale.set(36, 9, 1);
+            sprite.position.set(0, size + 8, 0);
+            group.add(sprite);
+
+            return group;
+          })
+          .linkDirectionalParticles(link => recallNodeIds.size > 0 ? 3 : 2)
+          .linkDirectionalParticleWidth(1.8)
+          .linkDirectionalParticleSpeed(link => (link.value || 1) * 0.006)
+          .linkColor(link => link.color || '#ffffff28')
+          .linkWidth(link => link.value ? Math.min(2.2, link.value) : 1)
+          .onNodeClick(node => focusOnNeuron(node))
+          .onNodeHover(node => {
+            hoveredNode = node;
           });
+
+        // Add the procedural 3D brain cortex into the Three.js scene
+        const scene = Graph.scene();
+        brainMeshGroup = createProceduralBrainLattice();
+        scene.add(brainMeshGroup);
+
+        // Adjust forces to gently shape nodes within the brain cavity
+        Graph.d3Force('charge').strength(-130);
+        Graph.d3Force('link').distance(42);
+
+        // Gentle brain idle breathing rotation
+        let angle = 0;
+        setInterval(() => {
+          if (brainMeshGroup) {
+            angle += 0.0012;
+            brainMeshGroup.rotation.y = Math.sin(angle) * 0.15;
+          }
+        }, 30);
+      } else {
+        Graph.graphData(data);
       }
     }
 
-    function inspectNode(node) {
+    function focusOnNeuron(node) {
+      const distance = 95;
+      const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
+
+      Graph.cameraPosition(
+        { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
+        node,
+        1400
+      );
+
+      inspectNeuron(node);
+    }
+
+    function inspectNeuron(node) {
       const inspector = document.getElementById('inspector');
       const badge = document.getElementById('node-badge');
       const title = document.getElementById('node-title');
-      const citationCard = document.getElementById('citation-card');
+      const citationBox = document.getElementById('citation-box');
       const citationText = document.getElementById('citation-text');
-      const subjectEl = document.getElementById('meta-subject');
-      const attrEl = document.getElementById('meta-attribute');
-      const valEl = document.getElementById('meta-value');
-      const sentenceEl = document.getElementById('meta-sentence-id');
-      const statusEl = document.getElementById('meta-status');
-      const neighborsContainer = document.getElementById('neighbors-list');
+      const subjectEl = document.getElementById('prop-subject');
+      const attrEl = document.getElementById('prop-attribute');
+      const valEl = document.getElementById('prop-value');
+      const sentenceEl = document.getElementById('prop-sentence-id');
+      const statusEl = document.getElementById('prop-status');
+      const neighborsContainer = document.getElementById('neighbors-container');
 
       title.innerText = node.label || node.id;
       subjectEl.innerText = node.subject || node.details?.name || 'user';
@@ -735,16 +816,16 @@
       sentenceEl.innerText = node.details?.sentence_id ? `[s${node.details.sentence_id}]` : '-';
 
       // Badge style
-      badge.className = 'type-badge';
+      badge.className = 'type-pill';
       if (node.status === 'inhibitory') {
         badge.classList.add('badge-inhibitory');
         badge.innerText = 'FORBIDDEN CONSTRAINT';
       } else if (node.status === 'conditional') {
         badge.classList.add('badge-conditional');
-        badge.innerText = 'CONDITIONAL RULE';
+        badge.innerText = 'CONDITIONAL OVERRIDE';
       } else if (node.status === 'superseded') {
         badge.classList.add('badge-superseded');
-        badge.innerText = 'SUPERSEDED HISTORY';
+        badge.innerText = 'SUPERSEDED MEMORY';
       } else if (node.type === 'entity') {
         badge.classList.add('badge-entity');
         badge.innerText = `ENTITY (${node.subtype || 'general'})`;
@@ -758,20 +839,20 @@
 
       // Sentence citation
       if (node.details?.citation) {
-        citationCard.style.display = 'block';
+        citationBox.style.display = 'block';
         citationText.innerText = `"${node.details.citation}"`;
       } else {
-        citationCard.style.display = 'none';
+        citationBox.style.display = 'none';
       }
 
-      // Neighbors
+      // Synaptic Connections
       neighborsContainer.innerHTML = '';
-      const currentLinks = getFilteredData().links;
+      const currentLinks = getFiltered().links;
       const neighbors = [];
 
       currentLinks.forEach(l => {
-        const s = typeof l.source === 'object' ? l.source : getFilteredData().nodes.find(n => n.id === l.source);
-        const t = typeof l.target === 'object' ? l.target : getFilteredData().nodes.find(n => n.id === l.target);
+        const s = typeof l.source === 'object' ? l.source : getFiltered().nodes.find(n => n.id === l.source);
+        const t = typeof l.target === 'object' ? l.target : getFiltered().nodes.find(n => n.id === l.target);
         if (s && t) {
           if (s.id === node.id && !neighbors.includes(t)) neighbors.push(t);
           if (t.id === node.id && !neighbors.includes(s)) neighbors.push(s);
@@ -779,41 +860,37 @@
       });
 
       if (neighbors.length === 0) {
-        neighborsContainer.innerHTML = '<span style="font-size: 11px; color: var(--text-dim);">No direct connections.</span>';
+        neighborsContainer.innerHTML = '<span style="font-size: 11px; color: var(--text-dim);">No direct synaptic connections.</span>';
       } else {
         neighbors.forEach(n => {
-          const tag = document.createElement('span');
-          tag.className = 'neighbor-tag';
-          tag.innerText = n.label || n.id;
-          tag.onclick = () => {
-            if (!is3D && graphInstance) {
-              graphInstance.centerAt(n.x, n.y, 600);
-            }
-            inspectNode(n);
-          };
-          neighborsContainer.appendChild(tag);
+          const pill = document.createElement('span');
+          pill.className = 'neighbor-pill';
+          pill.innerText = n.label || n.id;
+          pill.onclick = () => focusOnNeuron(n);
+          neighborsContainer.appendChild(pill);
         });
       }
 
       inspector.classList.add('open');
     }
 
-    function renderEpisodes(episodes) {
-      const container = document.getElementById('episodes-list');
+    function renderBuffer(episodes) {
+      const container = document.getElementById('buffer-list');
       container.innerHTML = '';
       if (!episodes || episodes.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; padding: 10px;">No episodes recorded yet.</div>';
+        container.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; padding: 10px;">No episodic memories recorded.</div>';
         return;
       }
       episodes.forEach(ep => {
         const div = document.createElement('div');
-        div.className = 'turn-card';
-        const statusText = ep.consolidated ? '[Consolidated]' : '[Pending Sleep]';
-        const statusColor = ep.consolidated ? 'var(--emerald)' : 'var(--accent)';
+        div.className = 'turn-row';
+        const isCons = ep.consolidated;
         div.innerHTML = `
           <div class="turn-header">
             <span style="color: var(--accent);">${ep.role.toUpperCase()}</span>
-            <span style="color: ${statusColor}">${statusText}</span>
+            <span style="color: ${isCons ? 'var(--emerald)' : 'var(--purple)'}">
+              ${isCons ? '[Consolidated]' : '[Hippocampus Buffer]'}
+            </span>
           </div>
           <div style="color: #cbd5e1;">${ep.text.slice(0, 160)}${ep.text.length > 160 ? '...' : ''}</div>
         `;
@@ -821,46 +898,37 @@
       });
     }
 
-    // Handlers
-    document.getElementById('toggle-view-btn').onclick = () => {
-      is3D = !is3D;
-      document.getElementById('toggle-view-btn').innerText = is3D ? '2D Graph' : '3D Mode';
-      buildGraph();
-    };
-
-    document.querySelectorAll('.filter-chip').forEach(btn => {
+    // Filter Chips
+    document.querySelectorAll('.filter-btn').forEach(btn => {
       btn.onclick = () => {
-        document.querySelectorAll('.filter-chip').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentFilter = btn.getAttribute('data-filter');
-        buildGraph();
+        render3DConnectome();
       };
     });
 
     document.getElementById('recenter-btn').onclick = () => {
-      if (graphInstance) {
-        if (is3D) graphInstance.zoomToFit(800, 80);
-        else graphInstance.zoomToFit(800, 40);
-      }
+      if (Graph) Graph.zoomToFit(1000, 80);
     };
 
     document.getElementById('sleep-btn').onclick = async () => {
-      showToast('Consolidating memory during sleep...');
+      showToast('Consolidating memories during sleep replay...');
       try {
         const res = await fetch('/_orma/sleep', { method: 'POST' });
         if (res.ok) {
           const report = await res.json();
-          showToast(`Consolidation done: +${report.states_added || 0} states, +${report.events_added || 0} events.`);
-          await fetchData();
+          showToast(`Sleep complete: +${report.states_added || 0} states, +${report.events_added || 0} events.`);
+          await loadData();
         }
-      } catch (err) {
+      } catch (e) {
         showToast('Sleep triggered.');
-        await fetchData();
+        await loadData();
       }
     };
 
-    document.getElementById('add-note-btn').onclick = async () => {
-      const input = document.getElementById('add-note-input');
+    document.getElementById('add-btn').onclick = async () => {
+      const input = document.getElementById('add-input');
       const text = input.value.trim();
       if (!text) return;
       try {
@@ -871,43 +939,43 @@
         });
         if (res.ok) {
           input.value = '';
-          showToast('Memory added!');
-          await fetchData();
+          showToast('Memory encoded into Hippocampus');
+          await loadData();
         }
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.error(err);
       }
     };
 
     // Live Recall Simulation
-    document.getElementById('recall-search-input').addEventListener('keydown', async (e) => {
+    document.getElementById('recall-input').addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
         const q = e.target.value.trim();
         if (!q) {
-          recallMatchedNodeIds.clear();
-          document.getElementById('recall-drawer').classList.remove('open');
-          if (graphInstance) graphInstance.refresh();
+          recallNodeIds.clear();
+          document.getElementById('recall-card').classList.remove('open');
+          render3DConnectome();
           return;
         }
         try {
           const res = await fetch(`/_orma/search?q=${encodeURIComponent(q)}`);
           if (res.ok) {
             const data = await res.json();
-            recallMatchedNodeIds = new Set(data.matched_node_ids || []);
-            const drawer = document.getElementById('recall-drawer');
-            const promptEl = document.getElementById('recall-prompt-text');
-            promptEl.innerText = data.prompt_block || '(No facts recalled for prompt)';
-            drawer.classList.add('open');
+            recallNodeIds = new Set(data.matched_node_ids || []);
+            const card = document.getElementById('recall-card');
+            const promptBox = document.getElementById('recall-prompt-content');
+            promptBox.innerText = data.prompt_block || '(No facts recalled for prompt)';
+            card.classList.add('open');
 
-            // Recenter on first matched node if available
-            if (!is3D && graphInstance && data.matched_node_ids.length > 0) {
-              const matchedNode = getFilteredData().nodes.find(n => n.id === data.matched_node_ids[0]);
-              if (matchedNode) {
-                graphInstance.centerAt(matchedNode.x, matchedNode.y, 800);
-                graphInstance.zoom(2.0, 800);
+            render3DConnectome();
+
+            // Focus camera on first matched neuron
+            if (data.matched_node_ids && data.matched_node_ids.length > 0) {
+              const targetNeuron = getFiltered().nodes.find(n => n.id === data.matched_node_ids[0]);
+              if (targetNeuron) {
+                focusOnNeuron(targetNeuron);
               }
             }
-            if (graphInstance) graphInstance.refresh();
           }
         } catch (err) {
           console.error(err);
@@ -915,24 +983,24 @@
       }
     });
 
-    document.getElementById('recall-drawer-close').onclick = () => {
-      document.getElementById('recall-drawer').classList.remove('open');
-      recallMatchedNodeIds.clear();
-      if (graphInstance) graphInstance.refresh();
+    document.getElementById('recall-close').onclick = () => {
+      document.getElementById('recall-card').classList.remove('open');
+      recallNodeIds.clear();
+      render3DConnectome();
     };
 
-    document.getElementById('inspector-close-btn').onclick = () => {
+    document.getElementById('inspector-close').onclick = () => {
       document.getElementById('inspector').classList.remove('open');
     };
 
-    document.getElementById('episodes-toggle-btn').onclick = () => {
-      document.getElementById('episodes-modal').classList.toggle('open');
+    document.getElementById('buffer-toggle-btn').onclick = () => {
+      document.getElementById('buffer-modal').classList.toggle('open');
     };
-    document.getElementById('episodes-close-btn').onclick = () => {
-      document.getElementById('episodes-modal').classList.remove('open');
+    document.getElementById('buffer-close').onclick = () => {
+      document.getElementById('buffer-modal').classList.remove('open');
     };
 
-    window.onload = fetchData;
+    window.onload = loadData;
   </script>
 </body>
 </html>

@@ -45,8 +45,8 @@ def test_viz_proxy_endpoints(tmp_path):
     res_viz = client.get("/_orma/viz")
     assert res_viz.status_code == 200
     assert "text/html" in res_viz.headers["content-type"]
-    assert "force-graph" in res_viz.text
-    assert "MEMORY GRAPH" in res_viz.text
+    assert "3d-force-graph" in res_viz.text
+    assert "NEURAL BRAIN" in res_viz.text
 
     # 3. Test alternate paths
     assert client.get("/brain").status_code == 200
