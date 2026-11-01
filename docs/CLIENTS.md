@@ -1,83 +1,122 @@
-# Connecting clients
+# Connecting Clients to Orma
 
-Start the proxy first (`smruti proxy`, see the README). It listens on `http://localhost:8080/v1` by default. Clients need no other changes: any API key value works for a local runtime unless your upstream requires one (the proxy forwards the client's headers).
+Orma can be connected to any LLM application, developer tool, or AI coding assistant using either **Model Context Protocol (MCP)** or the **OpenAI-Compatible Proxy**.
 
-The config formats of third-party clients change. The snippets below are examples; check each client's docs for the current format.
+---
 
-## OpenCode
+## Option 1: Native MCP (Claude Code, Cursor, Windsurf, Antigravity IDE)
 
-An `opencode.json` custom provider using the OpenAI-compatible adapter:
+Orma runs natively as a Model Context Protocol server over standard `stdio`. This provides zero-latency memory across all your coding sessions.
 
+### In Claude Code:
+```bash
+claude mcp add orma -- orma mcp
+```
+
+### In Cursor (`.cursor/mcp.json` or Settings > MCP):
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "smruti": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Smruti (Ollama)",
-      "options": { "baseURL": "http://localhost:8080/v1" },
-      "models": { "llama3.2:3b": { "name": "llama3.2:3b" } }
+  "mcpServers": {
+    "orma": {
+      "command": "orma",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-## Open WebUI
+### In Windsurf / Antigravity IDE (`mcp.json`):
+```json
+{
+  "mcpServers": {
+    "orma": {
+      "command": "orma",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
-Settings, Connections, OpenAI API: set the URL to `http://localhost:8080/v1` (use `http://host.docker.internal:8080/v1` if Open WebUI runs in Docker). The API key can be any non-empty string.
+### One-Click Install via Smithery.ai:
+```bash
+npx -y @smithery/cli install orma-ai --client cursor
+```
 
-## Continue
+### Available MCP Tools:
+- **`orma_recall(query, space)`**: Returns token-budgeted, Sutra-packed active facts, anti-patterns, and past decisions (< 20ms).
+- **`orma_remember(text, kind, role, space)`**: Permanently records a project decision, architecture rule, or user constraint. Set `kind="anti_pattern"` to mark a forbidden mistake to avoid.
+- **`orma_forbid(rule, space)`**: Directly registers a hard anti-pattern or prohibited behavior (e.g. "Never chain PowerShell commands with semicolons").
+- **`orma_facts(space, include_history)`**: Inspects all active canonical truths without running a search.
+- **`orma_forget(state_id, space)`**: Closes an obsolete or superseded constraint.
 
-In Continue's config, add a model with the `openai` provider and `apiBase` set to the proxy:
+---
 
+## Option 2: OpenAI-Compatible Proxy Mode
+
+Start the Orma memory proxy first:
+```bash
+# With Ollama
+orma proxy --model llama3.2:3b
+
+# With llama.cpp
+orma proxy --upstream http://127.0.0.1:9931 --model "Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M"
+
+# With one-command browser launcher
+orma up --upstream http://127.0.0.1:9931 --model "Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M"
+```
+
+The proxy listens on `http://localhost:8080/v1` by default. Point any OpenAI-compatible client to this address:
+
+### With the Official OpenAI Python Client:
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="none"
+)
+
+response = client.chat.completions.create(
+    model="llama3.2:3b",
+    messages=[{"role": "user", "content": "What is my job and where do I live?"}]
+)
+print(response.choices[0].message.content)
+```
+
+### With LangChain:
+```python
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="none",
+    model="llama3.2:3b"
+)
+```
+
+### With Open WebUI:
+1. Open **Settings > Connections > OpenAI API**.
+2. Set the URL to `http://localhost:8080/v1` (or `http://host.docker.internal:8080/v1` if Open WebUI runs in Docker).
+3. The API key can be any string (e.g., `none`).
+
+### With Continue (`config.yaml`):
 ```yaml
 models:
-  - name: Local via Smruti
+  - name: Local via Orma
     provider: openai
     model: llama3.2:3b
     apiBase: http://localhost:8080/v1
 ```
 
-## Any OpenAI SDK
+---
 
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://localhost:8080/v1", api_key="unused")
-```
+## Upstream Runtime Compatibility
 
-## Other upstreams
+Orma speaks to any OpenAI-compatible runtime:
 
-Smruti talks to any OpenAI-compatible runtime. Pass its `/v1` base URL with `--upstream`:
-
-| Runtime | Command |
-| --- | --- |
-| Ollama (default) | `smruti proxy` |
-| LM Studio | `smruti proxy --upstream http://localhost:1234/v1` |
-| llama.cpp `llama-server` | `smruti proxy --upstream http://localhost:8080/v1 --port 8081` (pick a different proxy port than the server) |
-| vLLM | `smruti proxy --upstream http://localhost:8000/v1` |
-
-The ports are each runtime's usual defaults; adjust them to your setup. Sleep uses the model named in client requests, or the one you pass with `--model`.
-
-## Requirements and limits
-
-- Use `--model` to pick the sleep model; otherwise the first model a client requests is used, which may be a small helper model.
-- Add the header `X-Smruti-Skip: 1` to title-generation, autocomplete and other helper requests. They get no recall, are not recorded, and the header is not forwarded upstream.
-- Chat requests must have `Content-Type: application/json` (other types get a 415).
-- Secrets are masked before storing (API keys, bearer tokens, AWS and GitHub tokens, private keys, `password=`/`api_key=` values), and tool output is truncated to `max_tool_chars` (default 4000).
-- Browser-direct clients are not supported (the proxy sends no CORS headers). Only `/v1` paths are proxied, so Ollama's native `/api` endpoints are not.
-
-## Memory spaces
-
-A space is an isolated memory. Use one per user or project. The proxy picks the space from, in order: the `X-Smruti-Space` header, the request body's `user` field, the `--space` option (default `default`).
-
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" -H "X-Smruti-Space: project-a" \
-  -d '{"model": "llama3.2:3b", "messages": [{"role": "user", "content": "Remember that we use Postgres."}]}'
-
-smruti facts --space project-a
-```
-
-## Tool calls
-
-Tool calls and their results are captured automatically. A tool result is recorded together with the call that produced it. During sleep they become procedures that are recalled as warnings or tips on similar situations. Nothing needs to be configured in the client. Streaming and non-streaming requests are both supported; other `/v1` endpoints (such as `/v1/models`) pass through unchanged.
+| Runtime | Upstream URL Flag | Default Upstream Port |
+|---|---|---|
+| **Ollama** | `--upstream http://localhost:11434/v1` | `11434` |
+| **llama.cpp (`llama-server`)** | `--upstream http://127.0.0.1:9931/v1` | `9931` (or custom) |
+| **LM Studio** | `--upstream http://localhost:1234/v1` | `1234` |
+| **vLLM** | `--upstream http://localhost:8000/v1` | `8000` |

@@ -30,6 +30,14 @@ ENV/
 mcp-publisher.exe
 *.log
 
+# Scratch scripts & temporary test files
+patch_*.py
+bump*.py
+check_*.py
+test_*_live.py
+update_*.py
+*.tmp
+
 # Build & packaging artifacts
 build/
 dist/

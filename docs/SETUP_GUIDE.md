@@ -1,44 +1,110 @@
-# Setup guide
+# Orma Setup Guide
 
-## Install
+---
 
-Smruti needs Python 3.10 or newer (3.9 is not supported).
+## Installation
 
+Orma requires **Python 3.10 or newer** (Python 3.9 is not supported).
+
+### From PyPI (Recommended):
 ```bash
-git clone <this repo> && cd smruti
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"      # ".[dev]" adds pytest and ruff; use "." for runtime only
-smruti --help
+pip install orma-ai
 ```
 
-On first use Smruti downloads the `BAAI/bge-small-en-v1.5` embedding model (about 130 MB) once and caches it.
-
-## Run
-
+### From Source (Development):
 ```bash
+git clone https://github.com/wizardwithcodehazard/orma.git
+cd orma/smruti
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+orma --help
+```
+
+On first use, Orma downloads the `BAAI/bge-small-en-v1.5` embedding model (~130 MB ONNX) once and caches it locally.
+
+---
+
+## Quick Start
+
+### 1. Run as MCP Server for Cursor / Claude Code:
+```bash
+orma mcp
+```
+
+### 2. Run as Proxy for Local Models:
+```bash
+# With Ollama
 ollama pull llama3.2:3b
-smruti proxy
+orma proxy --model llama3.2:3b
+
+# With llama.cpp
+orma proxy --upstream http://127.0.0.1:9931 --model "Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M"
 ```
 
-Defaults: upstream `http://localhost:11434/v1`, listen on `127.0.0.1:8080`. Point clients at `http://localhost:8080/v1`; see [CLIENTS.md](CLIENTS.md).
+### 3. One-Command Browser Web UI:
+```bash
+orma up --upstream http://127.0.0.1:9931 --model "Qwen/Qwen2.5-3B-Instruct-GGUF:Q4_K_M"
+```
+This automatically opens your browser to `http://127.0.0.1:8080/#/` with full long-term memory support.
 
-## Where data lives
+---
 
-`~/.smruti/memory.db` (SQLite, WAL mode). Set `SMRUTI_DIR` to use a different directory. Memory spaces share this one file.
+## Where Data Lives
 
-## Tests
+All memories are kept locally in **`~/.orma/memory.db`** (SQLite with Write-Ahead Logging).
+
+- To use a custom data directory, set the `ORMA_DIR` environment variable:
+  ```bash
+  export ORMA_DIR=/path/to/custom/dir
+  ```
+- All memory spaces share this single SQLite file and are isolated by tenant/user keys.
+
+---
+
+## CLI Reference
+
+```bash
+# Ingest notes, files, or documents
+orma add "My sister Asha is allergic to peanuts."
+orma add docs/handbook.md
+
+# Search memory directly
+orma search "allergies"
+
+# Preview the exact prompt block that would be injected
+orma recall "What is Asha allergic to?"
+
+# Inspect active facts and outdated history
+orma facts --history
+
+# Directly register an anti-pattern or forbidden rule
+# (or use the orma_forbid MCP tool)
+orma add "FORBIDDEN RULE: Never chain terminal commands with semicolons"
+
+# Manually trigger background sleep consolidation
+orma sleep --model llama3.2:3b
+
+# Mark a specific obsolete state as forgotten
+orma forget 12
+
+# Database statistics
+orma stats
+```
+
+---
+
+## Running Tests
 
 ```bash
 python -m pytest -q
 ```
+All 213 unit and integration tests run locally in seconds using mock embedders and mock LLM transports, without needing external network access.
 
-Tests use fake embedders and fake LLM transports, so they need no model download or running server.
+---
 
 ## Troubleshooting
 
-- **502 from the proxy.** The upstream runtime is unreachable. Check that Ollama (or your runtime) is running and that `--upstream` is the right `/v1` URL.
-- **Facts never appear.** Sleep needs a model. The proxy learns it from the first request that names one; otherwise pass `--model`. `smruti sleep --model llama3.2:3b` forces a run. Background sleep starts at 20 pending turns or 120 s idle; check `smruti stats` for `pending_episodes`.
-- **Sleep batches failing.** A failed batch is retried on later cycles and retired after 3 attempts. Use a model that can follow a JSON schema; very small models may extract poorly.
-- **`SyntaxError` or install errors on Python 3.9.** Use Python 3.10 or newer.
-- **Reset memory.** Stop the proxy and delete `~/.smruti/memory.db` (and its `-wal` and `-shm` files if present).
-- **Remove one wrong fact.** `smruti facts` to find its id, then `smruti forget ID`.
+- **502 Bad Gateway from Proxy:** The upstream model server is unreachable. Verify that Ollama or `llama-server` is running and accessible at `--upstream`.
+- **Facts Don't Consolidate:** Sleep requires a model. Pass `--model` or ensure the client request sends a model identifier. Run `orma stats` to check `pending_episodes`.
+- **Reset All Memory:** Stop any running Orma processes and delete `~/.orma/memory.db` (and any associated `-wal` or `-shm` files).
