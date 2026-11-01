@@ -48,7 +48,9 @@ Most agent memory frameworks (like Mem0 or Cognee) were designed for massive clo
 
 ```mermaid
 flowchart TD
-    User["User / Agent / Client"] -->|"1. Chat Request"| Proxy["Orma Proxy / SDK"]
+    User["User / App / Chatbot"] -->|"1a. Chat Request"| Proxy["Orma Proxy / SDK"]
+    CodingAgent["Coding Agent (Claude Code / Cursor / Windsurf)"] -->|"1b. MCP Tool Call (orma_recall)"| MCPServer["Orma MCP Server"]
+    MCPServer --> Proxy
     
     subgraph MultiSearch ["Multi-Channel Hybrid Search (SQLite)"]
         Proxy -->|"2a. BM25 Query"| FTS["FTS5 BM25 Exact Text Index"]
@@ -66,21 +68,25 @@ flowchart TD
     end
 
     subgraph CognitiveRanker ["Stochastic & Cognitive Scoring Suite"]
-        AssociateStates --> Hawkes["Hawkes Self-Exciting Temporal Burst: α · exp(-β · Δt)"]
-        Hawkes --> Ebbinghaus["Ebbinghaus Spaced Stability: S = S0 · (1 + gain · (n - 1))"]
-        Ebbinghaus --> BaseLevel["ACT-R Base-Level Decay: Σ (age_days + 1)^(-d)"]
+        AssociateStates --> Hawkes["Hawkes Temporal Burst: alpha * exp(-beta * dt)"]
+        Hawkes --> Ebbinghaus["Ebbinghaus Spaced Stability: S = S0 * (1 + gain * (n - 1))"]
+        Ebbinghaus --> BaseLevel["ACT-R Base-Level Decay: sum (age_days + 1)^(-d)"]
     end
 
-    subgraph BudgetPacker ["Sutra Memory Packing & Budget Guardrails"]
+    subgraph BudgetPacker ["Budget Allocation, Inhibitory Hoisting & Sutra Packing"]
         BaseLevel --> Novelty["Novelty Gate: Drop duplicates (cosine >= 0.97)"]
         Novelty --> Partition["Partition Budget: States | Events | Passages"]
-        Partition --> SutraFormat["Sutra Dense Bracket Packing: [user.attr: val] (-45% tokens)"]
-        SutraFormat --> MemoryBlock["Construct Formatted System Memory Prompt Block"]
+        Partition --> InhibitoryCheck{"Is Inhibitory? (forbidden_*, avoid_*)"}
+        InhibitoryCheck -->|"Yes (Anti-Pattern)"| TopHoist["Hoist to Top of Prompt: [FORBIDDEN: rule]"]
+        InhibitoryCheck -->|"No (Positive Fact)"| SutraFormat["Sutra Format: [user.attr: val] (-45% tokens)"]
+        TopHoist --> DynamicFraming["Inject Dynamic Negative Framing Semantics"]
+        SutraFormat --> DynamicFraming
+        DynamicFraming --> MemoryBlock["Construct Prioritized System Memory Block"]
     end
 
     MemoryBlock -->|"3. Injected Prompt"| Upstream["Local LLM (Ollama / llama.cpp / vLLM)"]
     Upstream -->|"4. Streaming Response"| Proxy
-    Proxy -->|"5. Return to User"| User
+    Proxy -->|"5. Return to User / Agent"| User
     Proxy -.->|"6. Async Non-Blocking Append"| EpisodicLog[("SQLite Append-Only Episodes")]
 ```
 
@@ -99,8 +105,10 @@ flowchart TD
         V3 --> V4["Calendar & Timezone Anchoring (clock.py)"]
     end
 
-    subgraph DefeasibleLogic ["Defeasible Epistemic Logic Gate"]
-        V4 --> FrameCheck{"Has Conditional Framing? (when, if, unless, during)"}
+    subgraph InhibitoryAndDefeasibleGate ["Inhibitory & Defeasible Logic Gate"]
+        V4 --> ProhibCheck{"Declared Prohibited? (prohibited: true, orma_forbid)"}
+        ProhibCheck -->|"Yes (Anti-Pattern / Rule to Avoid)"| ForbiddenPrefix["Namespace Attribute: forbidden_<attr>"]
+        ProhibCheck -->|"No (Standard Fact)"| FrameCheck{"Has Conditional Framing? (when, if, unless, during)"}
         FrameCheck -->|"No (Categorical Fact)"| Categorical["Supersedes Contradictory Prior State"]
         Categorical --> CloseOld["Mark Old State: active = 0, superseded_by_id = new_id"]
         FrameCheck -->|"Yes (Defeasible Exception)"| Defeasible["Preserve Baseline Truth + Record Conditional Override"]
@@ -108,6 +116,7 @@ flowchart TD
 
     CloseOld --> Store[("SQLite State Store & Entity Adjacency Graph")]
     Defeasible --> Store
+    ForbiddenPrefix --> Store
 ```
 
 ---
@@ -123,7 +132,7 @@ Or install from source for development:
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
 pip install -e ".[dev]"
-python -m pytest -q  # 208 tests pass locally
+python -m pytest -q  # 213 tests pass locally
 ```
 
 ---
@@ -233,6 +242,40 @@ This immediately:
 
 Orma natively speaks the Model Context Protocol (MCP) over standard `stdio`. This gives coding agents (Claude Code, Cursor, Antigravity IDE, Windsurf, Roo Code, Hermes) persistent, zero-latency memory across editing sessions without session amnesia.
 
+```mermaid
+flowchart LR
+    subgraph Clients ["AI Coding Assistants & IDEs"]
+        ClaudeCode["Claude Code"]
+        Cursor["Cursor IDE"]
+        Windsurf["Windsurf"]
+        Antigravity["Antigravity / Roo / Hermes"]
+    end
+
+    subgraph Transport ["Standard stdio JSON-RPC 2.0"]
+        RPC["JSON-RPC Channel (orma mcp)"]
+    end
+
+    subgraph MCPServer ["Orma MCP Server Layer"]
+        RecallTool["orma_recall"]
+        RememberTool["orma_remember"]
+        ForbidTool["orma_forbid"]
+        FactsTool["orma_facts"]
+        ForgetTool["orma_forget"]
+    end
+
+    subgraph OrmaEngine ["Orma Local Cognitive Engine"]
+        Hybrid["Hybrid BM25 + sqlite-vec Search"]
+        InhibitoryEngine["Inhibitory Hoisting & Sutra Packing"]
+        SleepDaemon["Background Sleep Consolidation Worker"]
+        DB[("Embedded SQLite: ~/.orma/memory.db")]
+    end
+
+    Clients <-->|"stdio"| RPC
+    RPC --> MCPServer
+    MCPServer <--> OrmaEngine
+    OrmaEngine <--> DB
+```
+
 ### In Claude Code:
 ```bash
 claude mcp add orma -- orma mcp
@@ -280,10 +323,27 @@ npx -y @smithery/cli install orma-ai --client cursor
 
 A pervasive failure mode in AI coding assistants and small LLMs is **forbidden mistake recurrence**: when a user says *"Stop using semicolons to chain terminal commands in PowerShell"*, standard autoregressive models place high attention weight on the word *semicolon* and continue repeating the exact same error.
 
+```mermaid
+flowchart TD
+    subgraph Problem ["Traditional LLM Attention Failure"]
+        UserWarning["User: 'Never use semicolon to chain commands in PowerShell'"] --> StandardLLM["Standard LLM Attention Mechanism"]
+        StandardLLM --> AttentionBias["Attention Activates on Forbidden Token: 'semicolon'"]
+        AttentionBias --> RecurrenceError["Forbidden Mistake Repeated: git add . ; git commit"]
+    end
+
+    subgraph Solution ["Orma Inhibitory Control Architecture"]
+        ForbidRule["Inhibitory Rule: orma_forbid / sleep extraction"] --> SchemaAttr["Schema Attribution (prohibited: true)"]
+        SchemaAttr --> NamespaceAttr["Attribute Namespacing (forbidden_powershell_chain)"]
+        NamespaceAttr --> HoistTop["Top-of-Prompt Hoisting: [FORBIDDEN: never use semicolon]"]
+        HoistTop --> DynamicFraming["Dynamic Negative Framing Semantics"]
+        DynamicFraming --> CleanOutput["Strict Negative Compliance: git add . \n git commit"]
+    end
+```
+
 Orma introduces **Inhibitory Control**:
 1. **Schema-Level Attribution:** Negative rules are identified during sleep extraction with `prohibited: true` or directly registered via `orma_forbid(rule)`.
 2. **Sutra Inhibitory Hoisting:** Prohibited states are rendered as `[FORBIDDEN: <rule>]` and hoisted to the **very top** of the system prompt (above all positive facts and conversation history).
-3. **Dynamic Negative Framing:** Orma injects explicit negative constraint semantics into the system prompt whenever anti-patterns are present:
+3. **Dynamic Negative Framing:** Orma dynamically injects explicit negative constraint semantics into the system prompt whenever anti-patterns are present:
    ```text
    ## Memory
    ... Lines marked [FORBIDDEN: ...] or under Forbidden are strict negative constraints: you must NEVER suggest, mention, or take what is forbidden.
@@ -475,6 +535,18 @@ Naive memory systems (like Mem0 or basic graph extraction) detect a contradictio
 
 ---
 
+### 7. Inhibitory Control & Attention Hoisting
+
+**Cognitive & Neuro-Symbolic Rationale:** In human cognitive neuroscience, executive inhibitory control (prefrontal cortex) suppresses prepotent motor or verbal impulses. In autoregressive Transformers, negative phrasing ("do not use X") paradoxically increases the probability of generating X because token attention activates on the semantic representations of the mentioned words.
+
+* **Hoisting Precedence**: Rather than interweaving negative rules inside narrative facts, Orma isolates negative boundaries into `[FORBIDDEN: <rule>]` tokens and places them at the very beginning of the system prompt.
+* **Instruction-Tuning Alignment**: Modern instruction-tuned models (e.g. Qwen 2.5, Llama 3.2, Claude 3.5) treat top-level boundaries as hard system constraints when defined prior to task context.
+* **Dual Channel Registration**:
+  * *Declarative Extraction:* Asynchronous sleep maps *"never use semicolon in terminal"* to `prohibited = True` and namespaced attribute `forbidden_<name>`.
+  * *Immediate MCP Tool:* Coding assistants directly call `orma_forbid(rule)` to establish an instant guardrail without waiting for background consolidation.
+
+---
+
 ## Storage & Data Durability (100% Local & Persistent)
 
 * **Single File SQLite Storage**: All memories reside in `~/.orma/memory.db` with Write-Ahead Logging (WAL) enabled.
@@ -497,7 +569,7 @@ Every mechanism in Orma can be independently configured or ablated in [orma/conf
 | `enable_ebbinghaus` | `True` | Ebbinghaus spaced repetition stability scaling |
 | `enable_spreading_activation` | `True` | Associative spreading activation with Fan Effect |
 | `enable_defeasible_logic` | `True` | Non-monotonic conditional exception protection |
-| `enable_sutra_packing` | `True` | Dense declarative bracket encoding (-40% prompt token usage) |
+| `enable_sutra_packing` | `False` | Dense declarative bracket encoding (-40% token usage; default False, toggle to True) |
 | `budget_tokens` | `4096` | Token budget ceiling for injected memory blocks |
 | `search_k` | `30` | Top-k candidates pulled per hybrid search channel |
 | `rrf_k` | `60` | Reciprocal Rank Fusion constant for combining BM25 and vector scores |
