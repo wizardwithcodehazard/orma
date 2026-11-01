@@ -2,19 +2,20 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.wizardwithcodehazard/orma",
   "title": "Orma Memory",
-  "description": "Episode-first, zero-latency long-term memory layer for local LLMs and AI coding assistants with Sutra dense packing and SQLite persistence.",
-  "version": "0.1.12",
+  "description": "Episode-first, zero-latency long-term memory for local LLMs and AI coding assistants.",
+  "version": "0.1.13",
   "repository": {
     "url": "https://github.com/wizardwithcodehazard/orma",
     "source": "github"
   },
   "packages": [
     {
-      "type": "pypi",
+      "registryType": "pypi",
       "identifier": "orma-ai",
-      "version": "0.1.12",
-      "command": "orma",
-      "args": ["mcp"]
+      "version": "0.1.13",
+      "transport": {
+        "type": "stdio"
+      }
     }
   ]
 }

@@ -80,3 +80,4 @@ async def test_mcp_ping(mcp_server):
     resp = await mcp_server.handle_request(req)
     assert resp["id"] == 5
     assert resp["result"] == {}
+

@@ -1,4 +1,5 @@
 # Orma (ഓർമ്മ)
+<!-- mcp-name: io.github.wizardwithcodehazard/orma -->
 
 > **Orma** *(Dravidian / Malayalam for "memory" or "recollection")* is an episode-first, zero-latency long-term memory layer built specifically for local, open-weight LLMs (3B–8B models on consumer 8–16 GB laptops).
 

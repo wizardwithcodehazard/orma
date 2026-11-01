@@ -34,3 +34,4 @@ exampleConfig:
   space: "default"
   upstream: "http://localhost:11434/v1"
   model: "llama3.2:3b"
+
