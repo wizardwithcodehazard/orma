@@ -5,7 +5,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-200%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-208%20passed-brightgreen.svg)](tests/)
 
 Orma can be used in two ways:
 1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
@@ -122,7 +122,7 @@ Or install from source for development:
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
 pip install -e ".[dev]"
-python -m pytest -q  # 200 tests pass locally
+python -m pytest -q  # 208 tests pass locally
 ```
 
 ---
@@ -228,6 +228,52 @@ This immediately:
 
 ---
 
+## Usage Option 4: Model Context Protocol (MCP) Server for Coding Assistants
+
+Orma natively speaks the Model Context Protocol (MCP) over standard `stdio`. This gives coding agents (Claude Code, Cursor, Antigravity IDE, Windsurf, Roo Code, Hermes) persistent, zero-latency memory across editing sessions without session amnesia.
+
+### In Claude Code:
+```bash
+claude mcp add orma -- orma mcp
+```
+
+### In Cursor (`.cursor/mcp.json` or Settings > MCP):
+```json
+{
+  "mcpServers": {
+    "orma": {
+      "command": "orma",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### In Windsurf / Antigravity IDE / Roo Code (`mcp.json`):
+```json
+{
+  "mcpServers": {
+    "orma": {
+      "command": "orma",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### One-Click Install via Smithery.ai:
+```bash
+npx -y @smithery/cli install orma-ai --client cursor
+```
+
+### Tools Exposed to Agents:
+* **`orma_recall(query, space)`**: Returns token-budgeted, Sutra-packed active facts and past decisions (`< 20ms`).
+* **`orma_remember(text, role, space)`**: Permanently records a project decision, architecture rule, or user constraint.
+* **`orma_facts(space, include_history)`**: Inspects all active canonical truths without running a search.
+* **`orma_forget(state_id, space)`**: Closes an obsolete or superseded constraint.
+
+---
+
 ## Multi-User & Multi-Tenant Isolation
 
 Orma supports isolated memory spaces out of the box so multiple users or agent sessions don't contaminate each other's memories:
@@ -274,6 +320,9 @@ orma forget 12
 
 # Database statistics
 orma stats
+
+# Run as an MCP server for Claude Code / Cursor / Windsurf
+orma mcp
 ```
 
 ---

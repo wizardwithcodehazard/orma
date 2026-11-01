@@ -1,0 +1,36 @@
+startCommand:
+  type: stdio
+  command: orma
+  args: ["mcp"]
+
+configSchema:
+  type: object
+  properties:
+    space:
+      type: string
+      default: "default"
+      description: "Default isolated memory space."
+    upstream:
+      type: string
+      default: "http://localhost:11434/v1"
+      description: "Upstream OpenAI-compatible LLM endpoint for background sleep consolidation."
+    model:
+      type: string
+      default: "llama3.2:3b"
+      description: "Model name used for background memory consolidation."
+
+commandFunction: |-
+  (config) => ({
+    command: "orma",
+    args: [
+      "mcp",
+      ...(config.space ? ["--space", config.space] : []),
+      ...(config.upstream ? ["--upstream", config.upstream] : []),
+      ...(config.model ? ["--model", config.model] : [])
+    ]
+  })
+
+exampleConfig:
+  space: "default"
+  upstream: "http://localhost:11434/v1"
+  model: "llama3.2:3b"

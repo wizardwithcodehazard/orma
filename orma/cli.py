@@ -247,3 +247,18 @@ def stats(space: str = typer.Option("default", help="Memory space.")):
     finally:
         memory.close()
     typer.echo(json.dumps(data, indent=2))
+
+@app.command()
+def mcp(
+    space: str = typer.Option("default", help="Default memory space for the MCP session."),
+    upstream: str | None = typer.Option(None, help="Upstream LLM for background sleep consolidation."),
+    model: str | None = typer.Option(None, help="Model name for background sleep consolidation."),
+):
+    """Run Orma as a standard Model Context Protocol (MCP) server over stdio for coding assistants."""
+    from orma.serve.mcp import run_mcp_server
+    memory = _memory(upstream=upstream, model=model)
+    try:
+        run_mcp_server(memory, default_space=space)
+    finally:
+        memory.close()
+
