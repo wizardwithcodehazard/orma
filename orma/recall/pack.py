@@ -42,18 +42,12 @@ def framing(today: str = "") -> str:
 
 
 def is_inhibitory(item: MemoryItem) -> bool:
-    """Checks if a memory item represents a negative constraint / anti-pattern."""
+    """Checks if a memory item represents a negative constraint / anti-pattern.
+    Driven by schema-attributed namespace (forbidden_, avoid_, anti_pattern)."""
     t = item.text.lower()
     if item.section != "states":
         return False
-    if any(m in t for m in (" · forbidden_", " · forbidden ", " · avoid_", " · avoid ", " · anti_pattern", " · anti pattern", " · negative_", " · negative ")):
-        return True
-    if ":" in t:
-        _, val = t.split(":", 1)
-        val = val.strip()
-        if val.startswith(("never ", "do not ", "don't ", "must not ", "avoid ", "cannot ")):
-            return True
-    return False
+    return any(m in t for m in (" · forbidden_", " · forbidden ", " · avoid_", " · avoid ", " · anti_pattern", " · anti pattern", " · negative_", " · negative "))
 
 
 def format_sutra(item: MemoryItem) -> str:

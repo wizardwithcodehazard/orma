@@ -108,7 +108,7 @@ flowchart TD
     subgraph InhibitoryAndDefeasibleGate ["Inhibitory & Defeasible Logic Gate"]
         V4 --> ProhibCheck{"Declared Prohibited? (prohibited: true, orma_forbid)"}
         ProhibCheck -->|"Yes (Anti-Pattern / Rule to Avoid)"| ForbiddenPrefix["Namespace Attribute: forbidden_<attr>"]
-        ProhibCheck -->|"No (Standard Fact)"| FrameCheck{"Has Conditional Framing? (when, if, unless, during)"}
+        ProhibCheck -->|"No (Standard Fact)"| FrameCheck{"Has Schema Condition? (item.condition non-empty)"}
         FrameCheck -->|"No (Categorical Fact)"| Categorical["Supersedes Contradictory Prior State"]
         Categorical --> CloseOld["Mark Old State: active = 0, superseded_by_id = new_id"]
         FrameCheck -->|"Yes (Defeasible Exception)"| Defeasible["Preserve Baseline Truth + Record Conditional Override"]
@@ -505,9 +505,9 @@ Association S_ji = Base_Weight / Fan(Entity_j)
 Naive memory systems (like Mem0 or basic graph extraction) detect a contradiction on the entity-attribute `(user, drink)` and destructively overwrite the baseline habit.
 
 **Epistemic Rule Engine:**
-* Orma inspects assertions using semantic and syntactic conditional markers (`when`, `if`, `unless`, `during`, `in case of`).
-* **Categorical Assertions** (`"I moved to Bangalore"`): Trigger state supersession (`active = 0, superseded_by_id = new_state_id`).
-* **Defeasible Overrides** (`"When sick, drink tea"`): Registered as conditional exceptions without closing or corrupting the baseline categorical truth. Both facts are preserved in context.
+* Orma inspects assertions via **schema attribution** (`item.condition` extracted by the model during sleep) rather than brittle keyword matching.
+* **Categorical Assertions** (`condition: ""` e.g., `"I moved to Bangalore"`): Trigger state supersession (`active = 0, superseded_by_id = new_state_id`).
+* **Defeasible Overrides** (`condition: "sore throat"` e.g., `"When sick, drink tea"`): Registered as conditional exceptions without closing or corrupting the baseline categorical truth. Both facts are preserved in context.
 
 ---
 

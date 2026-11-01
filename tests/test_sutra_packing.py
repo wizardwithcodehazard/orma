@@ -33,15 +33,15 @@ def test_conditional_extraction_and_defeasible_boundary():
     from orma.sleep.consolidate import has_conditional_framing
     from orma.sleep.extract import ExtractedState
 
-    # Standard conditional text
-    assert has_conditional_framing("When I have a cold, I drink ginger tea")
-    assert has_conditional_framing("If it rains, stay inside")
-    assert has_conditional_framing("I drink tea during illness")
+    # Schema-level explicit condition attribute determines defeasible boundary
+    st_conditional = ExtractedState(s=1, about="user", attribute="drink", value="ginger tea", condition="sore throat")
+    assert has_conditional_framing(condition=st_conditional.condition)
 
-    # Word boundary guard: words like 'knife', 'gift', 'shift' must NOT trigger false condition
-    assert not has_conditional_framing("I bought a gift with a sharp knife on the night shift")
+    # Categorical facts have empty condition (not defeasible)
+    st_categorical = ExtractedState(s=2, about="user", attribute="home_city", value="Bangalore", condition="")
+    assert not has_conditional_framing(condition=st_categorical.condition)
 
-    # Schema-level explicit condition attribute
-    st = ExtractedState(s=1, about="user", attribute="drink", value="ginger tea", condition="sore throat")
-    assert has_conditional_framing("I drink ginger tea", condition=st.condition)
+    # Pure schema-driven: arbitrary text never triggers false condition without schema attribute
+    assert not has_conditional_framing(condition="", text="I bought a gift with a sharp knife on the night shift")
+    assert not has_conditional_framing(condition="", text="When Harry Met Sally is my favorite movie")
 

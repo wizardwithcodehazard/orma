@@ -26,20 +26,11 @@ from orma.text import made_of, phrases, span_of, words
 
 FIRST_PERSON_ROLES = ("user", "note")  # lines in which "I" is the user
 
-CONDITIONAL_WORDS = (
-    "when", "whenever", "if", "unless", "except",
-    "temporarily", "for now", "just today", "today because",
-    "sometimes", "in case of", "during", "while"
-)
-_CONDITIONAL_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in CONDITIONAL_WORDS) + r")\b", re.IGNORECASE)
-
-
-def has_conditional_framing(text: str, condition: str = "") -> bool:
-    """Checks whether text or condition attribute has conditional/contextual framing
-    (defeasible exception) rather than a permanent categorical state change."""
-    if condition and condition.strip():
-        return True
-    return bool(_CONDITIONAL_RE.search(text))
+def has_conditional_framing(condition: str = "", text: str = "") -> bool:
+    """Checks whether an extracted state has conditional/contextual framing
+    (defeasible exception) rather than a permanent categorical state change.
+    Driven by schema attribution (item.condition)."""
+    return bool(condition and condition.strip())
 
 
 @dataclass
@@ -192,7 +183,7 @@ class Consolidator:
         later = [st.valid_from for st in current if since is not None and st.valid_from_stated and st.valid_from > start]
         subject = self.store.entity(subject_id).name
         vec = self.store.embed(state_text(subject, self.store.attribute(attribute_id).name, item.value))
-        is_conditional = self.config.enable_defeasible_logic and has_conditional_framing(sentence.text, getattr(item, 'condition', ''))
+        is_conditional = self.config.enable_defeasible_logic and has_conditional_framing(getattr(item, 'condition', ''))
         with self.store.tx():  # close and insert together: a reader never sees the attribute without a value
             if not later and not is_conditional:
                 for st in current:

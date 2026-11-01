@@ -23,8 +23,8 @@ def apply(store, config, data, sentences, now=None):
     return Consolidator(store, config).apply("s", parse_extraction(data), sentences, now=now or THURSDAY + 600)
 
 
-def state(s, attribute, value, about="user", ended=False, since=""):
-    return {"s": s, "about": about, "attribute": attribute, "value": value, "ended": ended, "since": since}
+def state(s, attribute, value, about="user", ended=False, since="", condition=""):
+    return {"s": s, "about": about, "attribute": attribute, "value": value, "ended": ended, "since": since, "condition": condition}
 
 
 def current(store):
@@ -151,7 +151,7 @@ def test_conditional_exception_does_not_close_default_state(store, config):
     apply(store, config, {"states": [state(first[0].id, "favorite_drink", "black coffee")]}, first)
     # Conditional exception: "when I have a cold, I drink ginger tea"
     later = keep(store, config, ("When I have a cold, I drink ginger tea.", "user"), at=THURSDAY + 86400)
-    report = apply(store, config, {"states": [state(later[0].id, "favorite_drink", "ginger tea")]}, later)
+    report = apply(store, config, {"states": [state(later[0].id, "favorite_drink", "ginger tea", condition="cold")]}, later)
     # The default state should NOT be closed because the line is conditionally framed
     assert report.states_closed == 0
     states = store.current_states("s")
