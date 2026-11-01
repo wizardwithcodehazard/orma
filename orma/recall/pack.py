@@ -41,9 +41,31 @@ def framing(today: str = "") -> str:
     return f"{FRAMING} Today is {today}." if today else FRAMING
 
 
-def render(items: list[MemoryItem], today: str = "") -> str:
+def format_sutra(item: MemoryItem) -> str:
+    """Formats a memory item in dense, unambiguous Sutra format [TAG: ...]."""
+    text = item.text.strip()
+    if item.section == "states":
+        # Parse "user · home city: Bangalore (since 2026-10-17)" or "user · drink: tea"
+        if " · " in text:
+            subj, rest = text.split(" · ", 1)
+            return f"[{subj}.{rest}]"
+        return f"[STATE: {text}]"
+    elif item.section == "events":
+        return f"[EVENT: {text}]"
+    else:  # passages
+        return f"[LOG: {text}]"
+
+
+def render(items: list[MemoryItem], today: str = "", sutra: bool = False) -> str:
     if not items:
         return ""
+    if sutra:
+        lines = ["## Memory", framing(today)]
+        for section in ("states", "events", "passages"):
+            chosen = sorted((i for i in items if i.section == section), key=lambda i: (i.order, i.id))
+            lines.extend(format_sutra(item) for item in chosen)
+        return "\n".join(lines)
+
     lines = ["## Memory", framing(today)]
     for section, title in SECTIONS.items():
         chosen = sorted((i for i in items if i.section == section), key=lambda i: (i.order, i.id))
@@ -54,7 +76,7 @@ def render(items: list[MemoryItem], today: str = "") -> str:
 
 
 def pack(candidates: list[MemoryItem], turns: list[dict], budget: int, chars_per_token: float, min_recent: int,
-         today: str = "", state_cap: int | None = None) -> Packed:
+         today: str = "", state_cap: int | None = None, sutra: bool = False) -> Packed:
     """candidates in priority order; states beyond state_cap tokens are left out."""
     def cost(text: str) -> int:
         return count_tokens(text, chars_per_token)
@@ -66,13 +88,14 @@ def pack(candidates: list[MemoryItem], turns: list[dict], budget: int, chars_per
     used: list[MemoryItem] = []
     state_tokens = 0
     for item in candidates:
-        line_cost = cost(f"- {item.text}\n")
+        line_repr = format_sutra(item) + "\n" if sutra else f"- {item.text}\n"
+        line_cost = cost(line_repr)
         if item.section == "states" and state_cap is not None and state_tokens + line_cost > state_cap:
             continue
-        if cost(render(used + [item], today)) + kept_cost <= budget:
+        if cost(render(used + [item], today, sutra=sutra)) + kept_cost <= budget:
             used.append(item)
             state_tokens += line_cost if item.section == "states" else 0
-    memory_text = render(used, today)
+    memory_text = render(used, today, sutra=sutra)
 
     remaining = budget - cost(memory_text) - kept_cost
     extra: list[dict] = []

@@ -22,6 +22,7 @@ SCHEMA = {
         "value": "the value, in the line's words",
         "ended": "true when the line says this stopped being true (value = what stopped)",
         "since": "the line's own words for when it started or ended ('last month', '2019'), else empty",
+        "condition": "situational rule or exception under which this holds (e.g. 'sore throat', 'weekends'), else empty",
     }],
     "events": [{
         "s": "number of the line that tells it",
@@ -74,6 +75,7 @@ class ExtractedState:
     value: str
     ended: bool = False
     since: str = ""
+    condition: str = ""
 
 
 @dataclass
@@ -132,7 +134,8 @@ def parse_extraction(data: dict) -> Extraction:
         attribute, value = _text(item.get("attribute")), _text(item.get("value"))
         if s is not None and about and attribute and value:
             out.states.append(ExtractedState(s, about, "_".join(attribute.lower().split()), value,
-                                             _flag(item.get("ended")), _text(item.get("since"))))
+                                             _flag(item.get("ended")), _text(item.get("since")),
+                                             _text(item.get("condition"))))
     for item in _items(data, "events"):
         s, what = _line(item.get("s")), _text(item.get("what"))
         who = item.get("who")

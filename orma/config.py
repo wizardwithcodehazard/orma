@@ -85,6 +85,7 @@ class OrmaConfig:
     enable_ebbinghaus: bool = True  # spaced repetition memory stability scaling
     enable_spreading_activation: bool = True  # ACT-R associative spreading activation with Fan Effect
     enable_defeasible_logic: bool = True  # distinguish permanent overrides from conditional defeasible exceptions
+    enable_sutra_packing: bool = True  # dense symbolic bracket representation for high token efficiency
     enable_schema_decoding: bool = True  # constrain extraction to the JSON schema (else plain JSON mode)
     enable_grounding: bool = True  # a state's value must be in (or paraphrased by) the line it cites
     enable_date_phrases: bool = True  # resolve date words ("last Saturday") against when they were said (else ISO only)

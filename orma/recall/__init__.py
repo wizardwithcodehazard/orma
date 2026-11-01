@@ -163,7 +163,7 @@ class Recaller:
             count_tokens(SEPARATOR, cfg.chars_per_token) if system_text else 0)
         available = budget - reserved
         packed = pack(candidates, turns, available, cfg.chars_per_token, cfg.min_recent_turns,
-                      clock.iso_day(now, tz), state_cap=int(available * cfg.state_budget_share))
+                      clock.iso_day(now, tz), state_cap=int(available * cfg.state_budget_share), sutra=getattr(cfg, 'enable_sutra_packing', False))
         final = self._assemble(system_text, packed)
         tokens = sum(count_tokens(message_text(m), cfg.chars_per_token) for m in final)
         return RecallResult(final, packed.memory_text, tokens, packed.used)
