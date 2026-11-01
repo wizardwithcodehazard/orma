@@ -6,7 +6,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-208%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-213%20passed-brightgreen.svg)](tests/)
 
 Orma can be used in two ways:
 1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
@@ -268,10 +268,29 @@ npx -y @smithery/cli install orma-ai --client cursor
 ```
 
 ### Tools Exposed to Agents:
-* **`orma_recall(query, space)`**: Returns token-budgeted, Sutra-packed active facts and past decisions (`< 20ms`).
-* **`orma_remember(text, role, space)`**: Permanently records a project decision, architecture rule, or user constraint.
+* **`orma_recall(query, space)`**: Returns token-budgeted, Sutra-packed active facts, anti-patterns, and past decisions (`< 20ms`).
+* **`orma_remember(text, kind, role, space)`**: Permanently records a project decision, architecture rule, or user constraint. Set `kind="anti_pattern"` to mark a forbidden mistake to avoid.
+* **`orma_forbid(rule, space)`**: Directly registers a hard anti-pattern or prohibited behavior (e.g., "Never chain PowerShell commands with semicolons").
 * **`orma_facts(space, include_history)`**: Inspects all active canonical truths without running a search.
 * **`orma_forget(state_id, space)`**: Closes an obsolete or superseded constraint.
+
+---
+
+## Inhibitory Control & Anti-Pattern Prevention (Negative Memory)
+
+A pervasive failure mode in AI coding assistants and small LLMs is **forbidden mistake recurrence**: when a user says *"Stop using semicolons to chain terminal commands in PowerShell"*, standard autoregressive models place high attention weight on the word *semicolon* and continue repeating the exact same error.
+
+Orma introduces **Inhibitory Control**:
+1. **Schema-Level Attribution:** Negative rules are identified during sleep extraction with `prohibited: true` or directly registered via `orma_forbid(rule)`.
+2. **Sutra Inhibitory Hoisting:** Prohibited states are rendered as `[FORBIDDEN: <rule>]` and hoisted to the **very top** of the system prompt (above all positive facts and conversation history).
+3. **Dynamic Negative Framing:** Orma injects explicit negative constraint semantics into the system prompt whenever anti-patterns are present:
+   ```text
+   ## Memory
+   ... Lines marked [FORBIDDEN: ...] or under Forbidden are strict negative constraints: you must NEVER suggest, mention, or take what is forbidden.
+   [FORBIDDEN: chaining terminal commands using semicolons or commas]
+   [user.editor: neovim]
+   ```
+4. **Universal Applicability:** Works identically for developer pain points (terminal syntax, forbidden dependencies, deprecated API calls) and personal constraints (severe allergies, tone boundaries, forbidden buzzwords).
 
 ---
 

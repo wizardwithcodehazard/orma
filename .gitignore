@@ -23,6 +23,13 @@ ENV/
 *.sqlite
 *.sqlite3
 
+# Binaries & executables
+*.exe
+*.dll
+*.bin
+mcp-publisher.exe
+*.log
+
 # Build & packaging artifacts
 build/
 dist/
@@ -55,4 +62,3 @@ tasks.md
 HANDOVER.md
 implementation.md
 docs/superpowers/
-

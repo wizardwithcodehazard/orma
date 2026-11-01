@@ -80,8 +80,12 @@ def format_sutra(item: MemoryItem) -> str:
 def render(items: list[MemoryItem], today: str = "", sutra: bool = False) -> str:
     if not items:
         return ""
+    inhibitory = [i for i in items if is_inhibitory(i)]
+    frame = framing(today)
+    if inhibitory:
+        frame += " Lines marked [FORBIDDEN: ...] or under Forbidden are strict negative constraints: you must NEVER suggest, mention, or take what is forbidden."
     if sutra:
-        lines = ["## Memory", framing(today)]
+        lines = ["## Memory", frame]
         # Hoist inhibitory / FORBIDDEN constraints to the very top (highest attention saliency)
         inhibitory = [i for i in items if is_inhibitory(i)]
         if inhibitory:
@@ -93,8 +97,7 @@ def render(items: list[MemoryItem], today: str = "", sutra: bool = False) -> str
             lines.extend(format_sutra(item) for item in chosen)
         return "\n".join(lines)
 
-    lines = ["## Memory", framing(today)]
-    inhibitory = [i for i in items if is_inhibitory(i)]
+    lines = ["## Memory", frame]
     if inhibitory:
         lines.append("Forbidden / Anti-patterns:")
         lines.extend(f"- {item.text}" for item in sorted(inhibitory, key=lambda i: (i.order, i.id)))
