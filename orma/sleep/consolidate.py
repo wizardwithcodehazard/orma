@@ -169,7 +169,8 @@ class Consolidator:
     # --- integration -----------------------------------------------------------------
 
     def _state(self, space: str, subject_id: int, item: ExtractedState, sentence: Sentence, report) -> None:
-        attribute_id = self._attribute(space, item.attribute)
+        attr_name = f"forbidden_{item.attribute}" if getattr(item, 'prohibited', False) and not item.attribute.startswith('forbidden_') else item.attribute
+        attribute_id = self._attribute(space, attr_name)
         history = self.store.state_history(space, subject_id, attribute_id)
         if any(sentence.id in st.evidence or st.ended_by == sentence.id for st in history):
             return  # this line was already integrated (a retried batch)

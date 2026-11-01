@@ -3,7 +3,7 @@
   "name": "io.github.wizardwithcodehazard/orma",
   "title": "Orma Memory",
   "description": "Episode-first, zero-latency long-term memory for local LLMs and AI coding assistants.",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "repository": {
     "url": "https://github.com/wizardwithcodehazard/orma",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "pypi",
       "identifier": "orma-ai",
-      "version": "0.1.13",
+      "version": "0.1.14",
       "transport": {
         "type": "stdio"
       }

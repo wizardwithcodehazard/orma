@@ -43,13 +43,19 @@ TOOLS = [
     },
     {
         "name": "orma_remember",
-        "description": "Store a new architectural decision, project rule, user requirement, or important note permanently into long-term memory.",
+        "description": "Store an architectural decision, requirement, or inhibitory anti-pattern/forbidden mistake permanently into long-term memory.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "text": {
                     "type": "string",
                     "description": "The fact, requirement, decision, or note to record."
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["fact", "anti_pattern"],
+                    "default": "fact",
+                    "description": "Set to 'anti_pattern' if this is a mistake, prohibited syntax, or negative rule to avoid."
                 },
                 "role": {
                     "type": "string",
@@ -63,6 +69,24 @@ TOOLS = [
                 }
             },
             "required": ["text"]
+        }
+    },
+    {
+        "name": "orma_forbid",
+        "description": "Directly register an anti-pattern, prohibited syntax, or mistake to NEVER repeat.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rule": {
+                    "type": "string",
+                    "description": "The forbidden mistake or action to never take (e.g. 'Never use semicolon in Windows terminal commands')."
+                },
+                "space": {
+                    "type": "string",
+                    "description": "Optional isolated memory space (defaults to 'default')."
+                }
+            },
+            "required": ["rule"]
         }
     },
     {
@@ -228,12 +252,23 @@ class MCPServer:
 
             elif name == "orma_remember":
                 text = args.get("text", "")
+                kind = args.get("kind", "fact")
                 role = args.get("role", "note")
-                results = await anyio.to_thread.run_sync(self.memory.add, text, space, role)
+                record_text = f"FORBIDDEN RULE: {text}" if kind == "anti_pattern" else text
+                results = await anyio.to_thread.run_sync(self.memory.add, record_text, space, role)
                 ep_ids = [str(r.episode_id) for r in results]
                 total_sentences = sum(r.sentences for r in results)
+                tag = " (anti-pattern guardrail)" if kind == "anti_pattern" else ""
                 return {
-                    "content": [{"type": "text", "text": f"Successfully remembered: {text} (episodes: {', '.join(ep_ids)}, sentences: {total_sentences})"}]
+                    "content": [{"type": "text", "text": f"Successfully remembered{tag}: {text} (episodes: {', '.join(ep_ids)}, sentences: {total_sentences})"}]
+                }
+
+            elif name == "orma_forbid":
+                rule = args.get("rule", "")
+                record_text = f"FORBIDDEN RULE: {rule}"
+                results = await anyio.to_thread.run_sync(self.memory.add, record_text, space, "note")
+                return {
+                    "content": [{"type": "text", "text": f"Successfully registered inhibitory constraint: [FORBIDDEN: {rule}]"}]
                 }
 
             elif name == "orma_facts":

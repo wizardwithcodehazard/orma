@@ -23,6 +23,7 @@ SCHEMA = {
         "ended": "true when the line says this stopped being true (value = what stopped)",
         "since": "the line's own words for when it started or ended ('last month', '2019'), else empty",
         "condition": "situational rule or exception under which this holds (e.g. 'sore throat', 'weekends'), else empty",
+        "prohibited": "true if this declares an anti-pattern, forbidden mistake, or rule to avoid; else false",
     }],
     "events": [{
         "s": "number of the line that tells it",
@@ -35,9 +36,9 @@ SCHEMA = {
 _STRING = {"type": "string"}
 
 
-def _array_of(properties: dict) -> dict:
+def _array_of(properties: dict, required: list[str] | None = None) -> dict:
     return {"type": "array", "items": {"type": "object", "properties": properties,
-                                       "required": list(properties), "additionalProperties": False}}
+                                       "required": list(properties) if required is None else required, "additionalProperties": False}}
 
 
 JSON_SCHEMA = {
@@ -45,7 +46,8 @@ JSON_SCHEMA = {
     "properties": {
         "user_name": _STRING,
         "states": _array_of({"s": {"type": "integer"}, "about": _STRING, "attribute": _STRING, "value": _STRING,
-                             "ended": {"type": "boolean"}, "since": _STRING}),
+                             "ended": {"type": "boolean"}, "since": _STRING, "prohibited": {"type": "boolean"}},
+                            required=["s", "about", "attribute", "value", "ended", "since"]),
         "events": _array_of({"s": {"type": "integer"}, "what": _STRING, "when": _STRING,
                              "who": {"type": "array", "items": _STRING}}),
     },
@@ -58,7 +60,7 @@ Return only a JSON object with this shape:
 {schema}
 
 Record two kinds of memory, each citing the number of the line that states it:
-- states: something true now that has one value at a time and can change later. Examples of attributes: where someone lives, who they work for, their job, their diet, a project's deadline, the version a system runs. If a line says a state stopped ("no longer", "used to", "quit"), record it with ended true.
+- states: something true now that has one value at a time and can change later. Examples of attributes: where someone lives, who they work for, their job, their diet, a project's deadline, the version a system runs. If a line says a state stopped ("no longer", "used to", "quit"), record it with ended true. If a line declares a forbidden mistake, negative rule, or anti-pattern to avoid ("never", "do not", "avoid"), record it with prohibited true.
 - events: something that happened at a particular time, such as a trip, a move, a purchase, a meeting or a release. Never the conversation itself.
 - In lines whose speaker is "user", "I", "me" and "my" mean the user. When a line tells something about another person, it is that person's memory, not the user's.
 - Copy date words exactly as the line says them; never work out a date yourself.
@@ -76,6 +78,7 @@ class ExtractedState:
     ended: bool = False
     since: str = ""
     condition: str = ""
+    prohibited: bool = False
 
 
 @dataclass
@@ -135,7 +138,8 @@ def parse_extraction(data: dict) -> Extraction:
         if s is not None and about and attribute and value:
             out.states.append(ExtractedState(s, about, "_".join(attribute.lower().split()), value,
                                              _flag(item.get("ended")), _text(item.get("since")),
-                                             _text(item.get("condition"))))
+                                             _text(item.get("condition")),
+                                             _flag(item.get("prohibited"))))
     for item in _items(data, "events"):
         s, what = _line(item.get("s")), _text(item.get("what"))
         who = item.get("who")

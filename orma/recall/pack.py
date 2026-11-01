@@ -41,11 +41,32 @@ def framing(today: str = "") -> str:
     return f"{FRAMING} Today is {today}." if today else FRAMING
 
 
+def is_inhibitory(item: MemoryItem) -> bool:
+    """Checks if a memory item represents a negative constraint / anti-pattern."""
+    t = item.text.lower()
+    if item.section != "states":
+        return False
+    if any(m in t for m in (" · forbidden_", " · forbidden ", " · avoid_", " · avoid ", " · anti_pattern", " · anti pattern", " · negative_", " · negative ")):
+        return True
+    if ":" in t:
+        _, val = t.split(":", 1)
+        val = val.strip()
+        if val.startswith(("never ", "do not ", "don't ", "must not ", "avoid ", "cannot ")):
+            return True
+    return False
+
+
 def format_sutra(item: MemoryItem) -> str:
     """Formats a memory item in dense, unambiguous Sutra format [TAG: ...]."""
     text = item.text.strip()
     if item.section == "states":
-        # Parse "user · home city: Bangalore (since 2026-10-17)" or "user · drink: tea"
+        if is_inhibitory(item):
+            # Format: user · forbidden_terminal_syntax: do not use semicolon -> [FORBIDDEN: do not use semicolon]
+            if " · " in text:
+                _, rest = text.split(" · ", 1)
+                val = rest.split(":", 1)[1].strip() if ":" in rest else rest
+                return f"[FORBIDDEN: {val}]"
+            return f"[FORBIDDEN: {text}]"
         if " · " in text:
             subj, rest = text.split(" · ", 1)
             return f"[{subj}.{rest}]"
@@ -61,14 +82,25 @@ def render(items: list[MemoryItem], today: str = "", sutra: bool = False) -> str
         return ""
     if sutra:
         lines = ["## Memory", framing(today)]
+        # Hoist inhibitory / FORBIDDEN constraints to the very top (highest attention saliency)
+        inhibitory = [i for i in items if is_inhibitory(i)]
+        if inhibitory:
+            lines.extend(format_sutra(i) for i in sorted(inhibitory, key=lambda i: (i.order, i.id)))
+
         for section in ("states", "events", "passages"):
-            chosen = sorted((i for i in items if i.section == section), key=lambda i: (i.order, i.id))
+            chosen = sorted((i for i in items if i.section == section and not is_inhibitory(i)),
+                            key=lambda i: (i.order, i.id))
             lines.extend(format_sutra(item) for item in chosen)
         return "\n".join(lines)
 
     lines = ["## Memory", framing(today)]
+    inhibitory = [i for i in items if is_inhibitory(i)]
+    if inhibitory:
+        lines.append("Forbidden / Anti-patterns:")
+        lines.extend(f"- {item.text}" for item in sorted(inhibitory, key=lambda i: (i.order, i.id)))
+
     for section, title in SECTIONS.items():
-        chosen = sorted((i for i in items if i.section == section), key=lambda i: (i.order, i.id))
+        chosen = sorted((i for i in items if i.section == section and not is_inhibitory(i)), key=lambda i: (i.order, i.id))
         if chosen:
             lines.append(f"{title}:")
             lines.extend(f"- {item.text}" for item in chosen)
