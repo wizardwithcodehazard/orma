@@ -82,6 +82,7 @@ def test_proxy_open_and_up_command(seeded, monkeypatch):
     monkeypatch.setitem(sys.modules, "uvicorn", types.SimpleNamespace(run=lambda *a, **k: None))
     monkeypatch.setattr(proxy_module, "create_app", lambda *a, **k: object())
     monkeypatch.setattr("webbrowser.open", lambda url: opened_urls.append(url))
+    monkeypatch.setattr(cli, "_is_port_in_use", lambda *a, **k: False)
 
     # Invoke up command
     res = runner.invoke(cli.app, ["up"])

@@ -41,16 +41,28 @@ def test_viz_proxy_endpoints(tmp_path):
     assert "nodes" in brain_data
     assert "stats" in brain_data
 
-    # 2. Test 3D visualizer HTML endpoint
+    # 2. Test visualizer HTML endpoint
     res_viz = client.get("/_orma/viz")
     assert res_viz.status_code == 200
     assert "text/html" in res_viz.headers["content-type"]
-    assert "3d-force-graph" in res_viz.text
-    assert "ORMA // CONNECTOME 3D" in res_viz.text
+    assert "force-graph" in res_viz.text
+    assert "MEMORY GRAPH" in res_viz.text
 
     # 3. Test alternate paths
     assert client.get("/brain").status_code == 200
     assert client.get("/viz").status_code == 200
+
+    # 4. Test live recall search simulation endpoint
+    res_search = client.get("/_orma/search?q=green%20tea")
+    assert res_search.status_code == 200
+    search_data = res_search.json()
+    assert "matched_node_ids" in search_data
+    assert "prompt_block" in search_data
+
+    # 5. Test add memory playground endpoint
+    res_add = client.post("/_orma/add", json={"text": "Alice also likes matcha."})
+    assert res_add.status_code == 200
+    assert res_add.json()["status"] == "added"
 
     mem.close()
 

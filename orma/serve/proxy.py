@@ -187,6 +187,41 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
         data = await run_in_threadpool(memory.export_connectome, space)
         return JSONResponse(data)
 
+    async def search_memory(request: Request) -> JSONResponse:
+        q = request.query_params.get("q", "").strip()
+        space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        if not q:
+            return JSONResponse({"query": "", "matched_node_ids": [], "prompt_block": ""})
+        try:
+            res = await run_in_threadpool(memory.search, q, space)
+            context = await run_in_threadpool(memory.build_context, [{"role": "user", "content": q}], space)
+            prompt_block = context[0]["content"] if context and context[0]["role"] == "system" else ""
+            matched_node_ids = [f"state_{st.id}" for st, _ in res.states] + [f"event_{ev.id}" for ev, _ in res.events]
+            return JSONResponse({
+                "query": q,
+                "matched_node_ids": matched_node_ids,
+                "prompt_block": prompt_block,
+                "states": [{"id": st.id, "text": st.text, "score": round(score, 3)} for st, score in res.states],
+            })
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    async def add_memory(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+        text = (body.get("text") or "").strip()
+        space = body.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        if not text:
+            return JSONResponse({"error": "text is required"}, status_code=400)
+        try:
+            await run_in_threadpool(memory.add, text, space=space, role="note")
+            data = await run_in_threadpool(memory.export_connectome, space)
+            return JSONResponse({"status": "added", "text": text, "connectome": data})
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
     async def get_brain_viz(request: Request) -> HTMLResponse:
         return HTMLResponse(viz_html_content)
 
@@ -221,6 +256,8 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
     return Starlette(
         routes=[
             Route("/_orma/brain", get_brain_connectome, methods=["GET"]),
+            Route("/_orma/search", search_memory, methods=["GET"]),
+            Route("/_orma/add", add_memory, methods=["POST"]),
             Route("/_orma/viz", get_brain_viz, methods=["GET"]),
             Route("/_orma", get_brain_viz, methods=["GET"]),
             Route("/brain", get_brain_viz, methods=["GET"]),
