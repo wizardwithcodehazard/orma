@@ -578,6 +578,9 @@
     let hippocampalHelix = null;
     let recallNodeIds = new Set();
     let hoveredNode = null;
+    let highlightNodes = new Set();
+    let highlightLinks = new Set();
+    let allNodeObjects = [];
 
     function showToast(msg) {
       const toast = document.getElementById('toast');
@@ -722,19 +725,47 @@
       return group;
     }
 
+    function updateHoverVisuals() {
+      const isTracing = highlightNodes.size > 0;
+      allNodeObjects.forEach(item => {
+        const isLit = !isTracing || highlightNodes.has(item.node.id);
+        const isDirectHover = hoveredNode && hoveredNode.id === item.node.id;
+
+        item.coreMat.transparent = true;
+        item.coreMat.opacity = isLit ? (item.isSuperseded ? 0.35 : 1.0) : 0.05;
+        item.coreMat.emissiveIntensity = isDirectHover ? 1.0 : (isLit ? (item.isInhibitory ? 0.9 : 0.65) : 0.02);
+
+        const scale = isDirectHover ? 1.35 : (isLit ? 1.0 : 0.7);
+        item.coreMesh.scale.set(scale, scale, scale);
+
+        if (item.haloMesh) {
+          item.haloMesh.visible = isLit;
+          if (item.haloMat) item.haloMat.opacity = isDirectHover ? 0.65 : (isLit ? 0.35 : 0.0);
+        }
+
+        if (item.spriteMat) {
+          if (isDirectHover || (isTracing && isLit)) {
+            item.spriteMat.opacity = 0.95;
+          } else if (isTracing && !isLit) {
+            item.spriteMat.opacity = 0.0;
+          }
+        }
+      });
+    }
+
     function render3DConnectome() {
       const container = document.getElementById('3d-container');
       const data = getFiltered();
+      allNodeObjects = [];
 
       if (!Graph) {
         Graph = ForceGraph3D()(container)
-          .backgroundColor('#04060a')
+          .backgroundColor('#030712')
           .graphData(data)
           .nodeId('id')
-          .nodeLabel(node => `${node.label} [${node.details?.kind || node.type}]`)
+          .nodeLabel(node => ${node.label} [])
           .nodeThreeObject(node => {
             const isRecalled = recallNodeIds.has(node.id);
-            const isHovered = hoveredNode === node;
             const isUser = node.type === 'entity' && (node.label === 'user' || node.details?.name === 'user');
             const isEntity = node.type === 'entity' && !isUser;
             const isInhibitory = node.status === 'inhibitory';
@@ -748,7 +779,6 @@
 
             const group = new THREE.Group();
 
-            // Core geometry based on semantic kind
             let coreGeom;
             if (isUser) {
               coreGeom = new THREE.DodecahedronGeometry(size * 1.15, 0);
@@ -765,13 +795,15 @@
               emissive: nodeColor,
               emissiveIntensity: isRecalled ? 0.95 : (isInhibitory ? 0.85 : 0.65),
               shininess: 100,
-              transparent: isSuperseded,
+              transparent: true,
               opacity: isSuperseded ? 0.35 : 1.0
             });
             const coreMesh = new THREE.Mesh(coreGeom, coreMat);
             group.add(coreMesh);
 
-            // Radiant Beacon Ring for Forbidden Constraints (warning beacon)
+            let haloMesh = null;
+            let haloMat = null;
+
             if (isInhibitory) {
               const ringGeom = new THREE.RingGeometry(size * 1.5, size * 1.85, 24);
               const ringMat = new THREE.MeshBasicMaterial({
@@ -786,44 +818,44 @@
               group.add(ring);
 
               const haloGeom = new THREE.SphereGeometry(size * 2.2, 12, 12);
-              const haloMat = new THREE.MeshBasicMaterial({
+              haloMat = new THREE.MeshBasicMaterial({
                 color: 0xff0055,
                 wireframe: true,
                 transparent: true,
                 opacity: 0.35,
                 blending: THREE.AdditiveBlending
               });
-              group.add(new THREE.Mesh(haloGeom, haloMat));
+              haloMesh = new THREE.Mesh(haloGeom, haloMat);
+              group.add(haloMesh);
             } else if (isEntity || isUser) {
-              // Glowing orbital halo for Entities / User core
               const haloGeom = new THREE.SphereGeometry(size * 1.5, 12, 12);
-              const haloMat = new THREE.MeshBasicMaterial({
+              haloMat = new THREE.MeshBasicMaterial({
                 color: isUser ? 0xb026ff : 0x00e5ff,
                 wireframe: true,
                 transparent: true,
                 opacity: 0.4,
                 blending: THREE.AdditiveBlending
               });
-              group.add(new THREE.Mesh(haloGeom, haloMat));
+              haloMesh = new THREE.Mesh(haloGeom, haloMat);
+              group.add(haloMesh);
             } else if (isActive || isRecalled) {
               const haloGeom = new THREE.SphereGeometry(size * 1.35, 12, 12);
-              const haloMat = new THREE.MeshBasicMaterial({
+              haloMat = new THREE.MeshBasicMaterial({
                 color: isRecalled ? 0xffab00 : 0x00ff88,
                 wireframe: true,
                 transparent: true,
                 opacity: 0.25,
                 blending: THREE.AdditiveBlending
               });
-              group.add(new THREE.Mesh(haloGeom, haloMat));
+              haloMesh = new THREE.Mesh(haloGeom, haloMat);
+              group.add(haloMesh);
             }
 
-            // Crisp 3D Text Billboard Label with rounded background pill
             const canvas = document.createElement('canvas');
             canvas.width = 320;
             canvas.height = 70;
             const ctx = canvas.getContext('2d');
 
-            // Draw rounded pill badge
             ctx.fillStyle = 'rgba(7, 11, 22, 0.88)';
             ctx.strokeStyle = nodeColor;
             ctx.lineWidth = 2.5;
@@ -835,14 +867,13 @@
             ctx.lineTo(rx + rw, ry + rh - rad);
             ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rad, ry + rh);
             ctx.lineTo(rx + rad, ry + rh);
-            ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rad);
+            ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - rad);
             ctx.lineTo(rx, ry + rad);
             ctx.quadraticCurveTo(rx, ry, rx + rad, ry);
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
 
-            // Label text
             ctx.font = 'bold 20px Inter, sans-serif';
             ctx.textAlign = 'center';
             ctx.fillStyle = isRecalled ? '#ffab00' : (isInhibitory ? '#ff8099' : '#ffffff');
@@ -850,32 +881,98 @@
             ctx.fillText(displayText, 160, 42);
 
             const texture = new THREE.CanvasTexture(canvas);
-            const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: isSuperseded ? 0.45 : 0.92 });
+            const spriteMat = new THREE.SpriteMaterial({
+              map: texture,
+              transparent: true,
+              opacity: (isUser || isEntity) ? 0.45 : 0.0
+            });
             const sprite = new THREE.Sprite(spriteMat);
             sprite.scale.set(38, 9, 1);
             sprite.position.set(0, size + 9, 0);
             group.add(sprite);
 
+            allNodeObjects.push({
+              group,
+              node,
+              coreMesh,
+              coreMat,
+              haloMesh,
+              haloMat,
+              sprite,
+              spriteMat,
+              isUser,
+              isEntity,
+              isInhibitory,
+              isSuperseded,
+              size
+            });
+
             return group;
           })
-          .linkDirectionalParticles(link => recallNodeIds.size > 0 ? 3 : 2)
-          .linkDirectionalParticleWidth(1.8)
-          .linkDirectionalParticleSpeed(link => (link.value || 1) * 0.006)
-          .linkColor(link => link.color || '#ffffff28')
-          .linkWidth(link => link.value ? Math.min(2.2, link.value) : 1)
-          .onNodeClick(node => focusOnNeuron(node))
+          .linkDirectionalParticles(link => highlightLinks.has(link) ? 4 : (recallNodeIds.size > 0 ? 3 : 1))
+          .linkDirectionalParticleWidth(link => highlightLinks.has(link) ? 2.0 : 1.1)
+          .linkDirectionalParticleSpeed(link => highlightLinks.has(link) ? 0.012 : (link.value || 1) * 0.005)
+          .linkColor(link => {
+            if (highlightLinks.size > 0) {
+              return highlightLinks.has(link) ? (link.color || '#00e5ff') : 'rgba(255, 255, 255, 0.02)';
+            }
+            return link.color ? link.color.replace(')', ', 0.35)').replace('rgb', 'rgba') : 'rgba(0, 229, 255, 0.18)';
+          })
+          .linkWidth(link => highlightLinks.has(link) ? 2.4 : 0.8)
+          .onNodeClick(node => {
+            focusOnNeuron(node);
+          })
           .onNodeHover(node => {
+            if (hoveredNode === node) return;
             hoveredNode = node;
+            highlightNodes.clear();
+            highlightLinks.clear();
+
+            if (node) {
+              highlightNodes.add(node.id);
+              const links = getFiltered().links;
+              links.forEach(l => {
+                const sId = typeof l.source === 'object' ? l.source.id : l.source;
+                const tId = typeof l.target === 'object' ? l.target.id : l.target;
+                if (sId === node.id || tId === node.id) {
+                  highlightLinks.add(l);
+                  highlightNodes.add(sId);
+                  highlightNodes.add(tId);
+                }
+              });
+            }
+
+            updateHoverVisuals();
+            Graph.linkWidth(Graph.linkWidth());
+            Graph.linkColor(Graph.linkColor());
+            Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
           });
 
-        // Add the procedural 3D brain cortex into the Three.js scene
         const scene = Graph.scene();
         brainMeshGroup = createProceduralBrainLattice();
         scene.add(brainMeshGroup);
 
-        // Adjust forces to gently shape nodes within the brain cavity
         Graph.d3Force('charge').strength(-130);
         Graph.d3Force('link').distance(42);
+
+        // Continuous LOD Distance Culling Loop
+        setInterval(() => {
+          if (!Graph || highlightNodes.size > 0) return;
+          const camera = Graph.camera();
+          if (!camera) return;
+          allNodeObjects.forEach(item => {
+            if (!item.spriteMat || !item.group) return;
+            const dist = camera.position.distanceTo(item.group.position);
+            if (dist < 125) {
+              const targetOpacity = Math.max(0, Math.min(0.92, (125 - dist) / 40));
+              item.spriteMat.opacity = THREE.MathUtils.lerp(item.spriteMat.opacity, targetOpacity, 0.2);
+            } else if (item.isUser || item.isEntity) {
+              item.spriteMat.opacity = THREE.MathUtils.lerp(item.spriteMat.opacity, 0.45, 0.1);
+            } else {
+              item.spriteMat.opacity = THREE.MathUtils.lerp(item.spriteMat.opacity, 0.0, 0.2);
+            }
+          });
+        }, 50);
 
         // Gentle brain idle breathing rotation
         let angle = 0;
@@ -885,23 +982,47 @@
             brainMeshGroup.rotation.y = Math.sin(angle) * 0.15;
           }
         }, 30);
+
+        // Double-click cinematic fly-to zoom
+        container.addEventListener('dblclick', () => {
+          if (hoveredNode) {
+            flyToNode(hoveredNode);
+          }
+        });
+
+        // Shortcut '/' key to focus search spotlight
+        window.addEventListener('keydown', (e) => {
+          if (e.key === '/' && document.activeElement !== document.getElementById('recall-input') && document.activeElement !== document.getElementById('add-input')) {
+            e.preventDefault();
+            const input = document.getElementById('recall-input');
+            input.focus();
+            input.select();
+          }
+        });
       } else {
         Graph.graphData(data);
       }
     }
 
-    function focusOnNeuron(node) {
-      const distance = 95;
+    function flyToNode(node) {
+      if (!Graph || !node) return;
+      const distance = 65;
       const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
 
       Graph.cameraPosition(
         { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
         node,
-        1400
+        1200
       );
 
       inspectNeuron(node);
     }
+
+    function focusOnNeuron(node) {
+      flyToNode(node);
+    }
+
+
 
     function inspectNeuron(node) {
       const inspector = document.getElementById('inspector');

@@ -249,13 +249,42 @@ class Consolidator:
                                  stated=since is not None, valid_to=min(later) if later else None, vec=vec)
         report.states_added += 1
 
+    def _is_policy_directive(self, text: str) -> bool:
+        """Embedding anchor geometric projection: determines if text is a standing rule/constraint
+        rather than a historical episodic event."""
+        anchors = [
+            "standing behavioral rule, user negative constraint, forbidden action or preference to avoid",
+            "historical autobiographical life occurrence, meeting, purchase or completed action",
+        ]
+        vecs = self.store.embed_many([text] + anchors)
+        policy_sim = float(vecs[0] @ vecs[1])
+        event_sim = float(vecs[0] @ vecs[2])
+        return (policy_sim - event_sim) > 0.04
+
     def _event(self, space: str, item: ExtractedEvent, sentence: Sentence, resolve, report, now: float) -> None:
+        when = self._stated(item.when, sentence)
+        if when is None and sentence.role in FIRST_PERSON_ROLES and self._is_policy_directive(item.what):
+            words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]+\b", item.what)]
+            stop = {"never", "do", "not", "dont", "avoid", "stop", "strictly", "no", "cant", "shouldnt", "mustnt",
+                    "using", "use", "recommending", "recommend", "suggesting", "suggest"}
+            content_words = [w for w in words if w not in stop]
+            topic = "_".join(content_words[:3]) if content_words else "rule"
+            st_item = ExtractedState(
+                s=sentence.id,
+                about=USER_ENTITY,
+                attribute=f"forbidden_{topic}",
+                value=item.what,
+                prohibited=True,
+            )
+            user_id = self.store.user_entity(space, now)
+            self._state(space, user_id, st_item, sentence, report)
+            return
+
         vec = self.store.embed(item.what)
         for known in self.store.events_citing(sentence.id):
             if float(vec @ self.store.embed(known.gist)) >= self.config.entity_merge_threshold:
                 return  # already recorded from this line
         participants = {pid for pid in (resolve(name, sentence) for name in item.who) if pid is not None}
-        when = self._stated(item.when, sentence)
         self.store.add_event(space, item.what, sentence.created_at if when is None else when, when is not None,
                              sorted(participants), sentence.id, vec=vec, now=now)
         report.events_added += 1

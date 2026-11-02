@@ -12,6 +12,7 @@ Anything can be added: chat turns (observe), notes, documents, tool output. Each
 (user, assistant, tool, note, document), source and speaker; in user and note records "I" is the user.
 """
 
+import re
 import time
 from pathlib import Path
 
@@ -52,13 +53,48 @@ class Memory:
 
     # --- adding --------------------------------------------------------------------
 
+    def _extract_fast_path_inhibitory(self, space: str, text: str, episode_ids: list[int | None],
+                                      now: float) -> list[int]:
+        """Fast-path interception for ':/ <rule>' lines: immediately registers them as inhibitory states."""
+        created_state_ids = []
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for line in lines:
+            if not line.startswith(":/"):
+                continue
+            rule_text = line[2:].strip()
+            if not rule_text:
+                continue
+            words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]+\b", rule_text)]
+            stop = {"never", "do", "not", "dont", "avoid", "stop", "strictly", "no", "cant", "shouldnt", "mustnt", "please"}
+            content_words = [w for w in words if w not in stop]
+            topic = "_".join(content_words[:3]) if content_words else "rule"
+            attr_name = f"forbidden_{topic}"
+
+            user_id = self.store.user_entity(space, now)
+            exact = self.store.find_attribute(space, attr_name)
+            attr_id = exact.id if exact is not None else self.store.add_attribute(space, attr_name)
+
+            valid_eps = [eid for eid in episode_ids if eid is not None]
+            sentences = self.store.episode_sentences(valid_eps[:1]) if valid_eps else []
+            sentence_id = sentences[0].id if sentences else 0
+
+            sid = self.store.add_state(space, user_id, attr_id, rule_text, valid_from=now,
+                                       sentence_id=sentence_id, said_at=now, stated=True)
+            created_state_ids.append(sid)
+        return created_state_ids
+
     def add(self, text: str, space: str = "default", role: str = "note", source: str = "api", speaker: str = "",
             at: float | None = None) -> list[EncodeResult]:
         """Keeps text as one or more records (long text is split between paragraphs). Notes are the user's own
         words unless a speaker is given."""
         speaker = speaker or ("user" if role in ("user", "note") else role)
-        return [self.encoder.encode(space, role, part, now=at, source=source, speaker=speaker)
-                for part in _parts(text, RECORD_CHARS)]
+        results = [self.encoder.encode(space, role, part, now=at, source=source, speaker=speaker)
+                   for part in _parts(text, RECORD_CHARS)]
+        if ":/" in text:
+            now = time.time() if at is None else at
+            ep_ids = [r.episode_id for r in results if r.stored]
+            self._extract_fast_path_inhibitory(space, text, ep_ids, now)
+        return results
 
     def add_file(self, path, space: str = "default", role: str = "document", at: float | None = None) \
             -> list[EncodeResult]:
@@ -71,8 +107,12 @@ class Memory:
     def observe(self, role: str, text: str, space: str = "default", outcome: str | None = None,
                 now=None) -> EncodeResult:
         """One chat turn, as the proxy records it."""
-        return self.encoder.encode(space, role, text, outcome, now=now, source="chat",
-                                   speaker="user" if role == "user" else role)
+        res = self.encoder.encode(space, role, text, outcome, now=now, source="chat",
+                                  speaker="user" if role == "user" else role)
+        if role in ("user", "note") and ":/" in text:
+            t = time.time() if now is None else now
+            self._extract_fast_path_inhibitory(space, text, [res.episode_id], t)
+        return res
 
     # --- reading -------------------------------------------------------------------
 

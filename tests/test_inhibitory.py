@@ -164,3 +164,46 @@ async def test_mcp_forbid_and_anti_pattern(tmp_path):
         assert "semicolon" in recall_text.lower()
     finally:
         memory.close()
+
+
+def test_fast_path_inhibitory_prefix(tmp_path):
+    config = OrmaConfig(data_dir=tmp_path)
+    memory = Memory(config=config)
+    try:
+        # Fast-path ':/' syntax directly registers an inhibitory rule
+        res = memory.add(":/ Never suggest AWS in any architecture review", space="test")
+        assert len(res) == 1
+        facts = memory.facts(space="test", include_closed=True)
+        assert len(facts) >= 1
+        forbidden_facts = [f for f in facts if "forbidden" in memory.store.attribute(f.attribute_id).name]
+        assert len(forbidden_facts) >= 1
+        assert "Never suggest AWS" in forbidden_facts[0].value
+    finally:
+        memory.close()
+
+
+def test_embedding_intent_anchor_event_promotion(tmp_path):
+    config = OrmaConfig(data_dir=tmp_path)
+    memory = Memory(config=config)
+    try:
+        from orma.sleep.consolidate import Consolidator
+        from orma.sleep.extract import ExtractedEvent, Extraction
+
+        store = memory.store
+        consolidator = Consolidator(store, config)
+        space = "test_promo"
+
+        enc_res = memory.add("Never deploy onto bare metal, always use cloud", space=space, role="user")
+        s1 = store.episode_sentences([enc_res[0].episode_id])[0]
+
+        # Model misclassified this policy directive as an event
+        extraction = Extraction(
+            events=[ExtractedEvent(s=s1.id, what="recommended avoiding bare metal and using cloud", who=["user"])]
+        )
+        report = consolidator.apply(space, extraction, [s1])
+        # Intent anchor should have promoted it to an inhibitory state!
+        assert report.states_added >= 1
+        facts = memory.facts(space=space)
+        assert any("forbidden" in store.attribute(f.attribute_id).name for f in facts)
+    finally:
+        memory.close()
