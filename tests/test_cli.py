@@ -76,6 +76,7 @@ def test_proxy_quiets_http_client_loggers(seeded, monkeypatch):
 def test_proxy_open_and_up_command(seeded, monkeypatch):
     import sys
     import types
+
     import orma.serve.proxy as proxy_module
 
     opened_urls = []

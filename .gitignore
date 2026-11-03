@@ -36,6 +36,9 @@ bump*.py
 check_*.py
 test_*_live.py
 update_*.py
+upgrade_*.py
+test_*.js
+temp_*.html
 *.tmp
 
 # Build & packaging artifacts
@@ -69,4 +72,5 @@ scratch/
 tasks.md
 HANDOVER.md
 implementation.md
+ORMA_ZERO_TO_HERO.md
 docs/superpowers/

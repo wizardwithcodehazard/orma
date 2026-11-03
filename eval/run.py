@@ -21,13 +21,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from eval.score import CaseScore, Check, answer_passes, finds, score_memory
 from orma import clock
 from orma.config import SmrutiConfig
 from orma.embed import FastEmbedder
 from orma.llm import LLMClient
 from orma.memory import Memory
-
-from eval.score import CaseScore, Check, answer_passes, finds, score_memory
 
 HERE = Path(__file__).parent
 SPACE = "default"
@@ -182,7 +181,7 @@ def main(argv=None) -> None:
           + (f", overrides {settings}" if settings else ""))
     started = time.time()
     scores, answers = [], []
-    with tempfile.TemporaryDirectory(prefix="smruti-eval-") as workdir:
+    with tempfile.TemporaryDirectory(prefix="orma-eval-") as workdir:
         for case in cases:
             score, case_answers = run_case(case, tz_name, settings, llm, args.model, embedder, args.samples,
                                            not args.no_baseline, Path(workdir))
@@ -196,7 +195,7 @@ def main(argv=None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{datetime.now():%Y%m%d-%H%M%S}-{args.label}.json"
     path.write_text(json.dumps({
-        "label": args.label, "cases": cases_file.name, "model": args.model, "upstream": args.upstream,
+        "label": args.label, "cases_file": cases_file.name, "model": args.model, "upstream": args.upstream,
         "overrides": settings,
         "summary": summary, "cases": [dataclasses.asdict(s) for s in scores], "answers": answers,
     }, indent=1, ensure_ascii=False), encoding="utf-8")

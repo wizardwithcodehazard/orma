@@ -70,6 +70,7 @@ class OrmaConfig:
     sleep_lease_seconds: float = 600.0
     entity_merge_threshold: float = 0.85
     attribute_merge_threshold: float = 0.8
+    policy_intent_margin: float = 0.06  # semantic margin for classifying un-dated directives as policy rules
     # The two closed word classes the holder check needs, English by default (replace both for another language):
     # words by which a speaker means themself, and words that refer back to someone already named.
     first_person_words: tuple[str, ...] = ("i", "me", "my", "mine", "myself", "we", "us", "our", "ours", "ourselves")

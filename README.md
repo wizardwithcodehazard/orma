@@ -6,7 +6,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-213%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-217%20passed-brightgreen.svg)](tests/)
 
 Orma can be used in two ways:
 1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
@@ -29,6 +29,7 @@ Everything runs locally in SQLite with `sqlite-vec` and fast on-device embedding
   - [4. One-Command Web UI (`orma up`)](#usage-option-4-one-command-web-ui-orma-up)
   - [5. Model Context Protocol (MCP Server for Coding Assistants)](#usage-option-5-model-context-protocol-mcp-server-for-coding-assistants)
 - [Inhibitory Control & Anti-Pattern Prevention (Negative Memory)](#inhibitory-control--anti-pattern-prevention-negative-memory)
+  - [Instant Fast-Path Directives (`:/`)](#instant-fast-path-directives-)
 - [Multi-User & Multi-Tenant Isolation](#multi-user--multi-tenant-isolation)
 - [CLI Reference](#cli-reference)
 - [Cognitive & Mathematical Architecture](#cognitive--mathematical-architecture)
@@ -234,7 +235,7 @@ Or install from source for development:
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
 pip install -e ".[dev]"
-python -m pytest -q  # 213 tests pass locally
+python -m pytest -q  # 217 tests pass locally
 ```
 
 ---
@@ -334,11 +335,12 @@ orma viz
 ```
 
 This starts the memory visualizer and opens your browser directly to `http://127.0.0.1:8080/_orma/viz`:
-* **Neocortical Connectome:** Interactive 3D WebGL neural network showing active states (green), hard anti-patterns (crimson), defeasible rules (amber), and entity hubs (cyan).
+* **Anatomical Neocortical Connectome:** Interactive 3D WebGL anatomical brain with translucent cortical lobes (Frontal, Parietal, Temporal, Occipital, Cerebellum, Brainstem) rendered with custom Fresnel rim shaders and gyral harmonics.
+* **Bilateral Hippocampal Seahorse Horns:** Dedicated Cornu Ammonis seahorse structures and Fornix projection tracts linking the episodic memory hub directly to the prefrontal cortex.
+* **Real-time Sleep Replay Animation:** Trigger consolidation to watch episodic orbs actively travel out of the hippocampal buffer and integrate into cortical memory nodes.
+* **Brain Region Mapping:** Dedicated anatomical zones for Thalamic Hub (user identity), Prefrontal Cortex (canonical facts), Amygdala (forbidden constraints), Anterior Cingulate (conditional rules), and Temporal Cortex (semantic entities).
 * **Action Potential Pulses:** Synaptic edges animate with directional photon particles based on recency and Hawkes burst frequency.
-* **Spreading Activation:** Search any topic to fly the 3D camera to that node and watch activation ripple across connected neighbors.
-* **Synapse Inspector:** Click any node to see its exact sentence provenance citation (`[s14]`) and historical timeline.
-* **Hippocampal Buffer:** Live drawer displaying the recent episodic turn stream and pending sleep consolidations.
+* **Synapse Inspector:** Click any node to see its exact sentence provenance citation (`[s14]`), historical timeline, and regional connectivity.
 
 ---
 
@@ -471,6 +473,21 @@ Orma introduces **Inhibitory Control**:
    ```
 4. **Universal Applicability:** Works identically for developer pain points (terminal syntax, forbidden dependencies, deprecated API calls) and personal constraints (severe allergies, tone boundaries, forbidden buzzwords).
 
+### Instant Fast-Path Directives (`:/`)
+
+You do not need to wait for background sleep consolidation to register critical rules or personal facts. Prefixing any note, chat turn, or CLI input with `:/` triggers instant zero-latency fast-path ingestion:
+
+* **Inhibitory Anti-Patterns:**
+  ```bash
+  orma add ":/ never use semicolons to chain commands in PowerShell"
+  ```
+  Immediately recognized as a standing negative constraint, stored with `status = 'inhibitory'`, and hoisted to the top of subsequent prompts with 0ms LLM extraction delay.
+* **Direct Declarative Facts:**
+  ```bash
+  orma add ":/ user.editor: neovim"
+  ```
+  Instantly registers or updates the active truth in SQLite without waiting for the background sleep cycle.
+
 ---
 
 ## Multi-User & Multi-Tenant Isolation
@@ -580,7 +597,7 @@ beta = ln(2) / half_life_seconds
 
 * **Burst Amplitude (`alpha = 0.4`)**: Boosts items accessed in active conversational bursts.
 * **Decay Constant (`beta = ln(2) / 1800`)**: A 30-minute half-life ensures topics discussed earlier in a session maintain strong conversational momentum without lingering indefinitely into future days.
-* **Bounded Ranking**: Implemented in [orma/recall/rank.py](file:///c:/Users/Sahil/Desktop/memory_layer/smruti/orma/recall/rank.py) as a bounded additive boost so temporal bursts never override exact factual matches.
+* **Bounded Ranking**: Implemented in [orma/recall/rank.py](orma/recall/rank.py) as a bounded additive boost so temporal bursts never override exact factual matches.
 
 ---
 
@@ -669,6 +686,19 @@ Naive memory systems (like Mem0 or basic graph extraction) detect a contradictio
 
 ---
 
+### 8. Knapsack 0/1 Dynamic Programming Budgeting (`knapsack_pack`)
+
+**Algorithmic Rationale:** Traditional memory retrieval relies on greedy threshold truncation: sorting candidate facts by score and picking items until the token limit is reached. Greedy packing frequently discards compact, high-utility facts whenever a single verbose sentence exhausts the remaining margin.
+
+Orma frames prompt assembly as a bounded 0/1 Knapsack optimization problem:
+* **Item Value:** Composite utility score computed from Hybrid search relevance, ACT-R base-level power strength, Hawkes conversational burst intensity, and Ebbinghaus retention stability.
+* **Item Weight:** Exact token footprint of the candidate memory item.
+* **Knapsack Capacity:** `budget_tokens` ceiling specified in `OrmaConfig`.
+
+The dynamic programming algorithm computes the mathematically optimal combination of non-redundant memories that maximizes total information utility while strictly respecting the prompt window constraint.
+
+---
+
 ## Storage & Data Durability (100% Local & Persistent)
 
 * **Single File SQLite Storage**: All memories reside in `~/.orma/memory.db` with Write-Ahead Logging (WAL) enabled.
@@ -679,7 +709,7 @@ Naive memory systems (like Mem0 or basic graph extraction) detect a contradictio
 
 ## Configuration & Ablation Switches
 
-Every mechanism in Orma can be independently configured or ablated in [orma/config.py](file:///c:/Users/Sahil/Desktop/memory_layer/smruti/orma/config.py) or passed via `OrmaConfig`:
+Every mechanism in Orma can be independently configured or ablated in [orma/config.py](orma/config.py) or passed via `OrmaConfig`:
 
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
@@ -692,6 +722,7 @@ Every mechanism in Orma can be independently configured or ablated in [orma/conf
 | `enable_spreading_activation` | `True` | Associative spreading activation with Fan Effect |
 | `enable_defeasible_logic` | `True` | Non-monotonic conditional exception protection |
 | `enable_sutra_packing` | `False` | Dense declarative bracket encoding (-40% token usage; default False, toggle to True) |
+| `policy_intent_margin` | `0.06` | Semantic threshold distinguishing standing negative policy rules from everyday facts |
 | `budget_tokens` | `4096` | Token budget ceiling for injected memory blocks |
 | `search_k` | `30` | Top-k candidates pulled per hybrid search channel |
 | `rrf_k` | `60` | Reciprocal Rank Fusion constant for combining BM25 and vector scores |

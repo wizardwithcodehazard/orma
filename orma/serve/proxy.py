@@ -44,8 +44,7 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
     client = httpx.AsyncClient(base_url=upstream.rstrip("/"), timeout=httpx.Timeout(None, connect=10.0),
                                transport=transport)
     root_base = upstream.rstrip("/")
-    if root_base.endswith("/v1"):
-        root_base = root_base[:-3]
+    root_base = root_base.removesuffix("/v1")
     root_client = httpx.AsyncClient(base_url=root_base, timeout=httpx.Timeout(None, connect=10.0),
                                     transport=transport)
     scheduler = SleepScheduler(memory, sleep_poll_seconds) if sleep_poll_seconds else None
@@ -76,8 +75,10 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                 try:
                     async for chunk in response.aiter_bytes():
                         yield chunk
-                except (anyio.get_cancelled_exc_class(), Exception):
-                    pass
+                except anyio.get_cancelled_exc_class():
+                    logger.debug("Client aborted event stream.")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Upstream event stream interrupted: %s", exc)
                 finally:
                     with anyio.CancelScope(shield=True):
                         await response.aclose()
@@ -154,8 +155,10 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                 async for chunk in response.aiter_bytes():
                     accumulator.feed(chunk)
                     yield chunk
-            except (anyio.get_cancelled_exc_class(), Exception):
-                pass
+            except anyio.get_cancelled_exc_class():
+                logger.debug("Client cancelled chat completion stream.")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Stream relay error: %s", exc)
             finally:
                 with anyio.CancelScope(shield=True):  # runs on client disconnect too, with whatever was streamed
                     await response.aclose()
@@ -180,7 +183,17 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             return upstream_error(exc)
 
     viz_html_path = Path(__file__).parent / "viz.html"
+    viz_css_path = Path(__file__).parent / "viz.css"
+    viz_js_path = Path(__file__).parent / "viz.js"
     viz_html_content = viz_html_path.read_text(encoding="utf-8") if viz_html_path.exists() else "<h1>Orma Viz</h1>"
+
+    async def get_viz_css(request: Request) -> Response:
+        content = viz_css_path.read_text(encoding="utf-8") if viz_css_path.exists() else ""
+        return Response(content, media_type="text/css")
+
+    async def get_viz_js(request: Request) -> Response:
+        content = viz_js_path.read_text(encoding="utf-8") if viz_js_path.exists() else ""
+        return Response(content, media_type="application/javascript")
 
     async def get_brain_connectome(request: Request) -> JSONResponse:
         space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
@@ -203,13 +216,13 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
                 "prompt_block": prompt_block,
                 "states": [{"id": st.id, "text": st.text, "score": round(score, 3)} for st, score in res.states],
             })
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)
 
     async def add_memory(request: Request) -> JSONResponse:
         try:
             body = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             return JSONResponse({"error": "Invalid JSON"}, status_code=400)
         text = (body.get("text") or "").strip()
         space = body.get("space") or request.headers.get(SPACE_HEADER) or default_space
@@ -219,22 +232,29 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             await run_in_threadpool(memory.add, text, space=space, role="note")
             data = await run_in_threadpool(memory.export_connectome, space)
             return JSONResponse({"status": "added", "text": text, "connectome": data})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)
 
     async def get_brain_viz(request: Request) -> HTMLResponse:
-        return HTMLResponse(viz_html_content)
+        content = viz_html_path.read_text(encoding="utf-8") if viz_html_path.exists() else viz_html_content
+        return HTMLResponse(content)
 
     async def trigger_sleep(request: Request) -> JSONResponse:
         space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
         try:
             report = await run_in_threadpool(memory.sleep, space)
+            cons = getattr(report, "consolidation", None)
+            states_added = getattr(cons, "states_added", 0) if cons else getattr(report, "states_added", 0)
+            events_added = getattr(cons, "events_added", 0) if cons else getattr(report, "events_added", 0)
+            episodes = getattr(report, "episodes", getattr(report, "episodes_read", 0))
             return JSONResponse({
-                "states_added": report.states_added,
-                "events_added": report.events_added,
-                "episodes_read": report.episodes_read,
+                "states_added": states_added,
+                "events_added": events_added,
+                "episodes_read": episodes,
+                "batches": getattr(report, "batches", 0),
+                "failed_batches": getattr(report, "failed_batches", 0),
             })
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)
 
     @asynccontextmanager
@@ -247,8 +267,8 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             if scheduler is not None:
                 try:
                     await run_in_threadpool(scheduler.flush)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Proxy shutdown scheduler flush failed: %s", exc)
                 scheduler.stop()
             await client.aclose()
             await root_client.aclose()
@@ -259,9 +279,13 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             Route("/_orma/search", search_memory, methods=["GET"]),
             Route("/_orma/add", add_memory, methods=["POST"]),
             Route("/_orma/viz", get_brain_viz, methods=["GET"]),
+            Route("/_orma/viz.css", get_viz_css, methods=["GET"]),
+            Route("/_orma/viz.js", get_viz_js, methods=["GET"]),
             Route("/_orma", get_brain_viz, methods=["GET"]),
             Route("/brain", get_brain_viz, methods=["GET"]),
             Route("/viz", get_brain_viz, methods=["GET"]),
+            Route("/viz.css", get_viz_css, methods=["GET"]),
+            Route("/viz.js", get_viz_js, methods=["GET"]),
             Route("/_orma/sleep", trigger_sleep, methods=["POST"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
             Route("/chat/completions", chat_completions, methods=["POST"]),

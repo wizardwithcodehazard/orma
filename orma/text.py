@@ -4,11 +4,12 @@ word pairs a paraphrase is compared to. Nothing here reads meaning; it only cuts
 form says to (sentence ends, line breaks, code fences).
 """
 
+import itertools
 import math
 import re
 
 _WORD = re.compile(r"[^\W_]+")  # splits like the FTS5 unicode61 tokenizer
-_FENCE = re.compile(r"```[ \t]*([\w+#.-]*)[^\n]*\n(.*?)(?:```|\Z)", re.S)
+_FENCE = re.compile(r"```[ \t]*([\w+#.-]*)[^\n]*\n(.*?)(?:```|\Z)", re.DOTALL)
 _SENTENCE_END = re.compile(r"(?<=[.!?])[\"')\]]*\s+(?=\S)")
 # A period that ends an initial or a short abbreviation ("J.", "Dr.", "e.g.") does not end the sentence.
 _ABBREVIATION = re.compile(r"(?:^|\s)(?:[A-Z][a-z]?|[A-Za-z](?:\.[A-Za-z])+)\.$")
@@ -43,7 +44,7 @@ def made_of(text: str, vocabulary: set[str]) -> bool:
 def phrases(text: str) -> list[str]:
     """The words and adjacent word pairs of text, distinct and in order: what a paraphrased name is compared to."""
     found = _WORD.findall(text)
-    return list(dict.fromkeys(found + [f"{a} {b}" for a, b in zip(found, found[1:])]))
+    return list(dict.fromkeys(found + [f"{a} {b}" for a, b in itertools.pairwise(found)]))
 
 
 def _collapse_code(text: str) -> str:

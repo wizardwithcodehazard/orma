@@ -17,7 +17,15 @@ from orma import clock
 from orma.config import SmrutiConfig
 from orma.messages import message_text
 from orma.recall.pack import MemoryItem, Packed, pack
-from orma.recall.rank import base_level, ebbinghaus_retention, hawkes_burst, rrf, similarity_weight, spread_activation, use_weight
+from orma.recall.rank import (
+    base_level,
+    ebbinghaus_retention,
+    hawkes_burst,
+    rrf,
+    similarity_weight,
+    spread_activation,
+    use_weight,
+)
 from orma.store import USER_ENTITY, Event, Sentence, State, Store
 from orma.text import count_tokens
 

@@ -1,6 +1,6 @@
-import os
 import httpx
 import pytest
+
 from orma import Memory, OrmaConfig
 
 # Check if local llama.cpp or Ollama is running
@@ -15,8 +15,8 @@ def find_live_upstream():
             r = httpx.get(f"{url.rstrip('/v1')}/health", timeout=1.0)
             if r.status_code == 200:
                 return url, model
-        except Exception:
-            pass
+        except (httpx.HTTPError, OSError):
+            continue
         try:
             # Try a lightweight chat ping
             r = httpx.post(
@@ -26,8 +26,8 @@ def find_live_upstream():
             )
             if r.status_code == 200:
                 return url, model
-        except Exception:
-            pass
+        except (httpx.HTTPError, OSError):
+            continue
     return None, None
 
 

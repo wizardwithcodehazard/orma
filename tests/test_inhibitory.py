@@ -1,9 +1,10 @@
 import pytest
-from orma.sleep.extract import parse_extraction, ExtractedState
-from orma.recall.pack import MemoryItem, is_inhibitory, format_sutra, render
-from orma.config import OrmaConfig
+
 from orma import Memory
+from orma.config import OrmaConfig
+from orma.recall.pack import MemoryItem, format_sutra, is_inhibitory, render
 from orma.serve.mcp import MCPServer
+from orma.sleep.extract import ExtractedState, parse_extraction
 
 
 def test_parse_extraction_prohibited():
@@ -36,7 +37,7 @@ def test_consolidator_prefixes_forbidden(tmp_path):
     config = OrmaConfig(data_dir=tmp_path)
     memory = Memory(config=config)
     try:
-        from orma.sleep.consolidate import Consolidator, ConsolidationReport
+        from orma.sleep.consolidate import ConsolidationReport, Consolidator
 
         store = memory.store
         consolidator = Consolidator(store, config)

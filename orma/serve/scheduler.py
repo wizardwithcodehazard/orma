@@ -46,14 +46,15 @@ class SleepScheduler:
         done = []
         try:
             pending_spaces = [space for space, pending, _ in self.memory.store.pending_stats() if pending > 0]
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed checking pending stats during flush: %s", exc)
             return done
         for space in pending_spaces:
             try:
                 self.memory.sleep(space, now=now)
                 done.append(space)
-            except Exception:
-                logger.debug("immediate sleep flush for space %r failed", space)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("immediate sleep flush for space %r failed: %s", space, exc)
         return done
 
     def start(self) -> None:
@@ -73,8 +74,8 @@ class SleepScheduler:
                 consolidated = self.flush()
                 if consolidated:
                     logger.info("startup sleep catch-up consolidated spaces: %s", consolidated)
-            except Exception:
-                logger.debug("startup sleep catch-up skipped; will retry in normal loop")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("startup sleep catch-up skipped: %s", exc)
 
         # 2. Main periodic sleep loop
         while not self._stop.wait(self.poll_seconds):

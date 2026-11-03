@@ -15,7 +15,16 @@ from orma.config import SmrutiConfig
 from orma.embed import Embedder, FastEmbedder
 from orma.store import index
 from orma.store.db import connect, init_schema
-from orma.store.records import Attribute, Entity, Episode, Event, Sentence, State, from_row, state_text
+from orma.store.records import (
+    Attribute,
+    Entity,
+    Episode,
+    Event,
+    Sentence,
+    State,
+    from_row,
+    state_text,
+)
 
 USER_ENTITY = "user"
 
@@ -451,7 +460,6 @@ class Store:
                 "SELECT id, name, type, mention_count, last_seen FROM entities WHERE space = ? ORDER BY mention_count DESC",
                 (space,),
             )
-            entity_map = {r["id"]: r for r in entity_rows}
             name_to_id = {r["name"].strip().lower(): r["id"] for r in entity_rows}
 
             # 2. States with subject, attribute, and sentence text
@@ -544,14 +552,10 @@ class Store:
             attr = st["attribute"].lower()
             val_text = st["value"]
             is_inhibitory = (
-                attr.startswith("forbidden_")
-                or attr.startswith("avoid_")
-                or attr.startswith("no_")
+                attr.startswith(("forbidden_", "avoid_", "no_"))
                 or "forbidden" in attr
                 or "prohibited" in attr
-                or val_text.lower().startswith("never ")
-                or val_text.lower().startswith("do not ")
-                or val_text.lower().startswith("avoid ")
+                or val_text.lower().startswith(("never ", "do not ", "avoid "))
                 or "[forbidden]" in val_text.lower()
             )
             is_conditional = any(

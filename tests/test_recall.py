@@ -79,7 +79,7 @@ def test_a_recent_memory_ranks_above_an_equally_relevant_old_one(store, config):
     keep(store, config, "My bike needs new brakes.", now=NOW - 200 * DAY)
     keep(store, config, "My bike needs a new chain.", now=NOW - DAY)
     found = Recaller(store, config).search("s", "what does my bike need?", NOW)
-    assert [s.text for s, _ in found.passages][0] == "My bike needs a new chain."
+    assert next(s.text for s, _ in found.passages) == "My bike needs a new chain."
     config.enable_base_level = False
     found = Recaller(store, config).search("s", "what does my bike need?", NOW)
     assert {s.text for s, _ in found.passages} == {"My bike needs new brakes.", "My bike needs a new chain."}

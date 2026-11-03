@@ -14,10 +14,10 @@ from orma import clock
 from orma.llm import LLMError
 
 SCHEMA = {
-    "user_name": "the name the user calls themself, if a line says it; else empty",
+    "user_name": "the name the user calls themself (e.g. 'I am Alice', 'Call me Bob'); leave empty \"\" if the line mentions someone else",
     "states": [{
         "s": "number of the line that states it",
-        "about": "\"user\" for the person this memory belongs to; else the name of the person or thing",
+        "about": "\"user\" ONLY for the speaker's own facts; for any other person or thing mentioned (friend, colleague, relative, tool), their exact name (e.g. \"Bob\", \"Priya\")",
         "attribute": "short snake_case name; reuse a KNOWN ATTRIBUTE when one fits",
         "value": "the value, in the line's words",
         "ended": "true when the line says this stopped being true (value = what stopped)",
@@ -60,8 +60,8 @@ Return only a JSON object with this shape:
 {schema}
 
 Record two kinds of memory, each citing the number of the line that states it:
-- states: something true now that has one value at a time and can change later. Examples of attributes: where someone lives, who they work for, their job, their diet, a project's deadline, the version a system runs. If a line says a state stopped ("no longer", "used to", "quit"), record it with ended true. If a line declares a forbidden mistake, negative rule, or anti-pattern to avoid ("never", "do not", "avoid"), record it with prohibited true and attribute forbidden_<topic>.
-- events: something that happened at a particular time, such as a trip, a move, a purchase, a meeting or a release. Never the conversation itself.
+- states: persistent facts, ongoing preferences, and standing behavioral rules, commands or constraints (true until revoked). Examples: job, diet, location, tools used, coding conventions, or behavioral negative constraints. If a line declares a forbidden mistake, negative rule, command, policy, or anti-pattern to avoid, record it as a state with prohibited true and attribute forbidden_<topic>. Standing rules, policies, and ongoing constraints are persistent states, NEVER events. If a line says a state stopped ("no longer", "used to", "quit"), record it with ended true.
+- events: strictly real-world autobiographical occurrences or completed actions (a trip, a move, a purchase, a meeting, a release, or a milestone). Never record ongoing rules, commands, or standing facts as events. Never the conversation itself.
 - In lines whose speaker is "user", "I", "me" and "my" mean the user. When a user mentions a friend, colleague, relative, manager, or third person (e.g. "My friend Bob works as...", "My dentist is Dr. Rao"), that person is an independent ENTITY: record their facts under their own name (e.g. about: "Bob"), NEVER "user".
 - user_name: Fill ONLY if the user explicitly names themself (e.g. "I am Alice", "Call me Alice"). If the user mentions a friend or someone else, user_name MUST be empty ("").
 - Copy date words exactly as the line says them; never work out a date yourself.

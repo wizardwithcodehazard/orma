@@ -1,8 +1,8 @@
-import asyncio
-import json
 import pytest
+
 from orma import Memory
 from orma.serve.mcp import MCPServer
+
 
 @pytest.fixture
 def mcp_server(tmp_path):

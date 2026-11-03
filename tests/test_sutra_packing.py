@@ -1,6 +1,5 @@
-import pytest
-from orma.recall.pack import MemoryItem, format_sutra, render, pack
-from orma.text import count_tokens
+from orma.recall.pack import MemoryItem, format_sutra, pack
+
 
 def test_sutra_format_states_events_passages():
     st = MemoryItem("states", 1, "user · home city: Bangalore (since 2026-10-17)")

@@ -2,6 +2,10 @@
 
 import json
 import logging
+import os
+import socket
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import typer
@@ -42,6 +46,27 @@ def _memory(upstream: str | None = None, model: str | None = None) -> Memory:
     return Memory(upstream=upstream, model=model)
 
 
+def _is_port_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.4)
+        return s.connect_ex((host, port)) == 0
+
+
+def _get_active_proxy_url(host: str = "127.0.0.1", port: int = 8080) -> str | None:
+    """Checks if an Orma proxy is actively serving requests on host:port."""
+    try:
+        req = urllib.request.Request(
+            f"http://{host}:{port}/_orma/brain",
+            headers={"User-Agent": "orma-cli"},
+        )
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
+            if resp.status == 200:
+                return f"http://{host}:{port}"
+    except (urllib.error.URLError, TimeoutError, OSError):
+        pass
+    return None
+
+
 @app.command()
 def add(
     content: str = typer.Argument(..., help="A file path, or the text itself."),
@@ -50,6 +75,10 @@ def add(
                                                "file, note for text)."),
 ):
     """Add a note or a text file to memory; it is searchable at once and consolidated at the next sleep."""
+    if not content or not content.strip():
+        typer.echo("Error: content cannot be empty.")
+        raise typer.Exit(1)
+
     memory = _memory()
     try:
         path = Path(content)
@@ -57,6 +86,9 @@ def add(
             results = memory.add_file(path, space, role=role or "document")
         else:
             results = memory.add(content, space, role=role or "note")
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Add failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
     kept = [r for r in results if r.stored]
@@ -69,10 +101,17 @@ def search(
     space: str = typer.Option("default", help="Memory space."),
 ):
     """Show what memory holds for QUERY: states true now, sentences, events."""
+    if not query or not query.strip():
+        typer.echo("Error: query cannot be empty.")
+        raise typer.Exit(1)
+
     memory = _memory()
     try:
         found = memory.search(query, space)
         tz = clock.zone(memory.config.timezone)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Search failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
     if found.states:
@@ -88,13 +127,6 @@ def search(
         typer.echo("Events:")
         for event, score in found.events:
             typer.echo(f"  {score:.3f}  {event.label(tz)}")
-
-
-def _is_port_in_use(host: str, port: int) -> bool:
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.4)
-        return s.connect_ex((host, port)) == 0
 
 
 @app.command()
@@ -113,6 +145,7 @@ def proxy(
     """Run the memory proxy; point any OpenAI-compatible client at http://HOST:PORT/v1."""
     import threading
     import webbrowser
+
     import uvicorn
 
     from orma.serve.proxy import create_app
@@ -181,29 +214,19 @@ def viz(
 ):
     """Launch the interactive 3D Cognitive Connectome visualizer."""
     import threading
-    import urllib.request
     import webbrowser
+
     import uvicorn
+
     from orma.serve.proxy import create_app
 
     target_port = port
 
     # If the requested port is in use, check if Orma is already running on it
     if _is_port_in_use(host, target_port):
-        is_orma_running = False
-        try:
-            req = urllib.request.Request(
-                f"http://{host}:{target_port}/_orma/brain?space={space}",
-                headers={"User-Agent": "orma-cli"},
-            )
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                if resp.status == 200:
-                    is_orma_running = True
-        except Exception:
-            pass
-
-        if is_orma_running:
-            ui_url = f"http://{host}:{target_port}/_orma/viz"
+        active_url = _get_active_proxy_url(host, target_port)
+        if active_url:
+            ui_url = f"{active_url}/_orma/viz"
             typer.echo(f"Orma proxy is already active on port {target_port}.")
             typer.echo(f"Opening 3D Connectome at: {ui_url}")
             if open_browser:
@@ -238,32 +261,76 @@ def _report(report) -> str:
 
 @app.command()
 def sleep(
-    model: str = typer.Option(..., help="Model to consolidate with, e.g. llama3.2:3b."),
+    model: str | None = typer.Option(None, help="Model to consolidate with, e.g. llama3.2:3b."),
     upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
     space: str = typer.Option("default", help="Memory space."),
+    host: str = typer.Option("127.0.0.1", help="Interface to look for running Orma proxy."),
+    port: int = typer.Option(8080, help="Port of active Orma proxy."),
 ):
     """Consolidate pending records into states and events now."""
-    memory = _memory(upstream, model)
+    # Fast path: If Orma proxy is actively running, delegate to its running server instance
+    active_url = _get_active_proxy_url(host, port)
+    if active_url and model is None:
+        try:
+            req = urllib.request.Request(
+                f"{active_url}/_orma/sleep?space={space}",
+                data=b"",
+                headers={"User-Agent": "orma-cli"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=300.0) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    typer.echo(f"Consolidated via active Orma proxy on port {port}: "
+                               f"+{data.get('states_added', 0)} states, "
+                               f"+{data.get('events_added', 0)} events "
+                               f"({data.get('episodes_read', 0)} episodes read).")
+                    return
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            typer.echo(f"Proxy sleep delegation failed ({exc}), falling back to direct consolidation...")
+
+    # Fallback / Standalone path: requires model specification
+    target_model = model or os.environ.get("ORMA_MODEL")
+    if not target_model:
+        typer.echo("Error: Missing --model option and no active Orma proxy was found on port 8080.")
+        typer.echo("\nTo fix this, either:")
+        typer.echo("  1. Run with explicit model:  orma sleep --model <model_name>")
+        typer.echo("  2. Start the proxy first:     orma up --upstream <url> --model <model_name>")
+        raise typer.Exit(1)
+
+    memory = _memory(upstream, target_model)
     try:
         report = memory.sleep(space)
+        typer.echo(_report(report))
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Sleep consolidation failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
-    typer.echo(_report(report))
 
 
 @app.command()
 def rebuild(
-    model: str = typer.Option(..., help="Model to read everything with, e.g. a stronger one than chat uses."),
+    model: str | None = typer.Option(None, help="Model to read everything with, e.g. a stronger one than chat uses."),
     upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
     space: str = typer.Option("default", help="Memory space."),
 ):
     """Forget all states and events and read every kept record again (records themselves are never lost)."""
-    memory = _memory(upstream, model)
+    target_model = model or os.environ.get("ORMA_MODEL")
+    if not target_model:
+        typer.echo("Error: Missing --model option.")
+        typer.echo("Usage: orma rebuild --model <model_name>")
+        raise typer.Exit(1)
+
+    memory = _memory(upstream, target_model)
     try:
         report = memory.rebuild(space)
+        typer.echo(_report(report))
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Rebuild failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
-    typer.echo(_report(report))
 
 
 @app.command()
@@ -281,6 +348,9 @@ def facts(
             typer.echo(f"[{state.id}] {state.text}{note}")
             for sentence in memory.store.sentences([state.sentence_id]):
                 typer.echo(f"      {sentence.label(tz)}")
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Error fetching facts: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
 
@@ -292,9 +362,16 @@ def recall(
     budget: int | None = typer.Option(None, help="Token budget (default from config)."),
 ):
     """Show the memory block that would be added to a chat prompt for QUERY."""
+    if not query or not query.strip():
+        typer.echo("Error: query cannot be empty.")
+        raise typer.Exit(1)
+
     memory = _memory()
     try:
         context = memory.build_context([{"role": "user", "content": query}], space, budget)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Recall failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
     typer.echo(context[0]["content"] if context[0]["role"] == "system" else "(nothing recalled)")
@@ -302,13 +379,16 @@ def recall(
 
 @app.command()
 def forget(
-    state_id: int = typer.Argument(..., help="State id, as shown by `smruti facts`."),
+    state_id: int = typer.Argument(..., help="State id, as shown by `orma facts`."),
     space: str = typer.Option("default", help="Memory space."),
 ):
     """Mark a state as no longer true."""
     memory = _memory()
     try:
         forgotten = memory.forget(state_id, space)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Forget failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
     typer.echo("Forgotten." if forgotten else "No current state with that id in this space.")
@@ -321,9 +401,13 @@ def stats(space: str = typer.Option("default", help="Memory space.")):
     memory = _memory()
     try:
         data = {"db": str(memory.config.db_path), "space": space, **memory.stats(space)}
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Stats failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
     typer.echo(json.dumps(data, indent=2))
+
 
 @app.command()
 def mcp(
@@ -336,9 +420,11 @@ def mcp(
     memory = _memory(upstream=upstream, model=model)
     try:
         run_mcp_server(memory, default_space=space)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"MCP server failed: {exc}")
+        raise typer.Exit(1)
     finally:
         memory.close()
-
 
 
 if __name__ == "__main__":

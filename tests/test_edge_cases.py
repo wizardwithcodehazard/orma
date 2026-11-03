@@ -1,5 +1,5 @@
 import concurrent.futures
-import pytest
+
 from orma import Memory, OrmaConfig
 
 

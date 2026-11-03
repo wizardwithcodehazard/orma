@@ -1,4 +1,3 @@
-import pytest
 from starlette.testclient import TestClient
 
 from orma.memory import Memory
@@ -45,8 +44,17 @@ def test_viz_proxy_endpoints(tmp_path):
     res_viz = client.get("/_orma/viz")
     assert res_viz.status_code == 200
     assert "text/html" in res_viz.headers["content-type"]
-    assert "3d-force-graph" in res_viz.text
-    assert "NEURAL BRAIN" in res_viz.text
+    assert "three.min.js" in res_viz.text or "gl-cv" in res_viz.text
+    assert "CONNECTOME" in res_viz.text or "Orma" in res_viz.text
+
+    # Test separated CSS and JS assets
+    res_css = client.get("/_orma/viz.css")
+    assert res_css.status_code == 200
+    assert "text/css" in res_css.headers["content-type"]
+
+    res_js = client.get("/_orma/viz.js")
+    assert res_js.status_code == 200
+    assert "application/javascript" in res_js.headers["content-type"]
 
     # 3. Test alternate paths
     assert client.get("/brain").status_code == 200

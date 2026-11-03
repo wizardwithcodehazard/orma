@@ -1,4 +1,5 @@
 import functools
+
 """
 mcp.py - Native Model Context Protocol (MCP) server for Orma.
 Allows coding assistants and agents (Claude Code, Cursor, Windsurf, Roo Code, Hermes, etc.)
@@ -7,13 +8,14 @@ via standard JSON-RPC 2.0 over stdio without requiring heavy dependencies.
 """
 
 import asyncio
-import anyio
 import json
 import logging
 import sys
 from typing import Any
 
-from orma.config import OrmaConfig
+import anyio
+
+from orma import __version__
 from orma.memory import Memory
 from orma.serve.scheduler import SleepScheduler
 
@@ -172,8 +174,8 @@ class MCPServer:
             if self.scheduler is not None:
                 try:
                     await anyio.to_thread.run_sync(self.scheduler.flush)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("MCP shutdown scheduler flush failed: %s", exc)
                 self.scheduler.stop()
 
     async def handle_request(self, req: dict[str, Any]) -> dict[str, Any] | None:
@@ -195,7 +197,7 @@ class MCPServer:
                     },
                     "serverInfo": {
                         "name": "orma",
-                        "version": "0.1.11"
+                        "version": __version__
                     }
                 }
             }
@@ -301,10 +303,10 @@ class MCPServer:
                     "content": [{"type": "text", "text": f"Unknown tool: {name}"}]
                 }
         except Exception as e:
-            logger.exception("Error executing tool %s: %s", name, e)
+            logger.exception("Error executing tool %s", name)
             return {
                 "isError": True,
-                "content": [{"type": "text", "text": f"Tool execution failed: {str(e)}"}]
+                "content": [{"type": "text", "text": f"Tool execution failed: {e!s}"}]
             }
 
 

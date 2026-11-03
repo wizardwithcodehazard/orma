@@ -26,26 +26,16 @@ from orma.text import made_of, phrases, span_of, words
 
 FIRST_PERSON_ROLES = ("user", "note")  # lines in which "I" is the user
 
-def _is_self_naming(text: str, name: str) -> bool:
-    """Checks whether the speaker explicitly refers to themself by name (e.g. 'I am Alice',
-    'My name is Alice', 'Call me Alice'), rejecting relational or third-party references."""
+def _is_self_naming(text: str, name: str, third_parties: set[str] | None = None) -> bool:
+    """Language-agnostic self-naming validation:
+    A name refers to the user if it appears as a distinct word in a first-person line
+    and is not categorized as a third-party entity."""
     if not name or name.lower() == USER_ENTITY:
         return False
-    # Explicit self-identification: "I am <name>", "I'm <name>", "My name is <name>", "Call me <name>"
-    self_patterns = [
-        rf"\b(?:i am|i'm|my name is|call me|myself)\s+['\"]?{re.escape(name)}\b",
-        rf"\bthis is\s+['\"]?{re.escape(name)}\b",
-    ]
-    if not any(re.search(pat, text, re.I) for pat in self_patterns):
+    if third_parties and name.strip().lower() in third_parties:
         return False
-    # If preceded by relationship/third-person noun, it's NOT self-naming: "friend Rohan", "manager Rohan"
-    rel_pattern = (
-        rf"\b(?:friend|colleague|coworker|brother|sister|boss|manager|doctor|dentist|"
-        rf"partner|wife|husband|son|daughter|mother|father)\s+(?:named\s+|called\s+)?['\"]?{re.escape(name)}\b"
-    )
-    if re.search(rel_pattern, text, re.I):
-        return False
-    return True
+    text_words = [w.lower() for w in words(text)]
+    return name.lower() in text_words
 
 def has_conditional_framing(condition: str = "", text: str = "") -> bool:
     """Checks whether an extracted state has conditional/contextual framing
@@ -83,18 +73,23 @@ class Consolidator:
         report = ConsolidationReport()
         citable = {s.id: s for s in sentences if s.role in self.config.citable_roles}
         user_id = self.store.user_entity(space, now)
-        self._user_name(space, extraction.user_name, citable.values(), user_id, report)
-        extra_mentioned = []
-        for s in sentences:
-            for m in re.finditer(
-                r"\b(?:friend|colleague|coworker|brother|sister|boss|manager|doctor|dentist|"
-                r"partner|wife|husband|son|daughter|mother|father)\s+(?:named\s+|called\s+)?([A-Z][a-zA-Z0-9_]*)",
-                s.text,
-                re.I,
-            ):
-                extra_mentioned.append(m.group(1))
+        # Schema-driven entity disambiguation: collect third party entities
+        third_parties = {
+            item.about.strip().lower() for item in extraction.states
+            if item.about.lower() not in ("user", USER_ENTITY)
+        }
+        third_parties.update(
+            w.strip().lower() for ev in extraction.events for w in ev.who
+            if w.lower() not in ("user", USER_ENTITY)
+        )
+
+        if extraction.user_name and extraction.user_name.strip().lower() in third_parties:
+            # Model mistakenly extracted a third-party name into user_name
+            extraction.user_name = ""
+
+        self._user_name(space, extraction.user_name, citable.values(), user_id, report, third_parties)
         mentioned = [n for item in extraction.states for n in (item.about,)] + [
-            n for event in extraction.events for n in event.who] + extra_mentioned
+            n for event in extraction.events for n in event.who]
         resolve = _Holders(self, space, sentences, mentioned, user_id, now)
 
         position = {s.id: i for i, s in enumerate(sentences)}
@@ -103,24 +98,13 @@ class Consolidator:
             if sentence is None:
                 report.uncited += 1
                 continue
-            # Symbolic check: if attributed to "user", but sentence introduces a third person
-            # (e.g. "My friend Rohan works as a frontend architect") and the user isn't claiming it:
-            if item.about.lower() in ("user", USER_ENTITY) and sentence is not None:
-                rel_match = re.search(
-                    r"\b(?:friend|colleague|coworker|brother|sister|boss|manager|doctor|dentist|"
-                    r"partner|wife|husband|son|daughter|mother|father)\s+(?:named\s+|called\s+)?([A-Z][a-zA-Z0-9_]*)",
-                    sentence.text,
-                    re.I,
-                )
-                if rel_match:
-                    third_name = rel_match.group(1)
-                    if item.attribute in ("name", "user_name") and item.value.strip().lower() == third_name.lower():
-                        # Do not set user's name to their friend's name! Ensure third person entity exists
-                        self.entity(space, third_name, now)
-                        continue
-                    # Re-attribute states about the friend to the friend
-                    if not re.search(r"\b(?:i am|i work|my job|my role|i live)\b", sentence.text, re.I):
-                        item.about = third_name
+            # If attributed to user, ensure a third party's name is not bound as user's name
+            if (
+                item.about.lower() in ("user", USER_ENTITY)
+                and item.attribute in ("name", "user_name")
+                and item.value.strip().lower() in third_parties
+            ):
+                continue
             subject_id = resolve(item.about, sentence)
             if subject_id is None:
                 report.unresolved += 1
@@ -138,12 +122,12 @@ class Consolidator:
 
     # --- names -----------------------------------------------------------------------
 
-    def _user_name(self, space: str, name: str, citable, user_id: int, report) -> None:
+    def _user_name(self, space: str, name: str, citable, user_id: int, report, third_parties: set[str] | None = None) -> None:
         """A name the user calls themself becomes an alias of the user when one of their own lines contains it and
         it is not already someone else."""
         if not name or name.lower() == USER_ENTITY:
             return
-        said = any(s.role in FIRST_PERSON_ROLES and _is_self_naming(s.text, name) for s in citable)
+        said = any(s.role in FIRST_PERSON_ROLES and _is_self_naming(s.text, name, third_parties) for s in citable)
         existing = self.store.find_entity(space, name)
         if said and (existing is None or existing.id == user_id):
             self.store.add_alias(space, name, user_id)
@@ -212,7 +196,6 @@ class Consolidator:
             getattr(item, "prohibited", False)
             or item.attribute.startswith("forbidden_")
             or item.attribute.startswith("avoid_")
-            or re.search(r"\b(?:never|avoid|do not|don't|stop)\b", sentence.text, re.I) is not None
         )
         attr_name = item.attribute
         if is_prohib and not attr_name.startswith("forbidden_"):
@@ -251,22 +234,25 @@ class Consolidator:
 
     def _is_policy_directive(self, text: str) -> bool:
         """Embedding anchor geometric projection: determines if text is a standing rule/constraint
-        rather than a historical episodic event."""
+        rather than a factual personal description or historical autobiographical life event."""
         anchors = [
-            "standing behavioral rule, user negative constraint, forbidden action or preference to avoid",
-            "historical autobiographical life occurrence, meeting, purchase or completed action",
+            "standing behavioral instruction, command or prohibition: never do, must not, avoid, strictly prohibited",
+            "factual description of a person, friend, colleague, role, job, or autobiographical life event",
         ]
         vecs = self.store.embed_many([text] + anchors)
         policy_sim = float(vecs[0] @ vecs[1])
-        event_sim = float(vecs[0] @ vecs[2])
-        return (policy_sim - event_sim) > 0.04
+        fact_event_sim = float(vecs[0] @ vecs[2])
+        margin = getattr(self.config, "policy_intent_margin", 0.06)
+        return (policy_sim - fact_event_sim) > margin
 
     def _event(self, space: str, item: ExtractedEvent, sentence: Sentence, resolve, report, now: float) -> None:
         when = self._stated(item.when, sentence)
         if when is None and sentence.role in FIRST_PERSON_ROLES and self._is_policy_directive(item.what):
             words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]+\b", item.what)]
-            stop = {"never", "do", "not", "dont", "avoid", "stop", "strictly", "no", "cant", "shouldnt", "mustnt",
-                    "using", "use", "recommending", "recommend", "suggesting", "suggest"}
+            stop = {
+                "never", "do", "not", "dont", "avoid", "stop", "strictly", "no", "cant", "shouldnt", "mustnt",
+                "using", "use", "recommending", "recommend", "suggesting", "suggest", "user", "said", "to", "asked", "about"
+            }
             content_words = [w for w in words if w not in stop]
             topic = "_".join(content_words[:3]) if content_words else "rule"
             st_item = ExtractedState(
