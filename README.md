@@ -29,7 +29,7 @@ Everything runs locally in SQLite with `sqlite-vec` and fast on-device embedding
   - [4. One-Command Web UI (`orma up`)](#usage-option-4-one-command-web-ui-orma-up)
   - [5. Model Context Protocol (MCP Server for Coding Assistants)](#usage-option-5-model-context-protocol-mcp-server-for-coding-assistants)
 - [Inhibitory Control & Anti-Pattern Prevention (Negative Memory)](#inhibitory-control--anti-pattern-prevention-negative-memory)
-  - [Instant Fast-Path Directives (`:/`)](#instant-fast-path-directives-)
+  - [Instant Fast-Path for Forbidden Rules (`:/`)](#instant-fast-path-for-forbidden-rules-)
 - [Multi-User & Multi-Tenant Isolation](#multi-user--multi-tenant-isolation)
 - [CLI Reference](#cli-reference)
 - [Cognitive & Mathematical Architecture](#cognitive--mathematical-architecture)
@@ -473,20 +473,17 @@ Orma introduces **Inhibitory Control**:
    ```
 4. **Universal Applicability:** Works identically for developer pain points (terminal syntax, forbidden dependencies, deprecated API calls) and personal constraints (severe allergies, tone boundaries, forbidden buzzwords).
 
-### Instant Fast-Path Directives (`:/`)
+### Instant Fast-Path for Forbidden Rules (`:/`)
 
-You do not need to wait for background sleep consolidation to register critical rules or personal facts. Prefixing any note, chat turn, or CLI input with `:/` triggers instant zero-latency fast-path ingestion:
+You do not need to wait for background sleep consolidation to register critical negative boundaries or anti-patterns. Prefixing any note, chat turn, or CLI input with `:/` activates Orma's dedicated inhibitory fast-path:
 
-* **Inhibitory Anti-Patterns:**
-  ```bash
-  orma add ":/ never use semicolons to chain commands in PowerShell"
-  ```
-  Immediately recognized as a standing negative constraint, stored with `status = 'inhibitory'`, and hoisted to the top of subsequent prompts with 0ms LLM extraction delay.
-* **Direct Declarative Facts:**
-  ```bash
-  orma add ":/ user.editor: neovim"
-  ```
-  Instantly registers or updates the active truth in SQLite without waiting for the background sleep cycle.
+```bash
+orma add ":/ never use semicolons to chain commands in PowerShell"
+```
+
+* **Instant Inhibitory State:** Parsed immediately as a standing negative constraint (`attr_name = "forbidden_<topic>"`).
+* **Zero Extraction Delay:** Bypasses the background sleep extraction cycle, writing directly into SQLite in `< 1ms`.
+* **Top-of-Prompt Hoisting:** Hoisted to the absolute top of all subsequent prompts as `[FORBIDDEN: ...]` with strict negative constraint framing.
 
 ---
 
@@ -686,16 +683,20 @@ Naive memory systems (like Mem0 or basic graph extraction) detect a contradictio
 
 ---
 
-### 8. Knapsack 0/1 Dynamic Programming Budgeting (`knapsack_pack`)
+### 8. Hierarchical Tiered Priority & Budget Packing (`pack.py`)
 
-**Algorithmic Rationale:** Traditional memory retrieval relies on greedy threshold truncation: sorting candidate facts by score and picking items until the token limit is reached. Greedy packing frequently discards compact, high-utility facts whenever a single verbose sentence exhausts the remaining margin.
+**Cognitive & Algorithmic Rationale:** In conversational AI, memory items carry fundamentally unequal operational authority. A casual episodic chat log from last week must never displace an active negative constraint (e.g. "never use semicolons") or a canonical factual belief just because it happens to fit remaining token slots.
 
-Orma frames prompt assembly as a bounded 0/1 Knapsack optimization problem:
-* **Item Value:** Composite utility score computed from Hybrid search relevance, ACT-R base-level power strength, Hawkes conversational burst intensity, and Ebbinghaus retention stability.
-* **Item Weight:** Exact token footprint of the candidate memory item.
-* **Knapsack Capacity:** `budget_tokens` ceiling specified in `OrmaConfig`.
+Orma enforces **strict hierarchical tiered priority allocation**:
+* **Tier 0 — Inhibitory Rules:** Strict negative directives and anti-patterns hoisted with maximum attention priority (`[FORBIDDEN: ...]`).
+* **Tier 1 — Active Canonical States:** Verified single-source-of-truth properties (`[user.city: Bangalore]`).
+* **Tier 2 — Dated Events:** Grounded temporal milestones and occurrences.
+* **Tier 3 — Historical Episodic Passages:** Verbatim excerpts from earlier dialogues, preserved in the exact order they were spoken.
 
-The dynamic programming algorithm computes the mathematically optimal combination of non-redundant memories that maximizes total information utility while strictly respecting the prompt window constraint.
+**Budget Execution:**
+1. Guarantees recent conversational turns (`min_recent_turns`) remain intact.
+2. Greedily allocates available memory tokens (`budget_tokens - framing - recent_turns`) to candidate items in strict tier order.
+3. Fills any remaining token margin with older conversation history in reverse-chronological order.
 
 ---
 
