@@ -197,9 +197,19 @@ class Consolidator:
             or item.attribute.startswith("forbidden_")
             or item.attribute.startswith("avoid_")
         )
+        if (
+            is_prohib
+            and not sentence.text.startswith(":/")
+            and not self._is_policy_directive(item.value)
+            and not self._is_policy_directive(sentence.text)
+        ):
+            # Verify that the extraction is an actual policy directive, not an event inquiry or meta-question
+            is_prohib = False
         attr_name = item.attribute
         if is_prohib and not attr_name.startswith("forbidden_"):
             attr_name = f"forbidden_{attr_name}"
+        elif not is_prohib and attr_name.startswith("forbidden_"):
+            attr_name = attr_name[len("forbidden_"):]
         attribute_id = self._attribute(space, attr_name)
         history = self.store.state_history(space, subject_id, attribute_id)
         if any(sentence.id in st.evidence or st.ended_by == sentence.id for st in history):
@@ -222,7 +232,10 @@ class Consolidator:
         later = [st.valid_from for st in current if since is not None and st.valid_from_stated and st.valid_from > start]
         subject = self.store.entity(subject_id).name
         vec = self.store.embed(state_text(subject, self.store.attribute(attribute_id).name, item.value))
-        is_conditional = self.config.enable_defeasible_logic and has_conditional_framing(getattr(item, 'condition', ''))
+        is_conditional = self.config.enable_defeasible_logic and (
+            has_conditional_framing(getattr(item, "condition", ""))
+            or self._is_conditional_framing(sentence.text)
+        )
         with self.store.tx():  # close and insert together: a reader never sees the attribute without a value
             if not later and not is_conditional:
                 for st in current:
@@ -232,12 +245,25 @@ class Consolidator:
                                  stated=since is not None, valid_to=min(later) if later else None, vec=vec)
         report.states_added += 1
 
+    def _is_conditional_framing(self, sentence_text: str) -> bool:
+        """Embedding anchor geometric projection: determines if cited sentence has
+        conditional/situational framing rather than a permanent categorical fact."""
+        anchors = [
+            "conditional situational preference, exception, or habit that only applies in specific circumstances, when sick, or under certain conditions",
+            "permanent categorical fact, identity, general routine, or absolute unconditional baseline truth in life",
+        ]
+        vecs = self.store.embed_many([sentence_text] + anchors)
+        conditional_sim = float(vecs[0] @ vecs[1])
+        categorical_sim = float(vecs[0] @ vecs[2])
+        margin = getattr(self.config, "condition_detection_margin", 0.05)
+        return (conditional_sim - categorical_sim) > margin
+
     def _is_policy_directive(self, text: str) -> bool:
-        """Embedding anchor geometric projection: determines if text is a standing rule/constraint
-        rather than a factual personal description or historical autobiographical life event."""
+        """Embedding anchor geometric projection: determines if text is an explicit standing rule/constraint
+        rather than a factual description, personal background, user question, conversational turn, or autobiographical action."""
         anchors = [
             "standing behavioral instruction, command or prohibition: never do, must not, avoid, strictly prohibited",
-            "factual description of a person, friend, colleague, role, job, or autobiographical life event",
+            "factual description of a person, friend, colleague, role, job, user question, inquiry, or autobiographical life event",
         ]
         vecs = self.store.embed_many([text] + anchors)
         policy_sim = float(vecs[0] @ vecs[1])

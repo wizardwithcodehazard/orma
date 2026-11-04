@@ -234,3 +234,4 @@ def test_events_are_dated_from_their_words_and_linked_to_who_took_part(store, co
     assert datetime.fromtimestamp(event.occurred_at, timezone.utc).date().isoformat() == "2026-10-10"
     names = {store.entity(i).name for i in store.event_participants(event.id)}
     assert names == {"user", "Asha"}  # Meera is neither in the batch nor known
+

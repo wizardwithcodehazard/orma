@@ -6,7 +6,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-217%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-218%20passed-brightgreen.svg)](tests/)
 
 Orma can be used in two ways:
 1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
@@ -235,7 +235,7 @@ Or install from source for development:
 git clone https://github.com/wizardwithcodehazard/orma.git
 cd orma
 pip install -e ".[dev]"
-python -m pytest -q  # 217 tests pass locally
+python -m pytest -q  # 218 tests pass locally
 ```
 
 ---
@@ -642,6 +642,7 @@ Naive memory systems (like Mem0 or basic graph extraction) detect a contradictio
 
 **Epistemic Rule Engine:**
 * Orma inspects assertions via **schema attribution** (`item.condition` extracted by the model during sleep) rather than brittle keyword matching.
+* **Embedding Geometric Fallback (`condition_detection_margin`)**: If a 3B model omits the `condition` field, Orma's deterministic layer projects the cited sentence against conditional vs categorical semantic anchors (`margin = 0.05`). Situational preferences are automatically protected as conditional overrides without regex.
 * **Categorical Assertions** (`condition: ""` e.g., `"I moved to Bangalore"`): Trigger state supersession (`active = 0, superseded_by_id = new_state_id`).
 * **Defeasible Overrides** (`condition: "sore throat"` e.g., `"When sick, drink tea"`): Registered as conditional exceptions without closing or corrupting the baseline categorical truth. Both facts are preserved in context.
 
@@ -678,7 +679,7 @@ Naive memory systems (like Mem0 or basic graph extraction) detect a contradictio
 * **Hoisting Precedence**: Rather than interweaving negative rules inside narrative facts, Orma isolates negative boundaries into `[FORBIDDEN: <rule>]` tokens and places them at the very beginning of the system prompt.
 * **Instruction-Tuning Alignment**: Modern instruction-tuned models (e.g. Qwen 2.5, Llama 3.2, Claude 3.5) treat top-level boundaries as hard system constraints when defined prior to task context.
 * **Dual Channel Registration**:
-  * *Declarative Extraction:* Asynchronous sleep maps *"never use semicolon in terminal"* to `prohibited = True` and namespaced attribute `forbidden_<name>`.
+  * *Declarative Extraction:* Asynchronous sleep maps *"never use semicolon in terminal"* to `prohibited = True` and namespaced attribute `forbidden_<name>`. Model claims are geometrically validated against policy anchors to prevent conversational meta-inquiries from becoming false rules.
   * *Immediate MCP Tool:* Coding assistants directly call `orma_forbid(rule)` to establish an instant guardrail without waiting for background consolidation.
 
 ---
@@ -724,6 +725,7 @@ Every mechanism in Orma can be independently configured or ablated in [orma/conf
 | `enable_defeasible_logic` | `True` | Non-monotonic conditional exception protection |
 | `enable_sutra_packing` | `False` | Dense declarative bracket encoding (-40% token usage; default False, toggle to True) |
 | `policy_intent_margin` | `0.06` | Semantic threshold distinguishing standing negative policy rules from everyday facts |
+| `condition_detection_margin` | `0.05` | Semantic margin detecting conditional/defeasible framing and protecting baseline habits |
 | `budget_tokens` | `4096` | Token budget ceiling for injected memory blocks |
 | `search_k` | `30` | Top-k candidates pulled per hybrid search channel |
 | `rrf_k` | `60` | Reciprocal Rank Fusion constant for combining BM25 and vector scores |

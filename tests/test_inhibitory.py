@@ -208,3 +208,62 @@ def test_embedding_intent_anchor_event_promotion(tmp_path):
         assert any("forbidden" in store.attribute(f.attribute_id).name for f in facts)
     finally:
         memory.close()
+
+
+def test_conditional_anchor_fallback_preserves_baseline(tmp_path):
+    config = OrmaConfig(data_dir=tmp_path)
+    memory = Memory(config=config)
+    try:
+        from orma.sleep.consolidate import Consolidator
+        from orma.sleep.extract import ExtractedState, Extraction
+
+        store = memory.store
+        consolidator = Consolidator(store, config)
+        space = "test_cond"
+
+        # 1. Baseline habit
+        enc1 = memory.add("I drink black coffee every morning.", space=space, role="user")
+        s1 = store.episode_sentences([enc1[0].episode_id])[0]
+        ext1 = Extraction(states=[ExtractedState(s=s1.id, about="user", attribute="morning_drink", value="black coffee")])
+        consolidator.apply(space, ext1, [s1])
+        assert [f.value for f in memory.facts(space=space)] == ["black coffee"]
+
+        # 2. Conditional preference where 3B model failed to populate condition=""
+        enc2 = memory.add("Whenever I have a sore throat or cold, I switch to warm ginger tea with raw honey.", space=space, role="user")
+        s2 = store.episode_sentences([enc2[0].episode_id])[0]
+        ext2 = Extraction(states=[ExtractedState(s=s2.id, about="user", attribute="morning_drink", value="warm ginger tea", condition="")])
+        consolidator.apply(space, ext2, [s2])
+
+        # Both states should be current because the sentence has conditional framing via embedding projection!
+        facts = [f.value for f in memory.facts(space=space)]
+        assert len(facts) == 2
+        assert "black coffee" in facts
+        assert "warm ginger tea" in facts
+    finally:
+        memory.close()
+
+
+def test_meta_question_false_prohibited_rejected(tmp_path):
+    config = OrmaConfig(data_dir=tmp_path)
+    memory = Memory(config=config)
+    try:
+        from orma.sleep.consolidate import Consolidator
+        from orma.sleep.extract import ExtractedState, Extraction
+
+        store = memory.store
+        consolidator = Consolidator(store, config)
+        space = "test_meta"
+
+        enc = memory.add("Who is the data scientist on our team?", space=space, role="user")
+        s1 = store.episode_sentences([enc[0].episode_id])[0]
+
+        # Simulating 3B model hallucinating prohibited=True on a meta question
+        ext = Extraction(states=[ExtractedState(s=s1.id, about="user", attribute="user_asked_about", value="data scientist on our team", prohibited=True)])
+        consolidator.apply(space, ext, [s1])
+
+        facts = memory.facts(space=space)
+        assert len(facts) == 1
+        # Should NOT be prefixed with forbidden_ because it failed policy anchor validation!
+        assert not any("forbidden" in f.text for f in facts)
+    finally:
+        memory.close()
