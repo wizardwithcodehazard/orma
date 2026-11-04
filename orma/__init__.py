@@ -3,5 +3,5 @@
 from orma.config import OrmaConfig, SmrutiConfig
 from orma.memory import Memory
 
-__version__ = "0.1.18"
+__version__ = "0.1.19"
 __all__ = ["Memory", "OrmaConfig", "SmrutiConfig"]
