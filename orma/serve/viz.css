@@ -1415,6 +1415,173 @@ kbd,
     }
 }
 
+/* =========================================================================
+   Hand Gesture HUD & CV Pointer
+   ========================================================================= */
+.tool.gesture-active {
+    color: var(--teal);
+    box-shadow: inset 0 -2px 0 var(--teal);
+}
+
+.gesture-hud {
+    position: fixed;
+    right: var(--m);
+    bottom: 58px;
+    width: 176px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    z-index: 45;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    font-family: var(--mono);
+}
+
+.gh-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    background: rgba(7, 8, 11, 0.6);
+}
+
+.gh-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--teal);
+    box-shadow: 0 0 8px var(--teal);
+    animation: gh-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes gh-pulse {
+
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: scale(0.9);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.1);
+    }
+}
+
+.gh-title {
+    color: var(--tx-2);
+    font-weight: 500;
+    font-size: 9px;
+}
+
+.gh-mode {
+    color: var(--teal);
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+}
+
+.gh-stage {
+    position: relative;
+    width: 156px;
+    height: 117px;
+    margin: 8px auto 6px auto;
+    background: var(--ink-2);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    overflow: hidden;
+}
+
+.gh-stage video {
+    display: none;
+}
+
+.gh-stage canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    transform: scaleX(-1);
+}
+
+.gh-guide {
+    padding: 5px 8px 6px;
+    font-size: 8.5px;
+    color: var(--tx-3);
+    text-align: center;
+    letter-spacing: 0.03em;
+    border-top: 1px solid var(--rule);
+    background: rgba(7, 8, 11, 0.4);
+}
+
+.gesture-pointer {
+    position: fixed;
+    width: 20px;
+    height: 20px;
+    border: 1.5px solid var(--teal);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 1000;
+    box-shadow: 0 0 10px rgba(79, 209, 197, 0.4), inset 0 0 4px rgba(79, 209, 197, 0.2);
+    transition: width 0.12s var(--ease), height 0.12s var(--ease), border-color 0.15s, box-shadow 0.15s;
+}
+
+.gesture-pointer::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    background: var(--teal);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.gesture-pointer {
+    --dwell: 0;
+}
+
+/* dwell ring: fills while you hold the pointer on a node */
+.gesture-pointer::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    background: conic-gradient(var(--gold) calc(var(--dwell) * 1turn), transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+    opacity: min(1, calc(var(--dwell) * 40));
+    pointer-events: none;
+}
+
+.gesture-pointer.pinching {
+    width: 14px;
+    height: 14px;
+    border-color: var(--ember);
+    box-shadow: 0 0 12px rgba(255, 122, 61, 0.8);
+}
+
+.gesture-pointer.pinching::after {
+    background: var(--ember);
+}
+
+.gesture-pointer.hovering {
+    width: 28px;
+    height: 28px;
+    border-color: var(--gold);
+    box-shadow: 0 0 16px rgba(232, 184, 74, 0.8);
+}
+
+.gesture-pointer.hovering::after {
+    background: var(--gold);
+}
+
 @media (max-width: 560px) {
     .meta {
         display: none;

@@ -12,6 +12,8 @@
         href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
         rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <link rel="stylesheet" href="/_orma/viz.css">
 </head>
 
@@ -51,6 +53,8 @@
             <button class="tool" id="btn-reset" title="Reset view (R)"><span>RECENTER</span></button>
             <button class="tool sleep" id="btn-sleep" title="Replay sleep consolidation"><span>REPLAY
                     SLEEP</span></button>
+            <button class="tool" id="btn-gesture" title="Toggle hand gesture controls (G)"><span>GESTURES
+                    OFF</span></button>
         </div>
     </header>
 
@@ -151,7 +155,8 @@
                 <svg class="g" viewBox="0 0 16 16">
                     <circle cx="8" cy="8" r="5" fill="none" stroke-width="1.4" />
                     <path d="M8 3a5 5 0 0 0 0 10Z" stroke="none" />
-                </svg>Conditional<em>gated</em></div>
+                </svg>Conditional<em>gated</em>
+            </div>
             <div class="lg wire" title="Synapse colour blends its two ends; red links are inhibitory"><svg class="g"
                     viewBox="0 0 16 16" fill="none">
                     <path d="M2 12C6 3 10 13 14 4" stroke-width="1.3" stroke-linecap="round" />
@@ -221,8 +226,26 @@
             <button id="btn-tx">ENCODE</button>
         </div>
 
-        <div class="hint">drag orbit · scroll zoom · double-click focus</div>
+        <div class="hint">drag orbit · scroll zoom · double-click focus · G gestures</div>
     </footer>
+
+    <!-- Hand gesture HUD & Reticle -->
+    <div id="gesture-hud" class="gesture-hud" aria-hidden="true" style="display:none;">
+        <div class="gh-head">
+            <span class="gh-dot"></span>
+            <span class="gh-title">NEURAL CV</span>
+            <span class="gh-mode" id="gh-mode">STANDBY</span>
+        </div>
+        <div class="gh-stage">
+            <video id="gesture-video" playsinline muted autoplay></video>
+            <canvas id="gesture-canvas" width="160" height="120"></canvas>
+        </div>
+        <div class="gh-guide">
+            <span>palm: orbit</span> · <span>point: aim</span> · <span>pinch: select</span><br><span>V up/down:
+                zoom</span> · <span>fist: pause</span>
+        </div>
+    </div>
+    <div id="gesture-pointer" class="gesture-pointer" style="display:none;" aria-hidden="true"></div>
 
     <div id="toast" role="status" aria-live="polite">Telemetry synchronized.</div>
 

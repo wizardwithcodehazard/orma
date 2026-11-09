@@ -1431,6 +1431,380 @@ void main() {
         } catch (e) { setTimeout(() => toast('Simulation: stream consolidated'), 2600); }
     };
 
+    /* -------------------------------------------------------- hand gestures (CV) */
+    /*  One hand, five poses — each pose does exactly one job, so nothing fights:
+          PALM   open hand              → orbit (with flick inertia)
+          POINT  index finger only      → aim the cursor · hover · hold ~1s to select
+          PINCH  thumb + index touch    → select whatever you were aiming at
+          PEACE  index + middle (V)     → zoom: hand up = in, hand down = out
+          FIST                          → pause / rest (nothing moves, spin stops)
+        Poses are read from finger extension relative to hand size (so distance from the
+        camera doesn't matter), latched with hysteresis, and debounced over a few frames.
+        All motion goes through a One-Euro filter: steady when slow, responsive when fast. */
+    const G = {
+        ASPECT: 4 / 3,                       // updated from the real video size at start
+        EXT_ON: 1.55, EXT_OFF: 1.35,         // finger counts as extended / curled (tip-wrist ÷ knuckle-wrist)
+        PINCH_ON: 0.28, PINCH_OFF: 0.50,     // thumb-index gap ÷ palm length (hysteresis)
+        STABLE_FRAMES: 3,                    // frames a pose must hold before it takes over
+        LOST_MS: 350,                        // hand missing this long → reset
+        DWELL_MS: 1000,                      // hold pointing at a node to select it
+        LATCH_MS: 140,                       // pinch selects where the cursor was this long ago
+        REGION: { x0: 0.14, x1: 0.86, y0: 0.08, y1: 0.80 },  // camera area mapped to the whole screen
+        ORBIT_X: 4.5, ORBIT_Y: 3.0, ORBIT_DEAD: 0.0008,
+        ZOOM_K: 3.2, ZOOM_DEAD: 0.0008,
+        INERTIA_DECAY: 3.0
+    };
+    const POSE_UI = {
+        PALM: ['PALM · ORBIT', '#4fd1c5'],
+        POINT: ['POINT · AIM', '#e8b84a'],
+        PINCH: ['PINCH · SELECT', '#ff7a3d'],
+        PEACE: ['V · ZOOM', '#7f95ff'],
+        FIST: ['FIST · PAUSED', '#ff4d5e'],
+        NONE: ['HAND ?', '#6e6352']
+    };
+    const FINGERS = [[5, 8], [9, 12], [13, 16], [17, 20]];   // [knuckle, tip] for index, middle, ring, pinky
+    const HAND_CONNECTIONS = [
+        [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8],
+        [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16],
+        [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]
+    ];
+
+    let gestureActive = false, gestureStream = null, gestureHands = null, gestureRaf = 0;
+    let isProcessing = false, lastVideoT = -1, lastTickMs = 0;
+    const btnGesture = $('btn-gesture');
+    const gestureHud = $('gesture-hud');
+    const gestureVideo = $('gesture-video');
+    const gestureCanvas = $('gesture-canvas');
+    const gesturePointer = $('gesture-pointer');
+    const ghMode = $('gh-mode');
+    const ghCtx = gestureCanvas ? gestureCanvas.getContext('2d') : null;
+
+    /* One-Euro filter (Casiez et al.) */
+    function oneEuro(minCutoff, beta, dCutoff = 1) {
+        let xp = null, dxp = 0, tp = 0;
+        const alpha = (c, dt) => 1 / (1 + (1 / (2 * Math.PI * c)) / dt);
+        return {
+            reset() { xp = null; dxp = 0; },
+            f(x, t) {
+                if (xp === null) { xp = x; tp = t; return x; }
+                const dt = Math.max(1e-3, t - tp); tp = t;
+                dxp += alpha(dCutoff, dt) * ((x - xp) / dt - dxp);
+                xp += alpha(minCutoff + beta * Math.abs(dxp), dt) * (x - xp);
+                return xp;
+            }
+        };
+    }
+    const fCx = oneEuro(1.2, 8), fCy = oneEuro(1.2, 8);   // cursor
+    const fMx = oneEuro(1.0, 4), fMy = oneEuro(1.0, 4);   // orbit / zoom motion
+
+    const gd = (a, b) => Math.hypot((a.x - b.x) * G.ASPECT, a.y - b.y);
+
+    /* pose state */
+    const extState = [false, false, false, false];
+    let pinchState = false;
+    let pose = 'NONE', cand = 'NONE', candN = 0, noneSince = 0, seeking = true;
+    let lastSeen = 0, lastResT = 0;
+    const cur = { x: 0, y: 0 };
+    const hist = [];                       // recent cursor positions, for pinch latching
+    let haveAnchor = false, ox = 0, oy = 0;
+    const orbVel = { t: 0 };
+    let gestureHover = false, dwellNode = null, dwellStart = 0, lockNode = null;
+
+    function classify(lm) {
+        const w = lm[0], s = gd(w, lm[9]) || 1e-3;
+        const ratios = FINGERS.map(([k, t]) => gd(lm[t], w) / Math.max(gd(lm[k], w), 1e-3));
+        ratios.forEach((r, i) => { if (r > G.EXT_ON) extState[i] = true; else if (r < G.EXT_OFF) extState[i] = false; });
+        const pd = gd(lm[4], lm[8]) / s;
+        if (pd < G.PINCH_ON && ratios[0] > 1.15) pinchState = true;
+        else if (pd > G.PINCH_OFF) pinchState = false;
+        const [ix, mid, rng, pky] = extState;
+        if (pinchState) return 'PINCH';
+        if (ix && mid && rng) return 'PALM';
+        if (ix && mid) return 'PEACE';
+        if (ix && !mid && !rng) return 'POINT';
+        if (!ix && !mid && !rng && !pky) return 'FIST';
+        return 'NONE';
+    }
+
+    function stabilize(raw, now) {
+        if (raw === 'NONE') {
+            if (!noneSince) noneSince = now;
+            if (now - noneSince < 0.25) return pose;     // ambiguous in-between frame: hold current pose
+        } else noneSince = 0;
+        if (raw === cand) candN++; else { cand = raw; candN = 1; }
+        return candN >= (raw === 'PINCH' ? 2 : G.STABLE_FRAMES) ? cand : pose;
+    }
+
+    function setMode(key) {
+        if (!ghMode) return;
+        const [txt, col] = POSE_UI[key] || POSE_UI.NONE;
+        ghMode.textContent = txt; ghMode.style.color = col;
+    }
+    function setDwell(p) { if (gesturePointer) gesturePointer.style.setProperty('--dwell', p.toFixed(3)); }
+    function showPointer(x, y) {
+        if (!gesturePointer) return;
+        gesturePointer.style.left = x.toFixed(1) + 'px';
+        gesturePointer.style.top = y.toFixed(1) + 'px';
+        gesturePointer.style.display = 'block';
+    }
+    function hidePointer() {
+        if (!gesturePointer) return;
+        gesturePointer.style.display = 'none';
+        gesturePointer.classList.remove('hovering', 'pinching');
+        setDwell(0);
+    }
+    function clearGestureHover() {
+        if (gestureHover && hoveredNode) { hoveredNode = null; hideTooltip(); if (!selectedNode) applyFocus(); }
+        gestureHover = false;
+    }
+
+    function drawSkeleton(lm) {
+        if (!ghCtx) return;
+        ghCtx.fillStyle = 'rgba(7, 8, 11, 0.9)';
+        ghCtx.fillRect(0, 0, 160, 120);
+        // the camera area that maps to your whole screen
+        const R = G.REGION;
+        ghCtx.strokeStyle = 'rgba(110, 99, 82, 0.35)';
+        ghCtx.setLineDash([3, 3]);
+        ghCtx.strokeRect((1 - R.x1) * 160, R.y0 * 120, (R.x1 - R.x0) * 160, (R.y1 - R.y0) * 120);
+        ghCtx.setLineDash([]);
+        if (!lm) return;
+        const col = (POSE_UI[pose] || POSE_UI.NONE)[1];
+        ghCtx.strokeStyle = 'rgba(79, 209, 197, 0.4)';
+        ghCtx.lineWidth = 1.5;
+        HAND_CONNECTIONS.forEach(([a, b]) => {
+            ghCtx.beginPath();
+            ghCtx.moveTo(lm[a].x * 160, lm[a].y * 120);
+            ghCtx.lineTo(lm[b].x * 160, lm[b].y * 120);
+            ghCtx.stroke();
+        });
+        lm.forEach((p, i) => {
+            const tip = i === 4 || i === 8 || i === 12 || i === 16 || i === 20;
+            ghCtx.beginPath();
+            ghCtx.arc(p.x * 160, p.y * 120, tip ? 3 : 1.8, 0, Math.PI * 2);
+            ghCtx.fillStyle = tip ? col : 'rgba(79, 209, 197, 0.7)';
+            ghCtx.fill();
+        });
+        if (pinchState) {                      // show the pinch contact
+            ghCtx.strokeStyle = '#ff7a3d';
+            ghCtx.lineWidth = 2;
+            ghCtx.beginPath();
+            ghCtx.moveTo(lm[4].x * 160, lm[4].y * 120);
+            ghCtx.lineTo(lm[8].x * 160, lm[8].y * 120);
+            ghCtx.stroke();
+        }
+    }
+
+    function resetGestureState() {
+        extState.fill(false); pinchState = false;
+        pose = 'NONE'; cand = 'NONE'; candN = 0; noneSince = 0;
+        haveAnchor = false; dwellNode = null; lockNode = null;
+        hist.length = 0;
+        fCx.reset(); fCy.reset(); fMx.reset(); fMy.reset();
+        clearGestureHover(); hidePointer();
+    }
+
+    function enterPose(next, now) {
+        pose = next;
+        haveAnchor = false; fMx.reset(); fMy.reset();
+        if (next !== 'NONE') orbVel.t = 0;                 // inertia only carries into a relaxed hand
+        const cursorPose = next === 'POINT' || next === 'PINCH';
+        if (!cursorPose) { clearGestureHover(); hidePointer(); dwellNode = null; }
+        else gesturePointer.classList.toggle('pinching', next === 'PINCH');
+        if (next === 'POINT') { dwellNode = null; setDwell(0); }
+        if (next === 'PINCH') pinchSelect(now);
+        setMode(next);
+    }
+
+    /* PINCH: select at the spot the cursor was just before the fingers closed */
+    function pinchSelect(now) {
+        let p = hist[0] || cur;
+        for (let i = hist.length - 1; i >= 0; i--) if (hist[i].t <= now - G.LATCH_MS / 1000) { p = hist[i]; break; }
+        showPointer(p.x, p.y);
+        setDwell(0); dwellNode = null;
+        const hit = pickAt(p.x, p.y);
+        clearGestureHover();
+        if (hit) { selectNode(hit, false); lockNode = hit; toast(`Selected: ${hit.label}`); }
+        else if (selectedNode) closeInspector();
+    }
+
+    /* POINT: hover + dwell-to-select */
+    function doCursor(now) {
+        showPointer(cur.x, cur.y);
+        const hit = pickAt(cur.x, cur.y);
+        gesturePointer.classList.toggle('hovering', !!hit);
+        if (hit) {
+            if (hit !== hoveredNode) { hoveredNode = hit; showTooltip(hit, cur.x, cur.y); if (!selectedNode) applyFocus(); }
+            else moveTooltip(cur.x, cur.y);
+            gestureHover = true;
+        } else clearGestureHover();
+
+        if (hit && hit !== lockNode && hit !== selectedNode) {
+            if (hit !== dwellNode) { dwellNode = hit; dwellStart = now; }
+            const p = clamp((now - dwellStart) / (G.DWELL_MS / 1000), 0, 1);
+            setDwell(p);
+            if (p >= 1) { selectNode(hit, false); toast(`Selected: ${hit.label}`); lockNode = hit; dwellNode = null; setDwell(0); }
+        } else {
+            if (!hit) lockNode = null;                     // left the node: it can be dwelled again
+            dwellNode = null; setDwell(0);
+        }
+    }
+
+    /* PALM: orbit by hand movement, with a flick that glides to a stop */
+    function doOrbit(lm, dt, now) {
+        const px = 1 - (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;   // mirrored, like the preview
+        const py = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+        const mx = fMx.f(px, now), my = fMy.f(py, now);
+        if (!haveAnchor) { ox = mx; oy = my; haveAnchor = true; return; }
+        let dx = mx - ox, dy = my - oy; ox = mx; oy = my;
+        if (Math.abs(dx) < G.ORBIT_DEAD) dx = 0;
+        if (Math.abs(dy) < G.ORBIT_DEAD) dy = 0;
+        const dTheta = -dx * G.ORBIT_X;
+        cam.tTheta += dTheta;
+        cam.tPhi = clamp(cam.tPhi - dy * G.ORBIT_Y, 0.15, Math.PI - 0.15);
+        orbVel.t += (dTheta / dt - orbVel.t) * 0.3;
+        if (dx || dy) touch();
+    }
+
+    /* PEACE: vertical hand movement zooms (multiplicative, so it feels even at any distance) */
+    function doZoom(lm, now) {
+        const my = fMy.f((lm[8].y + lm[12].y) / 2, now);
+        if (!haveAnchor) { oy = my; haveAnchor = true; return; }
+        const dy = my - oy; oy = my;
+        if (Math.abs(dy) < G.ZOOM_DEAD) return;
+        cam.tRadius = clamp(cam.tRadius * Math.exp(dy * G.ZOOM_K), 1.8, 26);
+        touch();
+    }
+
+    function onHandResults(results) {
+        if (!gestureActive) return;
+        const now = performance.now() / 1000;
+        const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
+
+        if (!lm) {
+            if (now - lastSeen < G.LOST_MS / 1000) return;   // brief dropout: keep going
+            if (!seeking) {
+                seeking = true;
+                const v = orbVel.t;
+                resetGestureState();
+                orbVel.t = v;                                 // a flick out of frame still glides
+                setMode('NONE');
+            }
+            drawSkeleton(null);
+            return;
+        }
+        seeking = false; lastSeen = now;
+        const dt = clamp(now - (lastResT || now - 0.033), 0.008, 0.1); lastResT = now;
+
+        const next = stabilize(classify(lm), now);
+
+        // cursor follows the index tip all the time (filtered), mapped from a comfortable camera region
+        const R = G.REGION;
+        const fx = fCx.f(1 - lm[8].x, now), fy = fCy.f(lm[8].y, now);
+        cur.x = clamp((fx - R.x0) / (R.x1 - R.x0), 0, 1) * window.innerWidth;
+        cur.y = clamp((fy - R.y0) / (R.y1 - R.y0), 0, 1) * window.innerHeight;
+        hist.push({ t: now, x: cur.x, y: cur.y });
+        while (hist.length && now - hist[0].t > 0.6) hist.shift();
+
+        if (next !== pose) enterPose(next, now);
+        drawSkeleton(lm);
+
+        if (pose === 'POINT') doCursor(now);
+        else if (pose === 'PALM') doOrbit(lm, dt, now);
+        else if (pose === 'PEACE') doZoom(lm, now);
+    }
+
+    function gestureLoop(ts) {
+        if (!gestureActive) return;
+        const dt = Math.min(0.05, Math.max(0, (ts - lastTickMs) / 1000)); lastTickMs = ts;
+
+        // flick inertia (only while the hand is relaxed or out of frame)
+        if (pose === 'NONE' || seeking) {
+            if (Math.abs(orbVel.t) > 0.02) {
+                cam.tTheta += orbVel.t * dt;
+                orbVel.t *= Math.exp(-G.INERTIA_DECAY * dt);
+                touch();
+            } else orbVel.t = 0;
+        }
+
+        // feed only genuinely new camera frames to the model
+        if (!document.hidden && !isProcessing && gestureHands && gestureVideo.readyState >= 2 && gestureVideo.currentTime !== lastVideoT) {
+            lastVideoT = gestureVideo.currentTime;
+            isProcessing = true;
+            gestureHands.send({ image: gestureVideo }).catch(() => { }).finally(() => { isProcessing = false; });
+        }
+        gestureRaf = requestAnimationFrame(gestureLoop);
+    }
+
+    async function startGestures() {
+        try {
+            toast('Starting hand tracking…');
+            if (ghMode) { ghMode.textContent = 'STARTING'; ghMode.style.color = '#6e6352'; }
+
+            if (typeof Hands === 'undefined') {
+                await new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+                    s.onload = resolve;
+                    s.onerror = () => reject(new Error('MediaPipe script failed to load'));
+                    document.head.appendChild(s);
+                });
+            }
+            if (!gestureHands) {
+                gestureHands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+                gestureHands.setOptions({
+                    maxNumHands: 1,                 // single hand only
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.55
+                });
+                gestureHands.onResults(onHandResults);
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Webcam not supported');
+
+            gestureStream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 }, facingMode: 'user' },
+                audio: false
+            });
+            gestureVideo.srcObject = gestureStream;
+            await gestureVideo.play();
+            if (gestureVideo.videoWidth && gestureVideo.videoHeight) G.ASPECT = gestureVideo.videoWidth / gestureVideo.videoHeight;
+
+            resetGestureState();
+            seeking = true; lastSeen = 0; lastResT = 0; lastVideoT = -1; orbVel.t = 0;
+            gestureActive = true;
+            btnGesture.classList.add('gesture-active');
+            btnGesture.querySelector('span').textContent = 'GESTURES ON';
+            gestureHud.style.display = 'block';
+            drawSkeleton(null);
+            setMode('NONE');
+            toast('Hand tracking on — palm orbit · point + pinch · V zoom · fist pause');
+            lastTickMs = performance.now();
+            gestureRaf = requestAnimationFrame(gestureLoop);
+        } catch (err) {
+            console.error('[Orma CV]', err);
+            stopGestures(true);
+            toast(err && err.name === 'NotAllowedError' ? 'Camera permission denied' : 'Could not start hand tracking');
+        }
+    }
+
+    function stopGestures(quiet) {
+        gestureActive = false;
+        if (gestureRaf) { cancelAnimationFrame(gestureRaf); gestureRaf = 0; }
+        if (gestureStream) { gestureStream.getTracks().forEach(t => t.stop()); gestureStream = null; }
+        if (gestureVideo) gestureVideo.srcObject = null;
+        btnGesture.classList.remove('gesture-active');
+        btnGesture.querySelector('span').textContent = 'GESTURES OFF';
+        gestureHud.style.display = 'none';
+        if (ghCtx) ghCtx.clearRect(0, 0, 160, 120);
+        orbVel.t = 0; isProcessing = false;
+        resetGestureState();
+        if (!quiet) toast('Hand tracking off');
+    }
+
+    function toggleGestures() { if (gestureActive) stopGestures(); else startGestures(); }
+    if (btnGesture) btnGesture.onclick = toggleGestures;
+
     /* buffer drawer */
     const bufferEl = $('buffer');
     function toggleBuffer(force) {
@@ -1468,6 +1842,7 @@ void main() {
         else if (e.key === 'b') toggleBuffer();
         else if (e.key === 'r') resetView();
         else if (e.key === 'l') btnLayout.click();
+        else if (e.key === 'g' || e.key === 'G') toggleGestures();
     });
 
     /* toast */

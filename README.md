@@ -341,6 +341,7 @@ This starts the memory visualizer and opens your browser directly to `http://127
 * **Brain Region Mapping:** Dedicated anatomical zones for Thalamic Hub (user identity), Prefrontal Cortex (canonical facts), Amygdala (forbidden constraints), Anterior Cingulate (conditional rules), and Temporal Cortex (semantic entities).
 * **Action Potential Pulses:** Synaptic edges animate with directional photon particles based on recency and Hawkes burst frequency.
 * **Synapse Inspector:** Click any node to see its exact sentence provenance citation (`[s14]`), historical timeline, and regional connectivity.
+* **Neural CV Hand Gestures (Webcam, 100% Client-Side):** Press `G` or click `GESTURES` to toggle camera-driven controls: open palm to orbit, index finger to aim and hover, pinch or dwell to select, V-sign to zoom, and closed fist to pause—filtered through a One-Euro filter for jitter-free tracking.
 
 ---
 
