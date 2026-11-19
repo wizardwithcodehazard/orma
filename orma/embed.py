@@ -36,6 +36,8 @@ class FastEmbedder:
     """ONNX embeddings via fastembed, loaded lazily on first use."""
 
     def __init__(self, model_name: str, dim: int):
+        if model_name.lower() in ("multilingual", "multi"):
+            model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
         self.model_name = model_name
         self.dim = dim
         self._model = None

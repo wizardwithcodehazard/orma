@@ -16,6 +16,8 @@ import httpx
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
@@ -273,7 +275,29 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             await client.aclose()
             await root_client.aclose()
 
+    async def security_middleware(request: Request, call_next):
+        # 1. Host header validation: must be localhost or local loopback
+        host = (request.headers.get("host") or "").split(":")[0].lower()
+        if host and host not in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "testserver"):
+            return JSONResponse({"error": "Forbidden: invalid host header"}, status_code=403)
+
+        # 2. Origin validation: block external untrusted web origins from driving localhost memory
+        origin = request.headers.get("origin")
+        if origin:
+            parsed_origin = origin.split("://")[-1].split(":")[0].lower()
+            if parsed_origin not in ("localhost", "127.0.0.1", "::1", "testserver"):
+                return JSONResponse({"error": "Forbidden: cross-origin requests to local memory are blocked"}, status_code=403)
+
+        # 3. Content-Type check for mutating POST requests on /_orma/*
+        if request.url.path.startswith("/_orma/") and request.method == "POST":
+            content_type = request.headers.get("content-type", "").lower()
+            if not content_type.startswith("application/json"):
+                return JSONResponse({"error": "Content-Type must be application/json"}, status_code=415)
+
+        return await call_next(request)
+
     return Starlette(
+        middleware=[Middleware(BaseHTTPMiddleware, dispatch=security_middleware)],
         routes=[
             Route("/_orma/brain", get_brain_connectome, methods=["GET"]),
             Route("/_orma/search", search_memory, methods=["GET"]),

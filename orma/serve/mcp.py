@@ -21,7 +21,7 @@ from orma.serve.scheduler import SleepScheduler
 
 logger = logging.getLogger(__name__)
 
-# Protocol version supported
+SUPPORTED_PROTOCOL_VERSIONS = ["2024-11-05", "2024-10-07"]
 PROTOCOL_VERSION = "2024-11-05"
 
 TOOLS = [
@@ -154,8 +154,11 @@ class MCPServer:
                 raw = line.decode("utf-8").strip()
                 if not raw:
                     continue
+                req_id = None
                 try:
                     request = json.loads(raw)
+                    if isinstance(request, dict):
+                        req_id = request.get("id")
                     response = await self.handle_request(request)
                     if response is not None:
                         out = json.dumps(response) + "\n"
@@ -165,7 +168,7 @@ class MCPServer:
                     logger.exception("Error handling MCP request: %s", raw)
                     err_resp = {
                         "jsonrpc": "2.0",
-                        "id": None,
+                        "id": req_id,
                         "error": {"code": -32603, "message": f"Internal error: {e}"}
                     }
                     sys.stdout.write(json.dumps(err_resp) + "\n")
@@ -175,7 +178,7 @@ class MCPServer:
                 try:
                     await anyio.to_thread.run_sync(self.scheduler.flush)
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("MCP shutdown scheduler flush failed: %s", exc)
+                    logger.warning("MCP shutdown scheduler flush failed: %s", exc)
                 self.scheduler.stop()
 
     async def handle_request(self, req: dict[str, Any]) -> dict[str, Any] | None:
@@ -187,11 +190,15 @@ class MCPServer:
             return None
 
         if method == "initialize":
+            client_version = req.get("params", {}).get("protocolVersion")
+            negotiated_version = (
+                client_version if client_version in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
-                    "protocolVersion": PROTOCOL_VERSION,
+                    "protocolVersion": negotiated_version,
                     "capabilities": {
                         "tools": {"listChanged": False}
                     },
@@ -256,8 +263,15 @@ class MCPServer:
                 text = args.get("text", "")
                 kind = args.get("kind", "fact")
                 role = args.get("role", "note")
+                if role not in ("note", "user"):
+                    role = "note"
                 record_text = f"FORBIDDEN RULE: {text}" if kind == "anti_pattern" else text
                 results = await anyio.to_thread.run_sync(self.memory.add, record_text, space, role)
+                if not results:
+                    return {
+                        "isError": True,
+                        "content": [{"type": "text", "text": "Failed to record memory."}]
+                    }
                 ep_ids = [str(r.episode_id) for r in results]
                 total_sentences = sum(r.sentences for r in results)
                 tag = " (anti-pattern guardrail)" if kind == "anti_pattern" else ""
@@ -269,6 +283,11 @@ class MCPServer:
                 rule = args.get("rule", "")
                 record_text = f"FORBIDDEN RULE: {rule}"
                 results = await anyio.to_thread.run_sync(self.memory.add, record_text, space, "note")
+                if not results:
+                    return {
+                        "isError": True,
+                        "content": [{"type": "text", "text": f"Failed to register inhibitory constraint: [FORBIDDEN: {rule}]"}]
+                    }
                 return {
                     "content": [{"type": "text", "text": f"Successfully registered inhibitory constraint: [FORBIDDEN: {rule}]"}]
                 }

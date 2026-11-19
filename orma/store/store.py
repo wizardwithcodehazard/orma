@@ -451,10 +451,23 @@ class Store:
     def export_connectome(self, space: str = "default") -> dict:
         """Exports the full cognitive connectome: Neocortex (entities, states, events, links)
         and Hippocampal buffer (recent episodic turns) for 3D WebGL visualization."""
-        # Ensure user anchor entity exists in this space
-        self.user_entity(space)
-
         with self.lock:
+            # Check if this space has any data; if unknown/empty, do not mutate DB
+            has_data = self._rows(
+                "SELECT 1 FROM entities WHERE space = ? UNION ALL SELECT 1 FROM episodes WHERE space = ? LIMIT 1",
+                (space, space),
+            )
+            if not has_data:
+                return {
+                    "nodes": [],
+                    "links": [],
+                    "hippocampus": [],
+                    "space": space,
+                    "stats": {"nodes": 0, "links": 0, "inhibitory": 0, "buffer": 0},
+                }
+            # Ensure user anchor entity exists in this populated space
+            self.user_entity(space)
+
             # 1. Entities
             entity_rows = self._rows(
                 "SELECT id, name, type, mention_count, last_seen FROM entities WHERE space = ? ORDER BY mention_count DESC",

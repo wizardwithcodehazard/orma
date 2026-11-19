@@ -13,6 +13,9 @@ def default_data_dir() -> Path:
     return Path(env_dir).expanduser().resolve() if env_dir else Path.home() / ".orma"
 
 
+MULTILINGUAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+
 @dataclass
 class OrmaConfig:
     # Storage
@@ -22,6 +25,20 @@ class OrmaConfig:
     # Embeddings
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
+    multilingual: bool = False
+
+    def __post_init__(self):
+        env_multi = os.environ.get("ORMA_MULTILINGUAL", "").lower() in ("1", "true", "yes")
+        env_model = os.environ.get("ORMA_EMBEDDING_MODEL")
+        if self.multilingual or env_multi:
+            self.embedding_model = MULTILINGUAL_MODEL
+            self.embedding_dim = 384
+        elif env_model:
+            if env_model.lower() in ("multilingual", "multi"):
+                self.embedding_model = MULTILINGUAL_MODEL
+                self.embedding_dim = 384
+            else:
+                self.embedding_model = env_model
 
     # Calendar: the user's timezone ('' = this machine's, 'UTC', or an IANA name like Asia/Kolkata) decides what
     # day a timestamp falls on; date_order ('DMY', 'MDY', 'YMD' or '' for dateparser's default) reads "08/10/2026".

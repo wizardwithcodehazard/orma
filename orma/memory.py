@@ -41,8 +41,11 @@ def _parts(text: str, size: int) -> list[str]:
 
 class Memory:
     def __init__(self, path=None, upstream: str | None = None, model: str | None = None,
-                 config: SmrutiConfig | None = None, embedder=None, llm=None):
+                 config: SmrutiConfig | None = None, embedder=None, llm=None, multilingual: bool = False):
         self.config = config or SmrutiConfig()
+        if multilingual:
+            self.config.multilingual = True
+            self.config.__post_init__()
         if path is not None:
             self.config.data_dir = Path(path)
         self.store = Store(self.config, embedder)
@@ -90,7 +93,7 @@ class Memory:
         speaker = speaker or ("user" if role in ("user", "note") else role)
         results = [self.encoder.encode(space, role, part, now=at, source=source, speaker=speaker)
                    for part in _parts(text, RECORD_CHARS)]
-        if ":/" in text:
+        if role in ("user", "note") and ":/" in text:
             now = time.time() if at is None else at
             ep_ids = [r.episode_id for r in results if r.stored]
             self._extract_fast_path_inhibitory(space, text, ep_ids, now)

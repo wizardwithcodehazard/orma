@@ -105,6 +105,16 @@ class Consolidator:
                 and item.value.strip().lower() in third_parties
             ):
                 continue
+            # Provenance guard: only first-person/note sentences can assert states about the user or create prohibitions
+            is_about_user = item.about.lower() in ("user", USER_ENTITY)
+            is_prohib = (
+                getattr(item, "prohibited", False)
+                or item.attribute.startswith("forbidden_")
+                or item.attribute.startswith("avoid_")
+            )
+            if (is_about_user or is_prohib) and sentence.role not in FIRST_PERSON_ROLES:
+                report.unresolved += 1
+                continue
             subject_id = resolve(item.about, sentence)
             if subject_id is None:
                 report.unresolved += 1
@@ -153,6 +163,10 @@ class Consolidator:
         exact = self.store.find_attribute(space, name)
         if exact is not None:
             return exact.id
+        if name.startswith(("forbidden_", "avoid_", "rule_")):
+            # Rules must not collapse into shared attributes; each distinct rule gets its own attribute
+            vec = self.store.embed(name.replace("_", " "))
+            return self.store.add_attribute(space, name, vec=vec)
         vec = self.store.embed(name.replace("_", " "))
         for known, sim in self.store.nearest_attributes(space, vec, 5):
             if sim >= self.config.attribute_merge_threshold:
@@ -237,7 +251,7 @@ class Consolidator:
             or self._is_conditional_framing(sentence.text)
         )
         with self.store.tx():  # close and insert together: a reader never sees the attribute without a value
-            if not later and not is_conditional:
+            if not later and not is_conditional and not is_prohib:
                 for st in current:
                     self.store.close_state(st.id, max(start, st.valid_from), ended_by=sentence.id)
                     report.states_closed += 1
@@ -323,7 +337,7 @@ class _Holders:
 
     def __call__(self, name: str, sentence: Sentence) -> int | None:
         if self._is_user(name):
-            return self.user_id
+            return self.user_id if sentence.role in FIRST_PERSON_ROLES else None
         if made_of(name, self.first_person):
             return self.user_id if sentence.role in FIRST_PERSON_ROLES else None
         if made_of(name, self.pronouns):

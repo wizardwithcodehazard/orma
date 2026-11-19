@@ -6,7 +6,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-218%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-223%20passed-brightgreen.svg)](tests/)
 
 Orma can be used in two ways:
 1. **As a native Python SDK (`from orma import Memory`)** for direct integration into your agents, chatbots, and apps (like Mem0 and Cognee).
@@ -728,6 +728,7 @@ Every mechanism in Orma can be independently configured or ablated in [orma/conf
 | `policy_intent_margin` | `0.06` | Semantic threshold distinguishing standing negative policy rules from everyday facts |
 | `condition_detection_margin` | `0.05` | Semantic margin detecting conditional/defeasible framing and protecting baseline habits |
 | `budget_tokens` | `4096` | Token budget ceiling for injected memory blocks |
+| `multilingual` | `False` | Multilingual embeddings via paraphrase-multilingual-MiniLM-L12-v2 (CLI: --multilingual, env: ORMA_MULTILINGUAL=1) |
 | `search_k` | `30` | Top-k candidates pulled per hybrid search channel |
 | `rrf_k` | `60` | Reciprocal Rank Fusion constant for combining BM25 and vector scores |
 

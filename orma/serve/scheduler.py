@@ -47,14 +47,14 @@ class SleepScheduler:
         try:
             pending_spaces = [space for space, pending, _ in self.memory.store.pending_stats() if pending > 0]
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed checking pending stats during flush: %s", exc)
+            logger.warning("Failed checking pending stats during flush: %s", exc)
             return done
         for space in pending_spaces:
             try:
                 self.memory.sleep(space, now=now)
                 done.append(space)
             except Exception as exc:  # noqa: BLE001
-                logger.debug("immediate sleep flush for space %r failed: %s", space, exc)
+                logger.warning("immediate sleep flush for space %r failed: %s", space, exc)
         return done
 
     def start(self) -> None:

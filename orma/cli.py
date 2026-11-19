@@ -141,6 +141,7 @@ def proxy(
     space: str = typer.Option("default", help="Memory space for requests that name none."),
     sleep_poll: float = typer.Option(30.0, help="Seconds between background sleep checks; 0 disables."),
     open_browser: bool = typer.Option(False, "--open", "-o", help="Open the Web UI in your browser automatically."),
+    multilingual: bool = typer.Option(False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."),
 ):
     """Run the memory proxy; point any OpenAI-compatible client at http://HOST:PORT/v1."""
     import threading
@@ -162,6 +163,9 @@ def proxy(
         typer.echo(f"Port {orig_port} is busy. Binding proxy to port {target_port} instead.")
 
     memory = _memory(sleep_upstream or upstream, model)
+    if multilingual:
+        memory.config.multilingual = True
+        memory.config.__post_init__()
     sleeps_on = f", sleep -> {sleep_upstream}" if sleep_upstream else ""
     ui_url = f"http://{host}:{target_port}/#/"
     typer.echo(f"orma proxy on http://{host}:{target_port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})")
@@ -188,6 +192,7 @@ def up(
     sleep_upstream: str | None = typer.Option(None, help="Base URL for sleep consolidation."),
     space: str = typer.Option("default", help="Memory space."),
     sleep_poll: float = typer.Option(30.0, help="Seconds between background sleep checks; 0 disables."),
+    multilingual: bool = typer.Option(False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."),
 ):
     """Start the Orma proxy and open the Web UI in your browser immediately."""
     proxy(
@@ -199,6 +204,7 @@ def up(
         space=space,
         sleep_poll=sleep_poll,
         open_browser=True,
+        multilingual=multilingual,
     )
 
 
@@ -211,6 +217,7 @@ def viz(
     sleep_upstream: str | None = typer.Option(None, help="Base URL for sleep consolidation."),
     space: str = typer.Option("default", help="Memory space to visualize."),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the 3D Connectome in your browser."),
+    multilingual: bool = typer.Option(False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."),
 ):
     """Launch the interactive 3D Cognitive Connectome visualizer."""
     import threading
@@ -239,6 +246,9 @@ def viz(
         typer.echo(f"Port {orig_port} is busy. Using port {target_port} instead.")
 
     memory = _memory(sleep_upstream or upstream, model)
+    if multilingual:
+        memory.config.multilingual = True
+        memory.config.__post_init__()
     ui_url = f"http://{host}:{target_port}/_orma/viz"
     typer.echo(f"Orma 3D Connectome running at: {ui_url}")
 

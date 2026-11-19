@@ -68,6 +68,9 @@ Thumbs.db
 eval/runs/
 scratch/
 
+# Package lockfile (omit from library repo to prevent cross-platform lock churn)
+uv.lock
+
 # Internal roadmap & handover notes
 tasks.md
 HANDOVER.md
