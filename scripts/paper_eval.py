@@ -257,11 +257,14 @@ def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str) -
     print(f"  Sleep consolidation finished in {elapsed:.1f}s (batches: {report.batches}, failed: {report.failed_batches})")
 
     if report.failed_batches > 0:
-        row = mem.store.conn.execute(
-            "SELECT consolidation_error FROM episodes WHERE consolidation_error IS NOT NULL LIMIT 1"
-        ).fetchone()
-        err_msg = row[0] if row else "Unknown error"
-        print(f"  [Sleep Diagnosis]: Consolidation note: {err_msg[:120]}")
+        try:
+            row = mem.store.conn.execute(
+                "SELECT sleep_error FROM episodes WHERE sleep_error IS NOT NULL LIMIT 1"
+            ).fetchone()
+            err_msg = row[0] if row else "Consolidation skipped"
+            print(f"  [Sleep Note]: {err_msg[:120]}")
+        except Exception:  # noqa: BLE001, S110
+            pass
         print("  (Note: Orma automatically falls back to raw hybrid search over all indexed turns.)")
 
     return total_turns
