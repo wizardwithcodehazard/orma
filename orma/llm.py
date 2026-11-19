@@ -4,6 +4,7 @@ LM Studio, vLLM). Sleep uses it for schema-constrained JSON extraction; the SDK 
 """
 
 import json
+import re
 
 import httpx
 
@@ -21,16 +22,51 @@ class LLMError(RuntimeError):
 
 
 def _loads(text: str):
-    """Parses JSON, falling back to the outermost {...} span (fenced or chatty output)."""
+    """Parses JSON, falling back to fenced stripping, trailing comma cleanup, and truncated bracket repair."""
+    if not text or not isinstance(text, str):
+        return None
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if 0 <= start < end:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
+        pass
+
+    # 1. Clean markdown codeblocks
+    cleaned = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+    cleaned = re.sub(r"\s*```$", "", cleaned.strip(), flags=re.MULTILINE)
+
+    # 2. Extract outermost {...}
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if 0 <= start < end:
+        candidate = cleaned[start:end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+        # 3. Clean trailing commas in arrays/objects
+        without_trailing = re.sub(r",\s*([}\]])", r"\1", candidate)
+        try:
+            return json.loads(without_trailing)
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Handle truncated JSON (unclosed brackets/braces from token limit)
+    start = cleaned.find("{")
+    if start >= 0:
+        frag = cleaned[start:].rstrip(", \n\t")
+        frag = re.sub(r",\s*([}\]])", r"\1", frag)
+        open_curly = frag.count("{") - frag.count("}")
+        open_square = frag.count("[") - frag.count("]")
+        if open_square > 0:
+            frag += "]" * open_square
+        if open_curly > 0:
+            frag += "}" * open_curly
+        frag = re.sub(r",\s*([}\]])", r"\1", frag)
+        try:
+            return json.loads(frag)
+        except json.JSONDecodeError:
+            pass
+
     return None
 
 
