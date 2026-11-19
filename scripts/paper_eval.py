@@ -257,7 +257,7 @@ def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str) -
     print(f"  Sleep consolidation finished in {elapsed:.1f}s (batches: {report.batches}, failed: {report.failed_batches})")
 
     if report.failed_batches > 0:
-        row = mem.store.db.execute(
+        row = mem.store.conn.execute(
             "SELECT consolidation_error FROM episodes WHERE consolidation_error IS NOT NULL LIMIT 1"
         ).fetchone()
         err_msg = row[0] if row else "Unknown error"
