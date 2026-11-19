@@ -315,9 +315,9 @@ def run_benchmark(
         print(f"[{idx + 1}/{num_convs}] Running Benchmark on Official LoCoMo: {cid}")
         print("=" * 65)
 
-        # Fresh isolated memory per conversation (with 600s LLM timeout & 20 passages for Recall@20)
+        # Fresh isolated memory per conversation (with 600s LLM timeout, max_passages=20 & batch_episodes=60)
         temp_dir = Path(f"/tmp/orma_locomo_{cid}_{int(time.time())}")
-        config = OrmaConfig(data_dir=temp_dir, multilingual=multilingual, max_passages=20)
+        config = OrmaConfig(data_dir=temp_dir, multilingual=multilingual, max_passages=20, sleep_batch_episodes=60)
         llm = LLMClient(upstream_url, model=model_name, timeout=600.0) if enable_sleep else None
         mem = Memory(config=config, upstream=upstream_url, model=model_name, llm=llm)
 
