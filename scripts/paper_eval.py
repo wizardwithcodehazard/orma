@@ -282,6 +282,7 @@ def run_benchmark(
     multilingual: bool = False,
 ):
     from orma import Memory, OrmaConfig
+    from orma.llm import LLMClient
 
     if not Path(dataset_path).exists():
         print("Downloading official LoCoMo dataset from Snap Research...")
@@ -314,10 +315,11 @@ def run_benchmark(
         print(f"[{idx + 1}/{num_convs}] Running Benchmark on Official LoCoMo: {cid}")
         print("=" * 65)
 
-        # Fresh isolated memory per conversation
+        # Fresh isolated memory per conversation (with 600s LLM timeout & 20 passages for Recall@20)
         temp_dir = Path(f"/tmp/orma_locomo_{cid}_{int(time.time())}")
-        config = OrmaConfig(data_dir=temp_dir, multilingual=multilingual)
-        mem = Memory(config=config, upstream=upstream_url, model=model_name)
+        config = OrmaConfig(data_dir=temp_dir, multilingual=multilingual, max_passages=20)
+        llm = LLMClient(upstream_url, model=model_name, timeout=600.0) if enable_sleep else None
+        mem = Memory(config=config, upstream=upstream_url, model=model_name, llm=llm)
 
         evidence_index = build_evidence_index(conv)
         ingest_dialogues(mem, conv, upstream_url, model_name, enable_sleep=enable_sleep)
