@@ -20,10 +20,10 @@ import time
 from pathlib import Path
 
 
-def token_f1_score(prediction: str, ground_truth: str) -> float:
+def token_f1_score(prediction: str, ground_truth: str | int) -> float:
     """Computes word-level F1 overlap between model response and gold answer."""
-    pred_words = re.findall(r"\w+", prediction.lower())
-    gt_words = re.findall(r"\w+", ground_truth.lower())
+    pred_words = re.findall(r"\w+", str(prediction).lower())
+    gt_words = re.findall(r"\w+", str(ground_truth).lower())
     if not pred_words or not gt_words:
         return 0.0
     common = set(pred_words) & set(gt_words)
@@ -34,10 +34,10 @@ def token_f1_score(prediction: str, ground_truth: str) -> float:
     return (2 * precision * recall) / (precision + recall)
 
 
-def token_rouge_l(prediction: str, ground_truth: str) -> float:
+def token_rouge_l(prediction: str, ground_truth: str | int) -> float:
     """Computes LCS-based ROUGE-L score."""
-    p_tokens = re.findall(r"\w+", prediction.lower())
-    g_tokens = re.findall(r"\w+", ground_truth.lower())
+    p_tokens = re.findall(r"\w+", str(prediction).lower())
+    g_tokens = re.findall(r"\w+", str(ground_truth).lower())
     m, n = len(p_tokens), len(g_tokens)
     if m == 0 or n == 0:
         return 0.0
@@ -94,7 +94,7 @@ def run_locomo_eval(
 
     for conv_idx in range(num_convs):
         conv_data = dataset[conv_idx]
-        conv_id = conv_data.get("conversation_id", f"conv_{conv_idx}")
+        conv_id = conv_data.get("sample_id") or conv_data.get("conversation_id", f"conv_{conv_idx}")
         print("\n=======================================================")
         print(f"[{conv_idx + 1}/{num_convs}] Running on {conv_id}")
         print("=======================================================")
@@ -103,16 +103,38 @@ def run_locomo_eval(
         config = OrmaConfig(data_dir=temp_db, multilingual=multilingual)
         mem = Memory(config=config, upstream=upstream_url, model=model_name)
 
-        # Ingestion phase
+        # Ingestion phase: parse LoCoMo multi-session schema
+        conv_obj = conv_data.get("conversation")
+        sessions = []
+        if isinstance(conv_obj, dict):
+            spk_a = conv_obj.get("speaker_a", "")
+            s_nums = []
+            for k in conv_obj:
+                if k.startswith("session_") and not k.endswith("_date_time"):
+                    try:
+                        s_nums.append((int(k.split("_")[1]), k))
+                    except ValueError:
+                        pass
+            s_nums.sort()
+            for _, skey in s_nums:
+                turns_raw = conv_obj.get(skey, [])
+                dt = conv_obj.get(f"{skey}_date_time", "")
+                turns = []
+                for t in turns_raw:
+                    spk = t.get("speaker", "")
+                    role = "user" if spk == spk_a else "assistant"
+                    turns.append({"role": role, "text": t.get("text", "")})
+                sessions.append({"date_time": dt, "turns": turns})
+        elif isinstance(conv_data.get("dialogue"), list):
+            sessions = conv_data.get("dialogue", [])
+
         total_raw_chars = 0
-        dialogues = conv_data.get("dialogue", [])
-        print(f"Ingesting {len(dialogues)} multi-session dialogue blocks...")
+        print(f"Ingesting {len(sessions)} multi-session dialogue blocks...")
 
         t_start_ingest = time.time()
-        for s_idx, session in enumerate(dialogues):
+        for session in sessions:
             for turn in session.get("turns", []):
-                spk = turn.get("speaker", "user").lower()
-                role = "user" if spk in ("user", "human") else "assistant"
+                role = turn.get("role", "user")
                 txt = turn.get("text", "")
                 total_raw_chars += len(txt)
                 mem.observe(role=role, text=txt)
@@ -133,8 +155,8 @@ def run_locomo_eval(
 
         for item in qa_list:
             q_text = item["question"]
-            gold = item["answer"]
-            cat = item.get("category", "general")
+            gold = str(item.get("answer", ""))
+            cat = str(item.get("category", "general"))
 
             # 1. Measure pure retrieval latency (ms)
             t0 = time.perf_counter()
@@ -157,7 +179,7 @@ def run_locomo_eval(
             # 4. Accuracy scoring
             f1 = token_f1_score(pred, gold)
             rouge = token_rouge_l(pred, gold)
-            passed = f1 >= 0.45 or gold.lower() in pred.lower()
+            passed = f1 >= 0.45 or (gold.strip() != "" and gold.lower() in pred.lower())
 
             overall_metrics["f1_scores"].append(f1)
             overall_metrics["rouge_l_scores"].append(rouge)
