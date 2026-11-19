@@ -61,6 +61,7 @@ def run_locomo_eval(
     model_name: str = "Qwen/Qwen2.5-7B-Instruct",
     max_conversations: int = 10,
     multilingual: bool = False,
+    max_qa: int | None = None,
 ):
     from orma import Memory, OrmaConfig
     from orma.llm import LLMClient
@@ -139,8 +140,9 @@ def run_locomo_eval(
                 total_raw_chars += len(txt)
                 mem.observe(role=role, text=txt)
 
-            # Consolidate memory after each session
-            mem.sleep()
+        # Consolidate dialogue history into structured states and events in batch
+        print("Consolidating dialogue history via sleep...")
+        mem.sleep()
 
         raw_history_tokens = total_raw_chars // 3.5
         print(f"Ingested in {time.time() - t_start_ingest:.2f}s | Raw History: ~{raw_history_tokens:.0f} tokens")
@@ -150,13 +152,17 @@ def run_locomo_eval(
         mem.sleep()
 
         # QA Evaluation phase
-        qa_list = conv_data.get("qa", [])
-        print(f"Evaluating {len(qa_list)} QA items...")
+        all_qa = conv_data.get("qa", [])
+        qa_list = all_qa[:max_qa] if max_qa and max_qa > 0 else all_qa
+        print(f"Evaluating {len(qa_list)} QA items (out of {len(all_qa)})...")
 
-        for item in qa_list:
+        for q_idx, item in enumerate(qa_list):
             q_text = item["question"]
             gold = str(item.get("answer", ""))
             cat = str(item.get("category", "general"))
+
+            if (q_idx + 1) % 10 == 0 or q_idx == len(qa_list) - 1:
+                print(f"Progress: [{q_idx + 1}/{len(qa_list)}] QA items evaluated...", flush=True)
 
             # 1. Measure pure retrieval latency (ms)
             t0 = time.perf_counter()
@@ -265,6 +271,7 @@ if __name__ == "__main__":
     parser.add_argument("--upstream", default="http://127.0.0.1:8000/v1", help="Base URL of OpenAI-compatible LLM runtime")
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct", help="Hugging Face model ID")
     parser.add_argument("--conversations", type=int, default=10, help="Number of conversations to benchmark (1-10)")
+    parser.add_argument("--max-qa", type=int, default=None, help="Maximum number of QA items per conversation")
     parser.add_argument("--multilingual", action="store_true", help="Use 384-dim multilingual embeddings")
     args = parser.parse_args()
 
@@ -275,4 +282,5 @@ if __name__ == "__main__":
         model_name=args.model,
         max_conversations=args.conversations,
         multilingual=args.multilingual,
+        max_qa=args.max_qa,
     )
