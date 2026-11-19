@@ -73,7 +73,7 @@ def run_locomo_eval(
     with open(dataset_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
 
-    llm = LLMClient(upstream=upstream_url, model=model_name)
+    llm = LLMClient(base_url=upstream_url, model=model_name)
     num_convs = min(max_conversations, len(dataset))
     print(f"Starting LoCoMo benchmark on {num_convs} conversations with model: {model_name}")
 
