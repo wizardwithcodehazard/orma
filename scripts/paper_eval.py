@@ -223,7 +223,7 @@ def evaluate_latency_and_compression(mem, conv_data: dict) -> dict:
     }
 
 
-def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str) -> int:
+def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str, enable_sleep: bool = True) -> int:
     """Ingests official LoCoMo multi-session conversation turns into Orma."""
     conv_obj = conv_data.get("conversation", {})
     if not isinstance(conv_obj, dict):
@@ -250,22 +250,25 @@ def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str) -
                 total_turns += 1
 
     print(f"  Ingested {total_turns} turns from {len(s_nums)} official sessions.")
-    print("  Consolidating memory via sleep...")
-    t0 = time.time()
-    report = mem.sleep()
-    elapsed = time.time() - t0
-    print(f"  Sleep consolidation finished in {elapsed:.1f}s (batches: {report.batches}, failed: {report.failed_batches})")
+    if enable_sleep:
+        print("  Consolidating memory via sleep...")
+        t0 = time.time()
+        report = mem.sleep()
+        elapsed = time.time() - t0
+        print(f"  Sleep consolidation finished in {elapsed:.1f}s (batches: {report.batches}, failed: {report.failed_batches})")
 
-    if report.failed_batches > 0:
-        try:
-            row = mem.store.conn.execute(
-                "SELECT sleep_error FROM episodes WHERE sleep_error IS NOT NULL LIMIT 1"
-            ).fetchone()
-            err_msg = row[0] if row else "Consolidation skipped"
-            print(f"  [Sleep Note]: {err_msg[:120]}")
-        except Exception:  # noqa: BLE001, S110
-            pass
-        print("  (Note: Orma automatically falls back to raw hybrid search over all indexed turns.)")
+        if report.failed_batches > 0:
+            try:
+                row = mem.store.conn.execute(
+                    "SELECT sleep_error FROM episodes WHERE sleep_error IS NOT NULL LIMIT 1"
+                ).fetchone()
+                err_msg = row[0] if row else "Consolidation skipped"
+                print(f"  [Sleep Note]: {err_msg[:120]}")
+            except Exception:  # noqa: BLE001, S110
+                pass
+            print("  (Note: Orma automatically falls back to raw hybrid search over all indexed turns.)")
+    else:
+        print("  Running in Pure Episodic Memory Mode (Zero-LLM baseline).")
 
     return total_turns
 
@@ -292,6 +295,18 @@ def run_benchmark(
     all_ir_results = []
     all_sys_results = []
 
+    # Check if upstream LLM endpoint is live
+    enable_sleep = True
+    base_check_url = upstream_url.rstrip("/v1").rstrip("/") + "/"
+    try:
+        import urllib.request
+        resp = urllib.request.urlopen(base_check_url, timeout=2.0)
+        print(f"  [LLM Engine]: Upstream {upstream_url} is active (status {resp.status}).")
+    except Exception as e:  # noqa: BLE001
+        enable_sleep = False
+        print(f"  [LLM Engine]: Upstream {upstream_url} is offline ({e}).")
+        print("  --> Operating in Pure Episodic Memory Mode (Zero-LLM Baseline).")
+
     for idx in range(num_convs):
         conv = dataset[idx]
         cid = conv.get("sample_id") or f"conv_{idx}"
@@ -305,7 +320,7 @@ def run_benchmark(
         mem = Memory(config=config, upstream=upstream_url, model=model_name)
 
         evidence_index = build_evidence_index(conv)
-        ingest_dialogues(mem, conv, upstream_url, model_name)
+        ingest_dialogues(mem, conv, upstream_url, model_name, enable_sleep=enable_sleep)
 
         # 1. Information Retrieval Evaluation
         print("  Evaluating Evidence & Answer Retrieval...")
