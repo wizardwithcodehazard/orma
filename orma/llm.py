@@ -79,12 +79,17 @@ class LLMClient:
         self.http = httpx.Client(base_url=base_url.rstrip("/"), headers=headers, timeout=timeout, transport=transport)
 
     def chat(self, messages: list[dict], model: str | None = None, json_mode: bool = False,
-             temperature: float | None = None, response_format: dict | None = None) -> str:
+             temperature: float | None = None, response_format: dict | None = None,
+             max_tokens: int | None = None) -> str:
         body = {"model": model or self.model, "messages": messages, "stream": False}
         if response_format is not None or json_mode:
             body["response_format"] = response_format or {"type": "json_object"}
         if temperature is not None:
             body["temperature"] = temperature
+        # Cap generation length so small models cannot enter infinite loop
+        effective_max = max_tokens if max_tokens is not None else (2048 if (json_mode or response_format) else None)
+        if effective_max is not None:
+            body["max_tokens"] = effective_max
         try:
             response = self.http.post("/chat/completions", json=body)
             response.raise_for_status()

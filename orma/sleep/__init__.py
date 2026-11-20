@@ -73,10 +73,7 @@ class Sleeper:
             except Exception as exc:  # noqa: BLE001 - any failure must count against the attempt cap
                 self.store.record_sleep_failure(ids, str(exc), cfg.sleep_max_attempts, now)
                 report.failed_batches += 1
-                err_str = str(exc).lower()
-                if "connection" in err_str or "connect" in err_str or "refused" in err_str:
-                    break
-                continue
+                break
             report.consolidation.merge(consolidation)
             self.store.mark_consolidated(ids, now)
             report.batches += 1
