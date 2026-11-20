@@ -320,7 +320,11 @@ class Store:
                   vec=None) -> int:
         """A state stated by sentence_id (said at said_at); current unless valid_to is given. Pass a precomputed
         vec of its text to keep inference out of the caller's transaction."""
-        text = state_text(self.entity(subject_id).name, self.attribute(attribute_id).name, value)
+        ent = self.entity(subject_id)
+        attr = self.attribute(attribute_id)
+        if ent is None or attr is None:
+            raise ValueError(f"Subject {subject_id} or attribute {attribute_id} does not exist")
+        text = state_text(ent.name, attr.name, value)
         vec = self.embed(text) if vec is None else vec
         with self.tx() as c:
             state_id = c.execute(

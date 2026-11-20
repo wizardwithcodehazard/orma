@@ -122,12 +122,12 @@ class Consolidator:
                 report.ungrounded += 1
             else:
                 self._state(space, subject_id, item, sentence, report)
-        for item in extraction.events:
-            sentence = citable.get(item.s)
+        for ev_item in extraction.events:
+            sentence = citable.get(ev_item.s)
             if sentence is None:
                 report.uncited += 1
                 continue
-            self._event(space, item, sentence, resolve, report, now)
+            self._event(space, ev_item, sentence, resolve, report, now)
         return report
 
     # --- names -----------------------------------------------------------------------
@@ -244,8 +244,12 @@ class Consolidator:
         start = said_at if since is None else since
         # A value dated before a current value that has its own stated date is history, not a change.
         later = [st.valid_from for st in current if since is not None and st.valid_from_stated and st.valid_from > start]
-        subject = self.store.entity(subject_id).name
-        vec = self.store.embed(state_text(subject, self.store.attribute(attribute_id).name, item.value))
+        ent = self.store.entity(subject_id)
+        attr = self.store.attribute(attribute_id)
+        if ent is None or attr is None:
+            return
+        subject = ent.name
+        vec = self.store.embed(state_text(subject, attr.name, item.value))
         is_conditional = self.config.enable_defeasible_logic and (
             has_conditional_framing(getattr(item, "condition", ""))
             or self._is_conditional_framing(sentence.text)

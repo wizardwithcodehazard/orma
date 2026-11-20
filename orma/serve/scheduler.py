@@ -25,7 +25,7 @@ class SleepScheduler:
         """Sleeps every due space; returns the spaces consolidated."""
         if self.memory.llm is None or self.memory.model is None:
             return []  # the model is learned from the first proxied request
-        done = []
+        done: list[str] = []
         try:
             due = self.memory.due_spaces(now)
         except Exception:
@@ -43,7 +43,7 @@ class SleepScheduler:
         """Runs a consolidation pass on any space with pending records (e.g. on shutdown or startup catch-up)."""
         if self.memory.llm is None or self.memory.model is None:
             return []
-        done = []
+        done: list[str] = []
         try:
             pending_spaces = [space for space, pending, _ in self.memory.store.pending_stats() if pending > 0]
         except Exception as exc:  # noqa: BLE001

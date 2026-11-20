@@ -295,12 +295,12 @@ class MCPServer:
             elif name == "orma_facts":
                 include_history = bool(args.get("include_history", False))
                 facts = await anyio.to_thread.run_sync(
-                    functools.partial(self.memory.facts, space=space, history=include_history)
+                    functools.partial(self.memory.facts, space=space, include_closed=include_history)
                 )
                 lines = [f"Active facts for space '{space}':"]
                 for f in facts:
-                    status = f" [outdated: replaced by {f['superseded_by']}]" if f.get("superseded_by") else ""
-                    lines.append(f"- ID {f['id']}: {f['text']}{status}")
+                    status = " [outdated: ended]" if f.valid_to is not None else ""
+                    lines.append(f"- ID {f.id}: {f.value}{status}")
                 if len(lines) == 1:
                     lines.append("(No facts recorded yet)")
                 return {
@@ -308,7 +308,10 @@ class MCPServer:
                 }
 
             elif name == "orma_forget":
-                state_id = int(args.get("state_id"))
+                sid = args.get("state_id")
+                if sid is None:
+                    return {"isError": True, "content": [{"type": "text", "text": "state_id is required"}]}
+                state_id = int(sid)
                 ok = await anyio.to_thread.run_sync(
                     functools.partial(self.memory.forget, state_id, space=space)
                 )

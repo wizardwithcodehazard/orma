@@ -211,12 +211,12 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             res = await run_in_threadpool(memory.search, q, space)
             context = await run_in_threadpool(memory.build_context, [{"role": "user", "content": q}], space)
             prompt_block = context[0]["content"] if context and context[0]["role"] == "system" else ""
-            matched_node_ids = [f"state_{st.id}" for st, _ in res.states] + [f"event_{ev.id}" for ev, _ in res.events]
+            matched_node_ids = [f"state_{st.id}" for st in res.states] + [f"event_{ev.id}" for ev, _ in res.events]
             return JSONResponse({
                 "query": q,
                 "matched_node_ids": matched_node_ids,
                 "prompt_block": prompt_block,
-                "states": [{"id": st.id, "text": st.text, "score": round(score, 3)} for st, score in res.states],
+                "states": [{"id": st.id, "text": st.value} for st in res.states],
             })
         except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)

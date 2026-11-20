@@ -27,7 +27,7 @@ def zone(name: str) -> tzinfo | None:
 def _system_offset() -> tzinfo:
     """The system zone's current fixed offset: the fallback where the OS cannot convert a time (Windows rejects
     times around 1970 and before)."""
-    return datetime.now().astimezone().tzinfo
+    return datetime.now().astimezone().tzinfo or timezone.utc
 
 
 def _localize(naive: datetime) -> datetime:

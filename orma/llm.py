@@ -5,6 +5,7 @@ LM Studio, vLLM). Sleep uses it for schema-constrained JSON extraction; the SDK 
 
 import json
 import re
+from typing import Any
 
 import httpx
 
@@ -81,7 +82,7 @@ class LLMClient:
     def chat(self, messages: list[dict], model: str | None = None, json_mode: bool = False,
              temperature: float | None = None, response_format: dict | None = None,
              max_tokens: int | None = None) -> str:
-        body = {"model": model or self.model, "messages": messages, "stream": False}
+        body: dict[str, Any] = {"model": model or self.model, "messages": messages, "stream": False}
         if response_format is not None or json_mode:
             body["response_format"] = response_format or {"type": "json_object"}
         if temperature is not None:

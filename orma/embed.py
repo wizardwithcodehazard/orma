@@ -4,7 +4,7 @@ and retrieval. Vectors are L2-normalized float32, so cosine similarity is a dot 
 """
 
 import threading
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -40,7 +40,7 @@ class FastEmbedder:
             model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
         self.model_name = model_name
         self.dim = dim
-        self._model = None
+        self._model: Any = None
         self._load_lock = threading.Lock()
 
     def embed(self, texts: list[str]) -> np.ndarray:

@@ -144,14 +144,14 @@ class Recaller:
 
         # Hop 2: Traversal into referenced entities
         if max_hops >= 2:
-            hop2_sources = {}
+            hop2_sources: dict[int, float] = {}
             for sid, act in list(activations.items()):
                 if act < min_activation:
                     continue
-                st = state_by_id.get(sid)
-                if not st or not st.value:
+                st_obj = state_by_id.get(sid)
+                if st_obj is None or not st_obj.value:
                     continue
-                for e2 in self.store.entities_named_in(space, st.value):
+                for e2 in self.store.entities_named_in(space, st_obj.value):
                     if e2.id not in source_weights:
                         hop2_sources[e2.id] = max(hop2_sources.get(e2.id, 0.0), act * 0.5)
 

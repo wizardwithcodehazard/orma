@@ -185,7 +185,7 @@ class Memory:
 
     def close(self) -> None:
         self.store.close()
-        if hasattr(self.llm, "close"):
+        if self.llm is not None and hasattr(self.llm, "close"):
             self.llm.close()
 
     def _require_llm(self):

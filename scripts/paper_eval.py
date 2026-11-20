@@ -19,13 +19,13 @@ Features:
 
 import argparse
 import json
-from pathlib import Path
 import re
 import statistics
 import string
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 CATEGORY_NAMES = {
     1: "Multi-Hop Reasoning",
@@ -74,9 +74,7 @@ def is_exact_match(retrieved_text: str, gold_text: str) -> bool:
     if not r_norm or not g_norm:
         return False
     # Either gold turn is inside retrieved block, or retrieved sentence (>= 3 words) is verbatim inside gold turn
-    if g_norm in r_norm or (len(r_norm.split()) >= 3 and r_norm in g_norm):
-        return True
-    return False
+    return bool(g_norm in r_norm or (len(r_norm.split()) >= 3 and r_norm in g_norm))
 
 
 def is_fuzzy_match(retrieved_text: str, gold_text: str) -> bool:
