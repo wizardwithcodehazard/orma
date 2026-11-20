@@ -375,11 +375,16 @@ def run_benchmark(
             "fuzzy_ans_recall": round(statistics.mean([q["ans_fuzzy"] for q in cat_q]) * 100, 2),
         }
 
+    is_full_eval = (num_convs == len(dataset))
+    eval_scope = "FULL DATASET EVALUATION" if is_full_eval else f"PILOT EVALUATION ({num_convs} OF {len(dataset)} CONVERSATIONS)"
+
     final_report = {
-        "benchmark": "Official Snap Research LoCoMo Benchmark (Full Dataset)",
+        "benchmark": "Official Snap Research LoCoMo Benchmark",
+        "evaluation_scope": eval_scope,
         "dataset_source": "https://github.com/snap-research/locomo",
         "dataset_file": dataset_path,
         "conversations_evaluated": num_convs,
+        "total_dataset_conversations": len(dataset),
         "queries_evaluated": total_n,
         "multilingual_embedding": multilingual,
         "evaluation_protocol": "Standard Information Retrieval (Dual Exact & Fuzzy Disclosure)",
@@ -410,7 +415,7 @@ def run_benchmark(
 
     # Print publication-ready report
     print("\n" + "=" * 76)
-    print("      OFFICIAL LOCOMO BENCHMARK REPORT (FULL DATASET EVALUATION)")
+    print(f"      OFFICIAL LOCOMO BENCHMARK REPORT ({eval_scope})")
     print("=" * 76)
     print("  Benchmark Source:      Snap Research LoCoMo (Official Dataset)")
     print(f"  Conversations:         {num_convs} of {len(dataset)}")

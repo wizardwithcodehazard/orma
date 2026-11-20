@@ -105,12 +105,29 @@ class Recaller:
             named = [st for entity in named_entities for st in self.store.current_states(space, entity.id)]
         states = {st.id: st for st in self._user_states(space) + matched + named}
         result.states = list(states.values())
+
+        # Grounding bridge: bring supporting evidence sentences from activated states into passages
+        state_evidence_ids = []
+        for st in result.states[:5]:
+            if st.sentence_id:
+                state_evidence_ids.append(st.sentence_id)
+            if st.evidence:
+                state_evidence_ids.extend(st.evidence[:2])
+        if state_evidence_ids:
+            existing_sids = {s.id for s, _ in result.passages}
+            evidence_sentences = self.store.sentences(set(state_evidence_ids))
+            for es in evidence_sentences:
+                if es.id not in existing_sids and es.role in cfg.recall_roles and es.text.strip() not in exclude:
+                    result.passages.append((es, 0.85))
+            result.passages.sort(key=lambda p: (-p[1], p[0].id))
+            result.passages = result.passages[:cfg.max_passages]
+
         result.outdated = self._outdated(space, [s.id for s, _ in result.passages])
         return result
 
-    def _spread_activation_states(self, space: str, entities: list, min_activation: float = 0.05) -> list[State]:
-        """Spreading activation with the Fan Effect: each source entity divides its activation
-        across its outgoing states (1 / fan). Specific entities with small fan transmit high activation."""
+    def _spread_activation_states(self, space: str, entities: list, min_activation: float = 0.05, max_hops: int = 2) -> list[State]:
+        """Multi-hop Spreading activation with the Fan Effect: each source entity divides its activation
+        across its outgoing states (1 / fan). Hop 2 traverses secondary entities mentioned in state values."""
         if not entities:
             return []
         source_weights = {e.id: 1.0 for e in entities}
@@ -124,6 +141,31 @@ class Recaller:
                 state_by_id[st.id] = st
 
         activations = spread_activation(source_weights, adjacency)
+
+        # Hop 2: Traversal into referenced entities
+        if max_hops >= 2:
+            hop2_sources = {}
+            for sid, act in list(activations.items()):
+                if act < min_activation:
+                    continue
+                st = state_by_id.get(sid)
+                if not st or not st.value:
+                    continue
+                for e2 in self.store.entities_named_in(space, st.value):
+                    if e2.id not in source_weights:
+                        hop2_sources[e2.id] = max(hop2_sources.get(e2.id, 0.0), act * 0.5)
+
+            if hop2_sources:
+                hop2_adj = {}
+                for e2_id in hop2_sources:
+                    cur2 = self.store.current_states(space, e2_id)
+                    hop2_adj[e2_id] = [st2.id for st2 in cur2]
+                    for st2 in cur2:
+                        state_by_id[st2.id] = st2
+                hop2_acts = spread_activation(hop2_sources, hop2_adj)
+                for sid2, act2 in hop2_acts.items():
+                    activations[sid2] = activations.get(sid2, 0.0) + act2
+
         ranked = sorted(
             [state_by_id[sid] for sid, act in activations.items() if act >= min_activation],
             key=lambda st: (-activations[st.id], st.id)
