@@ -16,6 +16,7 @@ from orma.config import SmrutiConfig
 from orma.sleep.consolidate import ConsolidationReport, Consolidator
 from orma.sleep.extract import JSON_SCHEMA, ExtractionContext, extract, format_line
 from orma.store import USER_ENTITY, Store
+from orma.store.records import Episode
 from orma.text import count_tokens
 
 
@@ -40,13 +41,19 @@ class Sleeper:
     def due_spaces(self, now=None) -> list[str]:
         """Spaces with enough pending records, or whose newest pending record has gone idle."""
         now = time.time() if now is None else now
-        return [space for space, pending, newest in self.store.pending_stats()
-                if pending >= self.config.sleep_after_episodes or now - newest >= self.config.sleep_idle_seconds]
+        return [
+            space
+            for space, pending, newest in self.store.pending_stats()
+            if pending >= self.config.sleep_after_episodes
+            or now - newest >= self.config.sleep_idle_seconds
+        ]
 
     def run(self, space: str, now=None) -> SleepReport:
         now = time.time() if now is None else now
         report = SleepReport(space)
-        if not self.store.acquire_sleep_lease(space, self.holder, self.config.sleep_lease_seconds, now):
+        if not self.store.acquire_sleep_lease(
+            space, self.holder, self.config.sleep_lease_seconds, now
+        ):
             return report  # another sleeper owns this space
         try:
             self._consolidate(space, now, report)
@@ -63,12 +70,16 @@ class Sleeper:
             batch, sentences, lines = self._fit_budget(pending, tz)
             ids = [e.id for e in batch]
             if not cfg.enable_semantic or not any(s.role in cfg.citable_roles for s in sentences):
-                self.store.mark_consolidated(ids, now)  # nothing to read (or structure is switched off)
+                self.store.mark_consolidated(
+                    ids, now
+                )  # nothing to read (or structure is switched off)
                 report.episodes += len(ids)
                 continue
             try:
                 schema = JSON_SCHEMA if cfg.enable_schema_decoding else None
-                extraction = extract(self.llm, self.model, lines, self._context(space, sentences), schema=schema)
+                extraction = extract(
+                    self.llm, self.model, lines, self._context(space, sentences), schema=schema
+                )
                 consolidation = self.consolidator.apply(space, extraction, sentences, now)
             except Exception as exc:  # noqa: BLE001 - any failure must count against the attempt cap
                 self.store.record_sleep_failure(ids, str(exc), cfg.sleep_max_attempts, now)
@@ -83,10 +94,13 @@ class Sleeper:
         """The longest prefix of pending records whose lines fit sleep_prompt_tokens (always at least one record,
         cut to the budget if it alone is too long), with their sentences and formatted lines."""
         cfg = self.config
-        batch, sentences, lines, used = [], [], [], 0
+        batch: list[Episode] = []
+        sentences, lines, used = [], [], 0
         for episode in pending:
             own = self.store.episode_sentences([episode.id])
-            own_lines = [format_line(s, tz, s.role in cfg.citable_roles, cfg.context_chars) for s in own]
+            own_lines = [
+                format_line(s, tz, s.role in cfg.citable_roles, cfg.context_chars) for s in own
+            ]
             cost = sum(count_tokens(line, cfg.chars_per_token) + 1 for line in own_lines)
             if batch and used + cost > cfg.sleep_prompt_tokens:
                 break
@@ -97,7 +111,7 @@ class Sleeper:
                     if total > cfg.sleep_prompt_tokens:
                         break
                     keep += 1
-                own, own_lines = own[:max(keep, 1)], own_lines[:max(keep, 1)]
+                own, own_lines = own[: max(keep, 1)], own_lines[: max(keep, 1)]
             batch.append(episode)
             sentences += own
             lines += own_lines
@@ -112,15 +126,27 @@ class Sleeper:
         names = []
         for entity, _ in self.store.nearest_entities(space, vec, 20):
             aliases = self.store.aliases(entity.id)
-            names.append(f"{entity.name} (also called: {', '.join(aliases)})" if aliases else entity.name)
+            names.append(
+                f"{entity.name} (also called: {', '.join(aliases)})" if aliases else entity.name
+            )
         user = self.store.find_entity(space, USER_ENTITY)
         if user is not None and not any(n.startswith(USER_ENTITY) for n in names):
             aliases = self.store.aliases(user.id)
-            names.insert(0, f"{USER_ENTITY} (also called: {', '.join(aliases)})" if aliases else USER_ENTITY)
-        attributes = [a.name for a, _ in self.store.nearest_attributes(space, vec, cfg.sleep_context_attributes)]
-        state_ids = [i for i, _ in self.store.vec_search("states", space, vec, cfg.sleep_context_states)]
+            names.insert(
+                0, f"{USER_ENTITY} (also called: {', '.join(aliases)})" if aliases else USER_ENTITY
+            )
+        attributes = [
+            a.name
+            for a, _ in self.store.nearest_attributes(space, vec, cfg.sleep_context_attributes)
+        ]
+        state_ids = [
+            i for i, _ in self.store.vec_search("states", space, vec, cfg.sleep_context_states)
+        ]
         states = [st.text for st in self.store.states(state_ids)]
         if user is not None:
             states = [st.text for st in self.store.current_states(space, user.id)] + [
-                s for s in states if not s.startswith(f"{USER_ENTITY} ·")]
-        return ExtractionContext(names, attributes, list(dict.fromkeys(states))[:cfg.sleep_context_states])
+                s for s in states if not s.startswith(f"{USER_ENTITY} ·")
+            ]
+        return ExtractionContext(
+            names, attributes, list(dict.fromkeys(states))[: cfg.sleep_context_states]
+        )

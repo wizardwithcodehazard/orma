@@ -67,6 +67,12 @@ Thumbs.db
 # Benchmark & eval run logs
 eval/runs/
 scratch/
+benchmarks/
+reports/
+*_report.json
+*.json_report
+test_*.json
+full_*.json
 
 # Package lockfile (omit from library repo to prevent cross-platform lock churn)
 uv.lock

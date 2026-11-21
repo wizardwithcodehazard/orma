@@ -58,8 +58,10 @@ def main(data_dir: str) -> None:
         add_times.append((time.time() - t0) * 1000)
         if (i + 1) % 500 == 0:
             print(f"  {i + 1}/{total} notes added...")
-    print(f"Added {total} notes in {time.time() - start_all:.2f}s "
-          f"(median: {statistics.median(add_times):.1f}ms, p95: {statistics.quantiles(add_times, n=20)[18]:.1f}ms)")
+    print(
+        f"Added {total} notes in {time.time() - start_all:.2f}s "
+        f"(median: {statistics.median(add_times):.1f}ms, p95: {statistics.quantiles(add_times, n=20)[18]:.1f}ms)"
+    )
 
     # 3. Recall check
     query = "What is Asha allergic to?"
@@ -74,8 +76,10 @@ def main(data_dir: str) -> None:
         if any("allergic" in s for s in sentences):
             found = True
 
-    print(f"Recall median: {statistics.median(recall_times):.1f}ms "
-          f"(p95: {statistics.quantiles(recall_times, n=20)[18]:.1f}ms)")
+    print(
+        f"Recall median: {statistics.median(recall_times):.1f}ms "
+        f"(p95: {statistics.quantiles(recall_times, n=20)[18]:.1f}ms)"
+    )
     print(f"Needle found in top passages: {found}")
     assert found, "Target sentence not found among 2000 filler notes!"
 

@@ -20,6 +20,7 @@ def state_text(subject: str, attribute: str, value: str) -> str:
 @dataclass
 class Episode:
     """A kept record: a chat turn, a note, part of a document, a tool result."""
+
     id: int
     space: str
     role: str  # user | assistant | tool | note | document
@@ -69,6 +70,7 @@ class Attribute:
 @dataclass
 class State:
     """What one attribute of one entity is, from valid_from until valid_to (None while still true)."""
+
     id: int
     space: str
     subject_id: int

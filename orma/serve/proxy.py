@@ -30,25 +30,54 @@ logger = logging.getLogger(__name__)
 
 SPACE_HEADER = "x-orma-space"
 SKIP_HEADER = "x-orma-skip"
-_DROPPED_HEADERS = {"host", "content-length", "connection", "transfer-encoding", "accept-encoding",
-                    SPACE_HEADER, SKIP_HEADER, "x-smruti-space", "x-smruti-skip"}
-_HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding", "te",
-               "trailer", "upgrade"}
+_DROPPED_HEADERS = {
+    "host",
+    "content-length",
+    "connection",
+    "transfer-encoding",
+    "accept-encoding",
+    SPACE_HEADER,
+    SKIP_HEADER,
+    "x-smruti-space",
+    "x-smruti-skip",
+}
+_HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "transfer-encoding",
+    "content-length",
+    "content-encoding",
+    "te",
+    "trailer",
+    "upgrade",
+}
 
 
 def _response_headers(response: httpx.Response) -> dict[str, str]:
-    return {k: v for k, v in response.headers.items()
-            if k.lower() not in _HOP_BY_HOP and not k.lower().startswith("proxy-")}
+    return {
+        k: v
+        for k, v in response.headers.items()
+        if k.lower() not in _HOP_BY_HOP and not k.lower().startswith("proxy-")
+    }
 
 
-def create_app(memory: Memory, upstream: str, default_space: str = "default",
-               sleep_poll_seconds: float | None = 30.0, transport: httpx.AsyncBaseTransport | None = None) -> Starlette:
-    client = httpx.AsyncClient(base_url=upstream.rstrip("/"), timeout=httpx.Timeout(None, connect=10.0),
-                               transport=transport)
+def create_app(
+    memory: Memory,
+    upstream: str,
+    default_space: str = "default",
+    sleep_poll_seconds: float | None = 30.0,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> Starlette:
+    client = httpx.AsyncClient(
+        base_url=upstream.rstrip("/"),
+        timeout=httpx.Timeout(None, connect=10.0),
+        transport=transport,
+    )
     root_base = upstream.rstrip("/")
     root_base = root_base.removesuffix("/v1")
-    root_client = httpx.AsyncClient(base_url=root_base, timeout=httpx.Timeout(None, connect=10.0),
-                                    transport=transport)
+    root_client = httpx.AsyncClient(
+        base_url=root_base, timeout=httpx.Timeout(None, connect=10.0), transport=transport
+    )
     scheduler = SleepScheduler(memory, sleep_poll_seconds) if sleep_poll_seconds else None
 
     def forwarded_headers(request: Request) -> dict[str, str]:
@@ -66,13 +95,16 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             logger.exception("recording turns failed for space %r", space)
 
     def upstream_error(exc: Exception) -> JSONResponse:
-        return JSONResponse({"error": {"message": f"upstream unreachable: {exc}", "type": "upstream_error"}},
-                            status_code=502)
+        return JSONResponse(
+            {"error": {"message": f"upstream unreachable: {exc}", "type": "upstream_error"}},
+            status_code=502,
+        )
 
     async def relay_response(response: httpx.Response) -> Response:
         """Relays an upstream response (opened with stream=True): event streams as they arrive, the rest buffered."""
         headers = _response_headers(response)
         if response.headers.get("content-type", "").startswith("text/event-stream"):
+
             async def relay():
                 try:
                     async for chunk in response.aiter_bytes():
@@ -99,7 +131,9 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             return upstream_error(exc)
 
     async def forward_chat_unchanged(raw: bytes, request: Request) -> Response:
-        response = await send_upstream("POST", "/chat/completions", content=raw, headers=forwarded_headers(request))
+        response = await send_upstream(
+            "POST", "/chat/completions", content=raw, headers=forwarded_headers(request)
+        )
         return response if isinstance(response, JSONResponse) else await relay_response(response)
 
     def skip_requested(request: Request) -> bool:
@@ -107,24 +141,48 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
         return skip.strip() not in ("", "0")
 
     async def chat_completions(request: Request) -> Response:
-        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
-            return JSONResponse({"error": {"message": "Content-Type must be application/json",
-                                           "type": "invalid_request_error"}}, status_code=415)
+        if (
+            request.headers.get("content-type", "").split(";")[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                {
+                    "error": {
+                        "message": "Content-Type must be application/json",
+                        "type": "invalid_request_error",
+                    }
+                },
+                status_code=415,
+            )
         raw = await request.body()
         try:
             body = json.loads(raw)
         except ValueError:
             body = None
-        if not isinstance(body, dict) or not isinstance(body.get("messages"), list) or skip_requested(request):
-            return await forward_chat_unchanged(raw, request)  # not ours to interpret: fail open, no memory
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("messages"), list)
+            or skip_requested(request)
+        ):
+            return await forward_chat_unchanged(
+                raw, request
+            )  # not ours to interpret: fail open, no memory
 
         messages = body["messages"]
-        space = request.headers.get(SPACE_HEADER) or request.headers.get("x-smruti-space") or body.get("user") or default_space
+        space = (
+            request.headers.get(SPACE_HEADER)
+            or request.headers.get("x-smruti-space")
+            or body.get("user")
+            or default_space
+        )
         if memory.model is None and body.get("model"):
             memory.model = body["model"]  # sleep consolidates with the model clients use
             logger.info("sleep will use model %s; pass --model to choose", memory.model)
         try:
-            body = {**body, "messages": await run_in_threadpool(memory.build_context, messages, space)}
+            body = {
+                **body,
+                "messages": await run_in_threadpool(memory.build_context, messages, space),
+            }
         except Exception:
             logger.exception("recall failed; forwarding the request unchanged")
         try:
@@ -138,18 +196,30 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             if k.startswith("dry_") and isinstance(body[k], (int, float)) and body[k] < 0:
                 del body[k]
 
-        response = await send_upstream("POST", "/chat/completions", json=body, headers=forwarded_headers(request))
+        response = await send_upstream(
+            "POST", "/chat/completions", json=body, headers=forwarded_headers(request)
+        )
         if isinstance(response, JSONResponse):
             return response
 
         if response.status_code >= 400 or not body.get("stream"):
             content = await response.aread()
             await response.aclose()
-            task = BackgroundTask(record, space, turns, reply_text(content)) if response.status_code < 400 else None
-            return Response(content, status_code=response.status_code, headers=_response_headers(response),
-                            background=task)
+            task = (
+                BackgroundTask(record, space, turns, reply_text(content))
+                if response.status_code < 400
+                else None
+            )
+            return Response(
+                content,
+                status_code=response.status_code,
+                headers=_response_headers(response),
+                background=task,
+            )
 
-        await run_in_threadpool(record, space, turns, "")  # upstream accepted it: the turns count even if the client leaves
+        await run_in_threadpool(
+            record, space, turns, ""
+        )  # upstream accepted it: the turns count even if the client leaves
         accumulator = StreamAccumulator()
 
         async def relay():
@@ -162,23 +232,36 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Stream relay error: %s", exc)
             finally:
-                with anyio.CancelScope(shield=True):  # runs on client disconnect too, with whatever was streamed
+                with anyio.CancelScope(
+                    shield=True
+                ):  # runs on client disconnect too, with whatever was streamed
                     await response.aclose()
                     await run_in_threadpool(record, space, [], accumulator.text)
 
-        return StreamingResponse(relay(), status_code=response.status_code, headers=_response_headers(response))
+        return StreamingResponse(
+            relay(), status_code=response.status_code, headers=_response_headers(response)
+        )
 
     async def passthrough(request: Request) -> Response:
-        response = await send_upstream(request.method, "/" + request.path_params["path"],
-                                       content=await request.body(), headers=forwarded_headers(request),
-                                       params=request.query_params)
+        response = await send_upstream(
+            request.method,
+            "/" + request.path_params["path"],
+            content=await request.body(),
+            headers=forwarded_headers(request),
+            params=request.query_params,
+        )
         return response if isinstance(response, JSONResponse) else await relay_response(response)
 
     async def root_passthrough(request: Request) -> Response:
         path = request.url.path
         try:
-            req = root_client.build_request(request.method, path, content=await request.body(),
-                                            headers=forwarded_headers(request), params=request.query_params)
+            req = root_client.build_request(
+                request.method,
+                path,
+                content=await request.body(),
+                headers=forwarded_headers(request),
+                params=request.query_params,
+            )
             resp = await root_client.send(req, stream=True)
             return resp if isinstance(resp, JSONResponse) else await relay_response(resp)
         except httpx.HTTPError as exc:
@@ -187,7 +270,9 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
     viz_html_path = Path(__file__).parent / "viz.html"
     viz_css_path = Path(__file__).parent / "viz.css"
     viz_js_path = Path(__file__).parent / "viz.js"
-    viz_html_content = viz_html_path.read_text(encoding="utf-8") if viz_html_path.exists() else "<h1>Orma Viz</h1>"
+    viz_html_content = (
+        viz_html_path.read_text(encoding="utf-8") if viz_html_path.exists() else "<h1>Orma Viz</h1>"
+    )
 
     async def get_viz_css(request: Request) -> Response:
         content = viz_css_path.read_text(encoding="utf-8") if viz_css_path.exists() else ""
@@ -198,26 +283,38 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
         return Response(content, media_type="application/javascript")
 
     async def get_brain_connectome(request: Request) -> JSONResponse:
-        space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        space = (
+            request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        )
         data = await run_in_threadpool(memory.export_connectome, space)
         return JSONResponse(data)
 
     async def search_memory(request: Request) -> JSONResponse:
         q = request.query_params.get("q", "").strip()
-        space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        space = (
+            request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        )
         if not q:
             return JSONResponse({"query": "", "matched_node_ids": [], "prompt_block": ""})
         try:
             res = await run_in_threadpool(memory.search, q, space)
-            context = await run_in_threadpool(memory.build_context, [{"role": "user", "content": q}], space)
-            prompt_block = context[0]["content"] if context and context[0]["role"] == "system" else ""
-            matched_node_ids = [f"state_{st.id}" for st in res.states] + [f"event_{ev.id}" for ev, _ in res.events]
-            return JSONResponse({
-                "query": q,
-                "matched_node_ids": matched_node_ids,
-                "prompt_block": prompt_block,
-                "states": [{"id": st.id, "text": st.value} for st in res.states],
-            })
+            context = await run_in_threadpool(
+                memory.build_context, [{"role": "user", "content": q}], space
+            )
+            prompt_block = (
+                context[0]["content"] if context and context[0]["role"] == "system" else ""
+            )
+            matched_node_ids = [f"state_{st.id}" for st in res.states] + [
+                f"event_{ev.id}" for ev, _ in res.events
+            ]
+            return JSONResponse(
+                {
+                    "query": q,
+                    "matched_node_ids": matched_node_ids,
+                    "prompt_block": prompt_block,
+                    "states": [{"id": st.id, "text": st.value} for st in res.states],
+                }
+            )
         except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -238,24 +335,36 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             return JSONResponse({"error": str(e)}, status_code=500)
 
     async def get_brain_viz(request: Request) -> HTMLResponse:
-        content = viz_html_path.read_text(encoding="utf-8") if viz_html_path.exists() else viz_html_content
+        content = (
+            viz_html_path.read_text(encoding="utf-8")
+            if viz_html_path.exists()
+            else viz_html_content
+        )
         return HTMLResponse(content)
 
     async def trigger_sleep(request: Request) -> JSONResponse:
-        space = request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        space = (
+            request.query_params.get("space") or request.headers.get(SPACE_HEADER) or default_space
+        )
         try:
             report = await run_in_threadpool(memory.sleep, space)
             cons = getattr(report, "consolidation", None)
-            states_added = getattr(cons, "states_added", 0) if cons else getattr(report, "states_added", 0)
-            events_added = getattr(cons, "events_added", 0) if cons else getattr(report, "events_added", 0)
+            states_added = (
+                getattr(cons, "states_added", 0) if cons else getattr(report, "states_added", 0)
+            )
+            events_added = (
+                getattr(cons, "events_added", 0) if cons else getattr(report, "events_added", 0)
+            )
             episodes = getattr(report, "episodes", getattr(report, "episodes_read", 0))
-            return JSONResponse({
-                "states_added": states_added,
-                "events_added": events_added,
-                "episodes_read": episodes,
-                "batches": getattr(report, "batches", 0),
-                "failed_batches": getattr(report, "failed_batches", 0),
-            })
+            return JSONResponse(
+                {
+                    "states_added": states_added,
+                    "events_added": events_added,
+                    "episodes_read": episodes,
+                    "batches": getattr(report, "batches", 0),
+                    "failed_batches": getattr(report, "failed_batches", 0),
+                }
+            )
         except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -278,7 +387,7 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
     async def security_middleware(request: Request, call_next):
         # 1. Host header validation: must be localhost or local loopback
         host = (request.headers.get("host") or "").split(":")[0].lower()
-        if host and host not in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "testserver"):
+        if host and host not in ("localhost", "127.0.0.1", "::1", "testserver"):
             return JSONResponse({"error": "Forbidden: invalid host header"}, status_code=403)
 
         # 2. Origin validation: block external untrusted web origins from driving localhost memory
@@ -286,13 +395,18 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
         if origin:
             parsed_origin = origin.split("://")[-1].split(":")[0].lower()
             if parsed_origin not in ("localhost", "127.0.0.1", "::1", "testserver"):
-                return JSONResponse({"error": "Forbidden: cross-origin requests to local memory are blocked"}, status_code=403)
+                return JSONResponse(
+                    {"error": "Forbidden: cross-origin requests to local memory are blocked"},
+                    status_code=403,
+                )
 
         # 3. Content-Type check for mutating POST requests on /_orma/*
         if request.url.path.startswith("/_orma/") and request.method == "POST":
             content_type = request.headers.get("content-type", "").lower()
             if not content_type.startswith("application/json"):
-                return JSONResponse({"error": "Content-Type must be application/json"}, status_code=415)
+                return JSONResponse(
+                    {"error": "Content-Type must be application/json"}, status_code=415
+                )
 
         return await call_next(request)
 
@@ -313,9 +427,13 @@ def create_app(memory: Memory, upstream: str, default_space: str = "default",
             Route("/_orma/sleep", trigger_sleep, methods=["POST"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
             Route("/chat/completions", chat_completions, methods=["POST"]),
-            Route("/v1/{path:path}", passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),
+            Route(
+                "/v1/{path:path}", passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
+            ),
             Route("/", root_passthrough, methods=["GET"]),
-            Route("/{path:path}", root_passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),
+            Route(
+                "/{path:path}", root_passthrough, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
+            ),
         ],
         lifespan=lifespan,
     )

@@ -71,14 +71,11 @@ The proxy listens on `http://localhost:8080/v1` by default. Point any OpenAI-com
 ```python
 from openai import OpenAI
 
-client = OpenAI(
-    base_url="http://localhost:8080/v1",
-    api_key="none"
-)
+client = OpenAI(base_url="http://localhost:8080/v1", api_key="none")
 
 response = client.chat.completions.create(
     model="llama3.2:3b",
-    messages=[{"role": "user", "content": "What is my job and where do I live?"}]
+    messages=[{"role": "user", "content": "What is my job and where do I live?"}],
 )
 print(response.choices[0].message.content)
 ```
@@ -87,11 +84,7 @@ print(response.choices[0].message.content)
 ```python
 from langchain_openai import ChatOpenAI
 
-llm = ChatOpenAI(
-    base_url="http://localhost:8080/v1",
-    api_key="none",
-    model="llama3.2:3b"
-)
+llm = ChatOpenAI(base_url="http://localhost:8080/v1", api_key="none", model="llama3.2:3b")
 ```
 
 ### With Open WebUI:
@@ -107,6 +100,37 @@ models:
     model: llama3.2:3b
     apiBase: http://localhost:8080/v1
 ```
+
+### With LiteLLM Proxy / SDK:
+```python
+import litellm
+
+response = litellm.completion(
+    model="openai/llama3.2:3b",
+    api_base="http://localhost:8080/v1",
+    api_key="none",
+    messages=[{"role": "user", "content": "What is my job?"}],
+)
+print(response.choices[0].message.content)
+```
+
+---
+
+## Method of Loci (Dialogue Checkpointing for Coding Sessions)
+
+When using Orma with coding agents across multi-day development sprints, establish checkpoints for major architectural phases:
+
+```python
+from orma import Memory
+
+mem = Memory()
+# Anchor a checkpoint in SQLite before starting a feature
+mem.checkpoint(
+    label="Sprint 3: Database Migration",
+    gist="Migrated auth schema from v1 to v2; added foreign key constraints on user_sessions.",
+)
+```
+During subsequent sessions, `mem.palace_walk("auth schema changes")` topological walk retrieves facts pegged to that specific migration milestone without confusing them with other features.
 
 ---
 

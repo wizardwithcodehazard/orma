@@ -38,7 +38,10 @@ def test_chat_json_retries_once_with_stricter_reminder_at_temperature_zero():
     assert client(handler).chat_json([]) == {"facts": []}
     assert bodies[0]["response_format"] == {"type": "json_object"}
     assert bodies[0]["temperature"] == 0.0 and bodies[1]["temperature"] == 0.0
-    assert bodies[1]["messages"][-1] == {"role": "user", "content": "Return only a valid JSON object."}
+    assert bodies[1]["messages"][-1] == {
+        "role": "user",
+        "content": "Return only a valid JSON object.",
+    }
     assert len(bodies[1]["messages"]) == len(bodies[0]["messages"]) + 1
 
 
@@ -78,7 +81,10 @@ def test_chat_json_with_schema_sends_strict_json_schema_and_given_temperature():
         return reply("not json" if len(bodies) == 1 else '{"facts": []}')
 
     assert client(handler).chat_json([], schema=SCHEMA, temperature=0.7) == {"facts": []}
-    expected = {"type": "json_schema", "json_schema": {"name": "memory", "schema": SCHEMA, "strict": True}}
+    expected = {
+        "type": "json_schema",
+        "json_schema": {"name": "memory", "schema": SCHEMA, "strict": True},
+    }
     assert bodies[0]["response_format"] == expected and bodies[1]["response_format"] == expected
     assert bodies[0]["temperature"] == 0.7 and bodies[1]["temperature"] == 0.0
 

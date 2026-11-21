@@ -19,12 +19,15 @@ from pathlib import Path
 from orma.config import SmrutiConfig
 from orma.encode import Encoder, EncodeResult
 from orma.llm import LLMClient
+from orma.loci import Locus, Palace, PalaceWalkResult
 from orma.messages import message_text
 from orma.recall import Recaller, SearchResult
 from orma.sleep import Sleeper, SleepReport
 from orma.store import State, Store
 
-RECORD_CHARS = 2000  # long text is kept as several records of about this size, split between paragraphs
+RECORD_CHARS = (
+    2000  # long text is kept as several records of about this size, split between paragraphs
+)
 
 
 def _parts(text: str, size: int) -> list[str]:
@@ -40,8 +43,16 @@ def _parts(text: str, size: int) -> list[str]:
 
 
 class Memory:
-    def __init__(self, path=None, upstream: str | None = None, model: str | None = None,
-                 config: SmrutiConfig | None = None, embedder=None, llm=None, multilingual: bool = False):
+    def __init__(
+        self,
+        path=None,
+        upstream: str | None = None,
+        model: str | None = None,
+        config: SmrutiConfig | None = None,
+        embedder=None,
+        llm=None,
+        multilingual: bool = False,
+    ):
         self.config = config or SmrutiConfig()
         if multilingual:
             self.config.multilingual = True
@@ -51,13 +62,15 @@ class Memory:
         self.store = Store(self.config, embedder)
         self.encoder = Encoder(self.store, self.config)
         self.recaller = Recaller(self.store, self.config)
+        self.palace = Palace(self.store)
         self.llm = llm or (LLMClient(upstream, model=model) if upstream else None)
         self.model = model
 
     # --- adding --------------------------------------------------------------------
 
-    def _extract_fast_path_inhibitory(self, space: str, text: str, episode_ids: list[int | None],
-                                      now: float) -> list[int]:
+    def _extract_fast_path_inhibitory(
+        self, space: str, text: str, episode_ids: list[int | None], now: float
+    ) -> list[int]:
         """Fast-path interception for ':/ <rule>' lines: immediately registers them as inhibitory states."""
         created_state_ids = []
         lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -68,7 +81,20 @@ class Memory:
             if not rule_text:
                 continue
             words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]+\b", rule_text)]
-            stop = {"never", "do", "not", "dont", "avoid", "stop", "strictly", "no", "cant", "shouldnt", "mustnt", "please"}
+            stop = {
+                "never",
+                "do",
+                "not",
+                "dont",
+                "avoid",
+                "stop",
+                "strictly",
+                "no",
+                "cant",
+                "shouldnt",
+                "mustnt",
+                "please",
+            }
             content_words = [w for w in words if w not in stop]
             topic = "_".join(content_words[:3]) if content_words else "rule"
             attr_name = f"forbidden_{topic}"
@@ -81,56 +107,109 @@ class Memory:
             sentences = self.store.episode_sentences(valid_eps[:1]) if valid_eps else []
             sentence_id = sentences[0].id if sentences else 0
 
-            sid = self.store.add_state(space, user_id, attr_id, rule_text, valid_from=now,
-                                       sentence_id=sentence_id, said_at=now, stated=True)
+            sid = self.store.add_state(
+                space,
+                user_id,
+                attr_id,
+                rule_text,
+                valid_from=now,
+                sentence_id=sentence_id,
+                said_at=now,
+                stated=True,
+            )
             created_state_ids.append(sid)
         return created_state_ids
 
-    def add(self, text: str, space: str = "default", role: str = "note", source: str = "api", speaker: str = "",
-            at: float | None = None) -> list[EncodeResult]:
+    def add(
+        self,
+        text: str,
+        space: str = "default",
+        role: str = "note",
+        source: str = "api",
+        speaker: str = "",
+        at: float | None = None,
+    ) -> list[EncodeResult]:
         """Keeps text as one or more records (long text is split between paragraphs). Notes are the user's own
         words unless a speaker is given."""
         speaker = speaker or ("user" if role in ("user", "note") else role)
-        results = [self.encoder.encode(space, role, part, now=at, source=source, speaker=speaker)
-                   for part in _parts(text, RECORD_CHARS)]
+        results = [
+            self.encoder.encode(space, role, part, now=at, source=source, speaker=speaker)
+            for part in _parts(text, RECORD_CHARS)
+        ]
+        cur_locus = self.palace.current_locus(space)
+        if cur_locus:
+            for r in results:
+                if r.episode_id:
+                    self.palace.peg_episode(cur_locus.id, r.episode_id)
         if role in ("user", "note") and ":/" in text:
             now = time.time() if at is None else at
             ep_ids = [r.episode_id for r in results if r.stored]
             self._extract_fast_path_inhibitory(space, text, ep_ids, now)
         return results
 
-    def add_file(self, path, space: str = "default", role: str = "document", at: float | None = None) \
-            -> list[EncodeResult]:
+    def add_file(
+        self, path, space: str = "default", role: str = "document", at: float | None = None
+    ) -> list[EncodeResult]:
         """Keeps a text file as document records, dated by its modification time; its speaker is its name."""
         path = Path(path)
         text = path.read_text(encoding="utf-8", errors="replace")
         at = path.stat().st_mtime if at is None else at
-        return self.add(text, space, role=role, source=f"file:{path.name}", speaker=path.name, at=at)
+        return self.add(
+            text, space, role=role, source=f"file:{path.name}", speaker=path.name, at=at
+        )
 
-    def observe(self, role: str, text: str, space: str = "default", outcome: str | None = None,
-                now=None) -> EncodeResult:
+    def observe(
+        self, role: str, text: str, space: str = "default", outcome: str | None = None, now=None
+    ) -> EncodeResult:
         """One chat turn, as the proxy records it."""
-        res = self.encoder.encode(space, role, text, outcome, now=now, source="chat",
-                                  speaker="user" if role == "user" else role)
+        res = self.encoder.encode(
+            space,
+            role,
+            text,
+            outcome,
+            now=now,
+            source="chat",
+            speaker="user" if role == "user" else role,
+        )
+        cur_locus = self.palace.current_locus(space)
+        if cur_locus and res.episode_id:
+            self.palace.peg_episode(cur_locus.id, res.episode_id)
         if role in ("user", "note") and ":/" in text:
             t = time.time() if now is None else now
             self._extract_fast_path_inhibitory(space, text, [res.episode_id], t)
         return res
+
+    # --- Method of Loci (Palace) ---------------------------------------------------
+
+    def checkpoint(
+        self, label: str, gist: str = "", occurred_at: float | None = None, space: str = "default"
+    ) -> Locus:
+        """Establishes a new topological Locus (Room/Checkpoint) in the Memory Palace."""
+        return self.palace.add_locus(space, label, gist=gist, occurred_at=occurred_at)
+
+    def walk_palace(self, query: str, space: str = "default", radius: int = 1) -> PalaceWalkResult:
+        """Walks the Memory Palace topological route for multi-hop narrative recall."""
+        return self.palace.walk(space, query, radius=radius)
 
     # --- reading -------------------------------------------------------------------
 
     def search(self, query: str, space: str = "default", now=None) -> SearchResult:
         return self.recaller.search(space, query, now)
 
-    def build_context(self, messages: list[dict], space: str = "default", budget: int | None = None,
-                      now=None) -> list[dict]:
+    recall = search
+
+    def build_context(
+        self, messages: list[dict], space: str = "default", budget: int | None = None, now=None
+    ) -> list[dict]:
         """The messages to send to a chat model: memory merged into the system prompt, trimmed to budget."""
         return self.recaller.build(space, messages, budget, now=now).messages
 
     def chat(self, messages: list[dict], space: str = "default", now=None) -> str:
         llm = self._require_llm()
         reply = llm.chat(self.build_context(messages, space, now=now), model=self.model)
-        user_text = next((message_text(m) for m in reversed(messages) if m.get("role") == "user"), "")
+        user_text = next(
+            (message_text(m) for m in reversed(messages) if m.get("role") == "user"), ""
+        )
         if user_text:
             self.observe("user", user_text, space, now=now)
         self.observe("assistant", reply, space, now=now)
@@ -163,7 +242,9 @@ class Memory:
     def stats(self, space: str = "default") -> dict[str, int]:
         return self.store.stats(space)
 
-    def facts(self, entity: str | None = None, space: str = "default", include_closed: bool = False) -> list[State]:
+    def facts(
+        self, entity: str | None = None, space: str = "default", include_closed: bool = False
+    ) -> list[State]:
         """States (what is true now; with include_closed, also what used to be), optionally of one entity."""
         subject_id = None
         if entity is not None:
@@ -192,4 +273,3 @@ class Memory:
         if self.llm is None:
             raise RuntimeError("This operation needs an LLM: pass upstream=... or llm=...")
         return self.llm
-

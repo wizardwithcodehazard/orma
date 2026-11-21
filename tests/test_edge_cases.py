@@ -93,17 +93,29 @@ def test_prompt_injection_safety(tmp_path, embedder):
 
 def test_state_transition_cascade(tmp_path, embedder, fake_llm):
     """Sequential state changes (city A -> B -> C) must leave exactly one active state and two history records."""
+
     def state_extraction(s, city):
         return {
-            "states": [{"s": s, "about": "user", "attribute": "home_city", "value": city, "ended": False, "since": ""}],
+            "states": [
+                {
+                    "s": s,
+                    "about": "user",
+                    "attribute": "home_city",
+                    "value": city,
+                    "ended": False,
+                    "since": "",
+                }
+            ],
             "events": [],
         }
 
-    llm = fake_llm([
-        state_extraction(1, "Pune"),
-        state_extraction(2, "Mumbai"),
-        state_extraction(3, "Bangalore"),
-    ])
+    llm = fake_llm(
+        [
+            state_extraction(1, "Pune"),
+            state_extraction(2, "Mumbai"),
+            state_extraction(3, "Bangalore"),
+        ]
+    )
 
     config = OrmaConfig(data_dir=tmp_path, embedding_dim=embedder.dim, timezone="UTC")
     mem = Memory(config=config, embedder=embedder, llm=llm)
@@ -131,7 +143,9 @@ def test_state_transition_cascade(tmp_path, embedder, fake_llm):
 def test_tight_token_budget_clamping(tmp_path, embedder):
     """Packing with an extremely tight token budget must gracefully omit memories rather than crash, and respect limits."""
     # When budget is too tight for framing + turns (e.g. 40 tokens), memory should degrade gracefully without error
-    config_tiny = OrmaConfig(data_dir=tmp_path / "tiny", embedding_dim=embedder.dim, budget_tokens=40, timezone="UTC")
+    config_tiny = OrmaConfig(
+        data_dir=tmp_path / "tiny", embedding_dim=embedder.dim, budget_tokens=40, timezone="UTC"
+    )
     mem_tiny = Memory(config=config_tiny, embedder=embedder)
     mem_tiny.add("Quick note about python compilers.", role="user")
     context_tiny = mem_tiny.build_context([{"role": "user", "content": "Tell me about compilers"}])
@@ -140,7 +154,9 @@ def test_tight_token_budget_clamping(tmp_path, embedder):
     mem_tiny.close()
 
     # When budget is moderate (e.g. 250 tokens), memory block fits and is injected
-    config_mod = OrmaConfig(data_dir=tmp_path / "mod", embedding_dim=embedder.dim, budget_tokens=250, timezone="UTC")
+    config_mod = OrmaConfig(
+        data_dir=tmp_path / "mod", embedding_dim=embedder.dim, budget_tokens=250, timezone="UTC"
+    )
     mem_mod = Memory(config=config_mod, embedder=embedder)
     for i in range(10):
         mem_mod.add(f"Memory item {i}: Project info regarding systems.", role="user")

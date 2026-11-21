@@ -6,7 +6,9 @@ from orma.serve.scheduler import SleepScheduler
 
 def test_run_once_sleeps_due_spaces(config, embedder, fake_llm):
     config.sleep_after_episodes = 1
-    mem = Memory(config=config, embedder=embedder, llm=fake_llm([{"states": [], "events": []}]), model="m")
+    mem = Memory(
+        config=config, embedder=embedder, llm=fake_llm([{"states": [], "events": []}]), model="m"
+    )
     mem.observe("user", "hello", space="s")
     assert SleepScheduler(mem, poll_seconds=60).run_once() == ["s"]
     assert mem.store.pending_episodes("s", 10) == []
@@ -77,7 +79,9 @@ def test_loop_survives_exceptions(config, embedder, fake_llm, monkeypatch):
 def test_flush_consolidates_any_pending_space(config, embedder, fake_llm):
     config.sleep_after_episodes = 99  # not due by count
     config.sleep_idle_seconds = 9999  # not due by idle time
-    mem = Memory(config=config, embedder=embedder, llm=fake_llm([{"states": [], "events": []}]), model="m")
+    mem = Memory(
+        config=config, embedder=embedder, llm=fake_llm([{"states": [], "events": []}]), model="m"
+    )
     mem.observe("user", "hello world", space="test_space")
     scheduler = SleepScheduler(mem, poll_seconds=60)
     # run_once should be empty because not due
@@ -86,4 +90,3 @@ def test_flush_consolidates_any_pending_space(config, embedder, fake_llm):
     assert scheduler.flush() == ["test_space"]
     assert mem.store.pending_episodes("test_space", 10) == []
     mem.close()
-

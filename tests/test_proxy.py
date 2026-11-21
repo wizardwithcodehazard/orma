@@ -19,16 +19,27 @@ class Upstream:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
-        self.requests.append({"method": request.method, "path": request.url.path, "body": body,
-                              "headers": dict(request.headers)})
+        self.requests.append(
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "body": body,
+                "headers": dict(request.headers),
+            }
+        )
         if request.url.path.endswith("/models"):
             return httpx.Response(200, json={"data": [{"id": "llama3.2:3b"}]})
         if self.status != 200:
             return httpx.Response(self.status, json={"error": {"message": "bad"}})
         if body and body.get("stream"):
-            return httpx.Response(200, headers={"content-type": "text/event-stream"},
-                                  content=b"".join(self.stream_chunks))
-        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": self.reply}}]})
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=b"".join(self.stream_chunks),
+            )
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": self.reply}}]}
+        )
 
 
 @pytest.fixture
@@ -39,13 +50,17 @@ def memory(config, embedder):
 
 
 def client(memory, upstream):
-    app = create_app(memory, "http://up/v1", sleep_poll_seconds=None, transport=httpx.MockTransport(upstream))
+    app = create_app(
+        memory, "http://up/v1", sleep_poll_seconds=None, transport=httpx.MockTransport(upstream)
+    )
     return TestClient(app)
 
 
 def chat(c, content="hi", **extra):
-    return c.post("/v1/chat/completions",
-                  json={"model": "llama3.2:3b", "messages": [{"role": "user", "content": content}], **extra})
+    return c.post(
+        "/v1/chat/completions",
+        json={"model": "llama3.2:3b", "messages": [{"role": "user", "content": content}], **extra},
+    )
 
 
 def texts(memory, space="default"):
@@ -69,10 +84,15 @@ def test_injects_memory_and_records_the_exchange(memory, seed_state):
 def test_space_comes_from_header_then_user_field(memory):
     up = Upstream()
     with client(memory, up) as c:
-        c.post("/v1/chat/completions", headers={"X-Orma-Space": "work"},
-               json={"model": "m", "messages": [{"role": "user", "content": "a"}]})
-        c.post("/v1/chat/completions", json={"model": "m", "user": "alice",
-                                             "messages": [{"role": "user", "content": "b"}]})
+        c.post(
+            "/v1/chat/completions",
+            headers={"X-Orma-Space": "work"},
+            json={"model": "m", "messages": [{"role": "user", "content": "a"}]},
+        )
+        c.post(
+            "/v1/chat/completions",
+            json={"model": "m", "user": "alice", "messages": [{"role": "user", "content": "b"}]},
+        )
     assert texts(memory, "work") == [("user", "a"), ("assistant", "Hello!")]
     assert texts(memory, "alice") == [("user", "b"), ("assistant", "Hello!")]
     assert "x-orma-space" not in up.requests[0]["headers"]
@@ -81,20 +101,33 @@ def test_space_comes_from_header_then_user_field(memory):
 def test_tool_results_are_recorded_once(memory):
     messages = [
         {"role": "user", "content": "build it"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "c1", "type": "function", "function": {"name": "run_shell", "arguments": "npm run build"}}]},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "run_shell", "arguments": "npm run build"},
+                }
+            ],
+        },
         {"role": "tool", "tool_call_id": "c1", "content": "Error: Cannot find module 'vite'"},
     ]
     with client(memory, Upstream(reply="Install vite first.")) as c:
         c.post("/v1/chat/completions", json={"model": "m", "messages": messages})
-    assert texts(memory) == [("tool", "run_shell(npm run build) -> Error: Cannot find module 'vite'"),
-                             ("assistant", "Install vite first.")]
+    assert texts(memory) == [
+        ("tool", "run_shell(npm run build) -> Error: Cannot find module 'vite'"),
+        ("assistant", "Install vite first."),
+    ]
 
 
 def test_streaming_is_relayed_byte_for_byte_and_recorded(memory):
-    chunks = [b'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
-              b'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
-              b"data: [DONE]\n\n"]
+    chunks = [
+        b'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
+        b'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
     with client(memory, Upstream(stream_chunks=chunks)) as c:
         r = chat(c, "hi", stream=True)
         assert r.status_code == 200
@@ -139,7 +172,9 @@ def test_other_endpoints_pass_through(memory):
 
 
 def raw_post(c, content, content_type="application/json", **headers):
-    return c.post("/v1/chat/completions", content=content, headers={"Content-Type": content_type, **headers})
+    return c.post(
+        "/v1/chat/completions", content=content, headers={"Content-Type": content_type, **headers}
+    )
 
 
 def test_invalid_json_is_forwarded_unchanged(memory):
@@ -175,20 +210,29 @@ def test_non_list_messages_are_forwarded_unchanged(memory):
 def test_new_turns_failure_does_not_break_the_request(memory):
     up = Upstream()
     with client(memory, up) as c:
-        r = c.post("/v1/chat/completions", json={"model": "m", "messages": ["oops", {"role": "user", "content": "x"}]})
+        r = c.post(
+            "/v1/chat/completions",
+            json={"model": "m", "messages": ["oops", {"role": "user", "content": "x"}]},
+        )
     assert r.status_code == 200
 
 
 def test_skip_header_means_no_recall_no_record_no_model(memory):
     up = Upstream()
     with client(memory, up) as c:
-        r = c.post("/v1/chat/completions", headers={"x-orma-skip": "1"},
-                   json={"model": "title-model", "messages": [{"role": "user", "content": "Title?"}]})
+        r = c.post(
+            "/v1/chat/completions",
+            headers={"x-orma-skip": "1"},
+            json={"model": "title-model", "messages": [{"role": "user", "content": "Title?"}]},
+        )
         assert r.status_code == 200
         assert "x-orma-skip" not in up.requests[0]["headers"]
         assert up.requests[0]["body"]["messages"] == [{"role": "user", "content": "Title?"}]
-        c.post("/v1/chat/completions", headers={"X-Orma-Skip": "0"},
-               json={"model": "real", "messages": [{"role": "user", "content": "kept"}]})
+        c.post(
+            "/v1/chat/completions",
+            headers={"X-Orma-Skip": "0"},
+            json={"model": "real", "messages": [{"role": "user", "content": "kept"}]},
+        )
     assert texts(memory) == [("user", "kept"), ("assistant", "Hello!")]
     assert memory.model == "real"
 
@@ -197,18 +241,25 @@ def test_streamed_passthrough_is_relayed_byte_for_byte(memory):
     chunks = [b'data: {"choices":[{"text":"a"}]}\n\n', b"data: [DONE]\n\n"]
 
     def up(request):
-        return httpx.Response(200, headers={"content-type": "text/event-stream", "x-upstream": "1"},
-                              content=b"".join(chunks))
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream", "x-upstream": "1"},
+            content=b"".join(chunks),
+        )
 
     with client(memory, up) as c:
         r = c.post("/v1/completions", json={"model": "m", "prompt": "hi", "stream": True})
     assert r.content == b"".join(chunks)
-    assert r.headers["content-type"].startswith("text/event-stream") and r.headers["x-upstream"] == "1"
+    assert (
+        r.headers["content-type"].startswith("text/event-stream") and r.headers["x-upstream"] == "1"
+    )
 
 
 def test_upstream_headers_are_copied_except_hop_by_hop(memory):
     def up(request):
-        return httpx.Response(200, json={"choices": []}, headers={"x-ratelimit-remaining": "9", "keep-alive": "x"})
+        return httpx.Response(
+            200, json={"choices": []}, headers={"x-ratelimit-remaining": "9", "keep-alive": "x"}
+        )
 
     with client(memory, up) as c:
         r = chat(c)
@@ -230,8 +281,13 @@ def test_secrets_are_masked_and_tool_output_is_capped(memory):
     memory.config.max_tool_chars = 100
     messages = [
         {"role": "user", "content": "my key is sk-abcdefghijklmnopqrstu"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "c1", "type": "function", "function": {"name": "sh", "arguments": "cat big"}}]},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "sh", "arguments": "cat big"}}
+            ],
+        },
         {"role": "tool", "tool_call_id": "c1", "content": "HEAD" + "x" * 5000 + "TAIL"},
     ]
     with client(memory, Upstream(reply="ok")) as c:
@@ -255,8 +311,12 @@ def test_stream_records_the_user_turn_and_partial_reply_on_client_disconnect(mem
     def up(request):
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Slow())
 
-    app = create_app(memory, "http://up/v1", sleep_poll_seconds=None, transport=httpx.MockTransport(up))
-    body = json.dumps({"model": "m", "stream": True, "messages": [{"role": "user", "content": "hi"}]}).encode()
+    app = create_app(
+        memory, "http://up/v1", sleep_poll_seconds=None, transport=httpx.MockTransport(up)
+    )
+    body = json.dumps(
+        {"model": "m", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+    ).encode()
 
     async def run():
         first_chunk = asyncio.Event()
@@ -274,10 +334,22 @@ def test_stream_records_the_user_turn_and_partial_reply_on_client_disconnect(mem
             if message["type"] == "http.response.body" and message.get("body"):
                 first_chunk.set()
 
-        scope = {"type": "http", "method": "POST", "path": "/v1/chat/completions", "raw_path": b"/v1/chat/completions",
-                 "query_string": b"", "headers": [(b"content-type", b"application/json"),
-                                                  (b"content-length", str(len(body)).encode())],
-                 "http_version": "1.1", "scheme": "http", "server": ("t", 80), "client": ("c", 1), "root_path": ""}
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/chat/completions",
+            "raw_path": b"/v1/chat/completions",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            "http_version": "1.1",
+            "scheme": "http",
+            "server": ("t", 80),
+            "client": ("c", 1),
+            "root_path": "",
+        }
         await asyncio.wait_for(app(scope, receive, send), 10)
 
     asyncio.run(run())
@@ -296,15 +368,17 @@ def test_root_and_static_web_ui_passthrough(memory):
 def test_proxy_sanitizes_negative_dry_parameters(memory):
     up = Upstream()
     with client(memory, up) as c:
-        c.post("/v1/chat/completions", json={
-            "model": "m",
-            "messages": [{"role": "user", "content": "hello"}],
-            "dry_penalty_last_n": -1,
-            "dry_allowed_length": -1,
-            "temperature": 0.7,
-        })
+        c.post(
+            "/v1/chat/completions",
+            json={
+                "model": "m",
+                "messages": [{"role": "user", "content": "hello"}],
+                "dry_penalty_last_n": -1,
+                "dry_allowed_length": -1,
+                "temperature": 0.7,
+            },
+        )
     sent_body = up.requests[0]["body"]
     assert "dry_penalty_last_n" not in sent_body
     assert "dry_allowed_length" not in sent_body
     assert sent_body["temperature"] == 0.7
-

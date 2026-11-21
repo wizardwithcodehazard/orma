@@ -26,18 +26,31 @@ class Encoder:
         self.store = store
         self.config = config
 
-    def encode(self, space: str, role: str, text: str, outcome: str | None = None, now=None, source: str = "chat",
-               speaker: str = "") -> EncodeResult:
+    def encode(
+        self,
+        space: str,
+        role: str,
+        text: str,
+        outcome: str | None = None,
+        now=None,
+        source: str = "chat",
+        speaker: str = "",
+    ) -> EncodeResult:
         vec = self.store.embed(text)
         nearest = self.store.vec_search("episodes", space, vec, 1)
         novelty = 1.0 - (nearest[0][1] if nearest else 0.0)
-        if outcome is None and self.config.enable_novelty_gate and nearest \
-                and nearest[0][1] >= self.config.novelty_duplicate_similarity:
+        if (
+            outcome is None
+            and self.config.enable_novelty_gate
+            and nearest
+            and nearest[0][1] >= self.config.novelty_duplicate_similarity
+        ):
             self.store.bump_seen(nearest[0][0])
             return EncodeResult(False, nearest[0][0], novelty)
 
-        episode_id = self.store.add_episode(space, role, text, outcome, novelty, vec, now=now, source=source,
-                                            speaker=speaker)
+        episode_id = self.store.add_episode(
+            space, role, text, outcome, novelty, vec, now=now, source=source, speaker=speaker
+        )
         count = self.split(self.store.episodes([episode_id])[0])
         if nearest:
             # Only kept records that found a neighbour sample the similarity distribution recall calibrates against.

@@ -3,20 +3,35 @@ from orma.text import count_tokens, made_of, phrases, span_of, split_sentences, 
 
 def test_sentences_split_at_ends_and_lines():
     text = "Hi! I'm Sahil.  I live in Pune?\n\n- bought milk\n- paid rent"
-    assert split_sentences(text) == ["Hi!", "I'm Sahil.", "I live in Pune?", "- bought milk", "- paid rent"]
+    assert split_sentences(text) == [
+        "Hi!",
+        "I'm Sahil.",
+        "I live in Pune?",
+        "- bought milk",
+        "- paid rent",
+    ]
 
 
 def test_initials_and_short_abbreviations_do_not_end_a_sentence():
     assert split_sentences("My dentist is Dr. Rao in Kothrud. He is good.") == [
-        "My dentist is Dr. Rao in Kothrud.", "He is good."]
-    assert split_sentences("Bring fruit, e.g. mangoes. Thanks.") == ["Bring fruit, e.g. mangoes.", "Thanks."]
+        "My dentist is Dr. Rao in Kothrud.",
+        "He is good.",
+    ]
+    assert split_sentences("Bring fruit, e.g. mangoes. Thanks.") == [
+        "Bring fruit, e.g. mangoes.",
+        "Thanks.",
+    ]
     assert split_sentences("Mail J. K. Rowling today.") == ["Mail J. K. Rowling today."]
     assert split_sentences("I am Sam. I live here.") == ["I am Sam.", "I live here."]
 
 
 def test_code_blocks_become_one_marker():
     text = "Here is the fix:\n```python\nimport os\nprint(os.getcwd())\n```\nRun it again."
-    assert split_sentences(text) == ["Here is the fix:", "[code block: python, 2 lines]", "Run it again."]
+    assert split_sentences(text) == [
+        "Here is the fix:",
+        "[code block: python, 2 lines]",
+        "Run it again.",
+    ]
 
 
 def test_long_sentences_are_cut_at_words_and_empty_pieces_dropped():

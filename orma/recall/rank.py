@@ -1,6 +1,7 @@
 """rank.py - Score fusion, similarity calibration and use-based strength for recall."""
 
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -17,8 +18,9 @@ def rrf(*rankings: list[tuple[int, float]], k: int = 60) -> dict[int, float]:
     return {item: score / top for item, score in scores.items() if score > 0.0}
 
 
-def similarity_weight(novelty_scores: list[float], percentile: float, warmup: int,
-                      enabled: bool) -> Callable[[float], float]:
+def similarity_weight(
+    novelty_scores: list[float], percentile: float, warmup: int, enabled: bool
+) -> Callable[[float], float]:
     """Calibrates a raw cosine similarity against the space's own similarity distribution.
 
     Each novelty score is 1 - the nearest-neighbour similarity of an incoming record to memory, so
@@ -51,7 +53,9 @@ def hawkes_burst(times, now: float, alpha: float = 0.4, half_life_seconds: float
     return float(sum(alpha * np.exp(-beta * max(0.0, now - t)) for t in times if now >= t))
 
 
-def ebbinghaus_retention(times, now: float, initial_stability_days: float = 2.0, repetition_gain: float = 0.5) -> float:
+def ebbinghaus_retention(
+    times, now: float, initial_stability_days: float = 2.0, repetition_gain: float = 0.5
+) -> float:
     """Ebbinghaus retention score R = exp(-age_days / Stability).
     Stability multiplies with each spaced repetition: S = S0 * (1 + gain * (n - 1)).
     Frequently reinforced facts stay near 1.0, while one-off mentions decay exponentially.
@@ -71,20 +75,136 @@ def use_weight(strength: float, weight: float) -> float:
     return (1.0 - weight) + weight * min(strength, 1.0)
 
 
-def spread_activation(source_weights: dict[int, float], adjacency: dict[int, list[int]]) -> dict[int, float]:
-    """Spreading activation with the ACT-R Fan Effect.
-    Each source node spreads weight / fan to its adjacent target nodes.
-    Specific nodes with small fan transmit high activation; broad hubs transmit diluted activation.
+def personalized_pagerank(
+    seeds: dict[Any, float],
+    adjacency: dict[Any, list[Any]],
+    alpha: float = 0.85,
+    max_iter: int = 10,
+    tol: float = 1e-4,
+) -> dict[Any, float]:
+    """Personalized PageRank (PPR) via Power Iteration on Memory Association Graph.
+    Propagates activation from query seed nodes across multi-hop entity/state graph:
+    p^{(t+1)} = (1 - alpha) * p_0 + alpha * W * p^{(t)}
+    where W is the row/column normalized random-walk transition matrix.
     """
-    activated: dict[int, float] = {}
-    for node, weight in source_weights.items():
-        neighbors = adjacency.get(node, [])
-        if not neighbors:
+    if not seeds:
+        return {}
+
+    seed_sum = sum(seeds.values())
+    p0 = {node: w / seed_sum for node, w in seeds.items()} if seed_sum > 1e-9 else dict(seeds)
+
+    all_nodes = set(p0.keys())
+    for neighbors in adjacency.values():
+        all_nodes.update(neighbors)
+
+    p = dict(p0)
+
+    for _ in range(max_iter):
+        next_p: dict[int, float] = {}
+
+        # Teleportation component: (1 - alpha) * p_0
+        for node, val in p0.items():
+            next_p[node] = (1.0 - alpha) * val
+
+        # Random walk propagation: alpha * W * p
+        for node, score in p.items():
+            if score <= 0.0:
+                continue
+            neighbors = adjacency.get(node, [])
+            if neighbors:
+                deg = len(neighbors)
+                share = (alpha * score) / deg
+                for nbr in neighbors:
+                    next_p[nbr] = next_p.get(nbr, 0.0) + share
+            else:
+                # Dangling node teleports back to p_0
+                for s_node, s_val in p0.items():
+                    next_p[s_node] = next_p.get(s_node, 0.0) + (alpha * score) * s_val
+
+        diff = sum(abs(next_p.get(n, 0.0) - p.get(n, 0.0)) for n in all_nodes)
+        p = next_p
+        if diff < tol:
+            break
+
+    return p
+
+
+def mmr(
+    candidates: list[tuple[int, float]],
+    vectors: dict[int, np.ndarray],
+    k: int,
+    lambda_param: float = 0.7,
+) -> list[int]:
+    """Maximal Marginal Relevance (Carbonell & Goldstein, 1998).
+    Iteratively selects candidates balancing relevance against redundancy with already selected items.
+    MMR = argmax_{i in Remaining} [ lambda * score_i - (1 - lambda) * max_{j in Selected} CosineSim(v_i, v_j) ]
+    """
+    if not candidates or k <= 0:
+        return []
+
+    max_score = max(score for _, score in candidates)
+    norm_scores = {
+        item_id: (score / max_score if max_score > 1e-9 else 1.0) for item_id, score in candidates
+    }
+
+    remaining = [item_id for item_id, _ in candidates]
+    selected: list[int] = []
+
+    # Normalize vectors to unit sphere for fast cosine similarity via dot product
+    unit_vectors: dict[int, np.ndarray] = {}
+    for item_id in remaining:
+        v = vectors.get(item_id)
+        if v is not None:
+            norm = float(np.linalg.norm(v))
+            unit_vectors[item_id] = v / norm if norm > 1e-9 else v
+
+    while remaining and len(selected) < k:
+        if not selected:
+            best_id = remaining[0]
+            selected.append(best_id)
+            remaining.remove(best_id)
             continue
-        fan = len(neighbors)
-        edge_energy = weight / max(1, fan)
-        for neighbor in neighbors:
-            activated[neighbor] = activated.get(neighbor, 0.0) + edge_energy
-    return activated
+
+        best_id = remaining[0]
+        best_mmr = -1e9
+
+        for item_id in remaining:
+            rel = norm_scores.get(item_id, 0.0)
+            v_i = unit_vectors.get(item_id)
+            if v_i is not None and any(s in unit_vectors for s in selected):
+                sim_to_selected = max(
+                    float(np.dot(v_i, unit_vectors[s])) for s in selected if s in unit_vectors
+                )
+            else:
+                sim_to_selected = 0.0
+
+            mmr_score = lambda_param * rel - (1.0 - lambda_param) * sim_to_selected
+            if mmr_score > best_mmr:
+                best_mmr = mmr_score
+                best_id = item_id
+
+        selected.append(best_id)
+        remaining.remove(best_id)
+
+    return selected
 
 
+def rocchio_expand(
+    query_vec: np.ndarray,
+    feedback_vectors: list[np.ndarray],
+    alpha: float = 0.7,
+    beta: float = 0.3,
+) -> np.ndarray:
+    """Rocchio Pseudo-Relevance Feedback (Vector Space Query Expansion).
+    Shifts the initial query vector towards the centroid of top pseudo-relevant documents:
+    v_expanded = alpha * v_query + (beta / |R|) * sum_{d in R} v_d
+    """
+    if not feedback_vectors:
+        return query_vec
+
+    centroid = np.mean(feedback_vectors, axis=0)
+    expanded = alpha * np.asarray(query_vec, dtype=np.float32) + beta * np.asarray(
+        centroid, dtype=np.float32
+    )
+    norm = float(np.linalg.norm(expanded))
+    return expanded / norm if norm > 1e-9 else expanded

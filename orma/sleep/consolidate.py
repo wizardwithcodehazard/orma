@@ -26,6 +26,7 @@ from orma.text import made_of, phrases, span_of, words
 
 FIRST_PERSON_ROLES = ("user", "note")  # lines in which "I" is the user
 
+
 def _is_self_naming(text: str, name: str, third_parties: set[str] | None = None) -> bool:
     """Language-agnostic self-naming validation:
     A name refers to the user if it appears as a distinct word in a first-person line
@@ -36,6 +37,7 @@ def _is_self_naming(text: str, name: str, third_parties: set[str] | None = None)
         return False
     text_words = [w.lower() for w in words(text)]
     return name.lower() in text_words
+
 
 def has_conditional_framing(condition: str = "", text: str = "") -> bool:
     """Checks whether an extracted state has conditional/contextual framing
@@ -66,7 +68,9 @@ class Consolidator:
         self.store = store
         self.config = config
 
-    def apply(self, space: str, extraction: Extraction, sentences: list[Sentence], now=None) -> ConsolidationReport:
+    def apply(
+        self, space: str, extraction: Extraction, sentences: list[Sentence], now=None
+    ) -> ConsolidationReport:
         """Integrates an extraction of the given batch sentences (in the order they were said). Idempotent: applying
         the same extraction again adds nothing."""
         now = time.time() if now is None else now
@@ -75,11 +79,14 @@ class Consolidator:
         user_id = self.store.user_entity(space, now)
         # Schema-driven entity disambiguation: collect third party entities
         third_parties = {
-            item.about.strip().lower() for item in extraction.states
+            item.about.strip().lower()
+            for item in extraction.states
             if item.about.lower() not in ("user", USER_ENTITY)
         }
         third_parties.update(
-            w.strip().lower() for ev in extraction.events for w in ev.who
+            w.strip().lower()
+            for ev in extraction.events
+            for w in ev.who
             if w.lower() not in ("user", USER_ENTITY)
         )
 
@@ -87,9 +94,12 @@ class Consolidator:
             # Model mistakenly extracted a third-party name into user_name
             extraction.user_name = ""
 
-        self._user_name(space, extraction.user_name, citable.values(), user_id, report, third_parties)
+        self._user_name(
+            space, extraction.user_name, citable.values(), user_id, report, third_parties
+        )
         mentioned = [n for item in extraction.states for n in (item.about,)] + [
-            n for event in extraction.events for n in event.who]
+            n for event in extraction.events for n in event.who
+        ]
         resolve = _Holders(self, space, sentences, mentioned, user_id, now)
 
         position = {s.id: i for i, s in enumerate(sentences)}
@@ -132,12 +142,23 @@ class Consolidator:
 
     # --- names -----------------------------------------------------------------------
 
-    def _user_name(self, space: str, name: str, citable, user_id: int, report, third_parties: set[str] | None = None) -> None:
+    def _user_name(
+        self,
+        space: str,
+        name: str,
+        citable,
+        user_id: int,
+        report,
+        third_parties: set[str] | None = None,
+    ) -> None:
         """A name the user calls themself becomes an alias of the user when one of their own lines contains it and
         it is not already someone else."""
         if not name or name.lower() == USER_ENTITY:
             return
-        said = any(s.role in FIRST_PERSON_ROLES and _is_self_naming(s.text, name, third_parties) for s in citable)
+        said = any(
+            s.role in FIRST_PERSON_ROLES and _is_self_naming(s.text, name, third_parties)
+            for s in citable
+        )
         existing = self.store.find_entity(space, name)
         if said and (existing is None or existing.id == user_id):
             self.store.add_alias(space, name, user_id)
@@ -199,13 +220,22 @@ class Consolidator:
             return None
         cfg = self.config
         tz = clock.zone(cfg.timezone)
-        stamp = (clock.resolve(phrase, sentence.created_at, tz, cfg.date_order) if cfg.enable_date_phrases
-                 else clock.parse_time(phrase, None, tz))
-        return None if stamp is None or clock.day(stamp, tz) == clock.day(sentence.created_at, tz) else stamp
+        stamp = (
+            clock.resolve(phrase, sentence.created_at, tz, cfg.date_order)
+            if cfg.enable_date_phrases
+            else clock.parse_time(phrase, None, tz)
+        )
+        return (
+            None
+            if stamp is None or clock.day(stamp, tz) == clock.day(sentence.created_at, tz)
+            else stamp
+        )
 
     # --- integration -----------------------------------------------------------------
 
-    def _state(self, space: str, subject_id: int, item: ExtractedState, sentence: Sentence, report) -> None:
+    def _state(
+        self, space: str, subject_id: int, item: ExtractedState, sentence: Sentence, report
+    ) -> None:
         is_prohib = (
             getattr(item, "prohibited", False)
             or item.attribute.startswith("forbidden_")
@@ -223,7 +253,7 @@ class Consolidator:
         if is_prohib and not attr_name.startswith("forbidden_"):
             attr_name = f"forbidden_{attr_name}"
         elif not is_prohib and attr_name.startswith("forbidden_"):
-            attr_name = attr_name[len("forbidden_"):]
+            attr_name = attr_name[len("forbidden_") :]
         attribute_id = self._attribute(space, attr_name)
         history = self.store.state_history(space, subject_id, attribute_id)
         if any(sentence.id in st.evidence or st.ended_by == sentence.id for st in history):
@@ -234,7 +264,9 @@ class Consolidator:
         match = next((st for st in current if self._same(st.value, item.value)), None)
         if item.ended:
             if match is not None:
-                self.store.close_state(match.id, max(since or said_at, match.valid_from), ended_by=sentence.id)
+                self.store.close_state(
+                    match.id, max(since or said_at, match.valid_from), ended_by=sentence.id
+                )
                 report.states_closed += 1
             return
         if match is not None:
@@ -243,7 +275,11 @@ class Consolidator:
             return
         start = said_at if since is None else since
         # A value dated before a current value that has its own stated date is history, not a change.
-        later = [st.valid_from for st in current if since is not None and st.valid_from_stated and st.valid_from > start]
+        later = [
+            st.valid_from
+            for st in current
+            if since is not None and st.valid_from_stated and st.valid_from > start
+        ]
         ent = self.store.entity(subject_id)
         attr = self.store.attribute(attribute_id)
         if ent is None or attr is None:
@@ -254,13 +290,25 @@ class Consolidator:
             has_conditional_framing(getattr(item, "condition", ""))
             or self._is_conditional_framing(sentence.text)
         )
-        with self.store.tx():  # close and insert together: a reader never sees the attribute without a value
+        with (
+            self.store.tx()
+        ):  # close and insert together: a reader never sees the attribute without a value
             if not later and not is_conditional and not is_prohib:
                 for st in current:
                     self.store.close_state(st.id, max(start, st.valid_from), ended_by=sentence.id)
                     report.states_closed += 1
-            self.store.add_state(space, subject_id, attribute_id, item.value, start, sentence.id, said_at,
-                                 stated=since is not None, valid_to=min(later) if later else None, vec=vec)
+            self.store.add_state(
+                space,
+                subject_id,
+                attribute_id,
+                item.value,
+                start,
+                sentence.id,
+                said_at,
+                stated=since is not None,
+                valid_to=min(later) if later else None,
+                vec=vec,
+            )
         report.states_added += 1
 
     def _is_conditional_framing(self, sentence_text: str) -> bool:
@@ -289,13 +337,39 @@ class Consolidator:
         margin = getattr(self.config, "policy_intent_margin", 0.06)
         return (policy_sim - fact_event_sim) > margin
 
-    def _event(self, space: str, item: ExtractedEvent, sentence: Sentence, resolve, report, now: float) -> None:
+    def _event(
+        self, space: str, item: ExtractedEvent, sentence: Sentence, resolve, report, now: float
+    ) -> None:
         when = self._stated(item.when, sentence)
-        if when is None and sentence.role in FIRST_PERSON_ROLES and self._is_policy_directive(item.what):
+        if (
+            when is None
+            and sentence.role in FIRST_PERSON_ROLES
+            and self._is_policy_directive(item.what)
+        ):
             words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]+\b", item.what)]
             stop = {
-                "never", "do", "not", "dont", "avoid", "stop", "strictly", "no", "cant", "shouldnt", "mustnt",
-                "using", "use", "recommending", "recommend", "suggesting", "suggest", "user", "said", "to", "asked", "about"
+                "never",
+                "do",
+                "not",
+                "dont",
+                "avoid",
+                "stop",
+                "strictly",
+                "no",
+                "cant",
+                "shouldnt",
+                "mustnt",
+                "using",
+                "use",
+                "recommending",
+                "recommend",
+                "suggesting",
+                "suggest",
+                "user",
+                "said",
+                "to",
+                "asked",
+                "about",
             }
             content_words = [w for w in words if w not in stop]
             topic = "_".join(content_words[:3]) if content_words else "rule"
@@ -314,23 +388,44 @@ class Consolidator:
         for known in self.store.events_citing(sentence.id):
             if float(vec @ self.store.embed(known.gist)) >= self.config.entity_merge_threshold:
                 return  # already recorded from this line
-        participants = {pid for pid in (resolve(name, sentence) for name in item.who) if pid is not None}
-        self.store.add_event(space, item.what, sentence.created_at if when is None else when, when is not None,
-                             sorted(participants), sentence.id, vec=vec, now=now)
+        participants = {
+            pid for pid in (resolve(name, sentence) for name in item.who) if pid is not None
+        }
+        self.store.add_event(
+            space,
+            item.what,
+            sentence.created_at if when is None else when,
+            when is not None,
+            sorted(participants),
+            sentence.id,
+            vec=vec,
+            now=now,
+        )
         report.events_added += 1
 
 
 class _Holders:
     """Resolves who a memory is about (its karta) from the name the model gave and the line it cites."""
 
-    def __init__(self, consolidator: Consolidator, space: str, sentences: list[Sentence], mentioned: list[str],
-                 user_id: int, now: float):
+    def __init__(
+        self,
+        consolidator: Consolidator,
+        space: str,
+        sentences: list[Sentence],
+        mentioned: list[str],
+        user_id: int,
+        now: float,
+    ):
         cfg = consolidator.config
         self.c, self.store, self.space, self.now = consolidator, consolidator.store, space, now
         self.sentences, self.user_id = sentences, user_id
         self.first_person = {w.casefold() for w in cfg.first_person_words}
         self.pronouns = self.first_person | {w.casefold() for w in cfg.third_person_words}
-        self.mentioned = [n for n in dict.fromkeys(mentioned) if not self._is_user(n) and not made_of(n, self.pronouns)]
+        self.mentioned = [
+            n
+            for n in dict.fromkeys(mentioned)
+            if not self._is_user(n) and not made_of(n, self.pronouns)
+        ]
         self.batch_text = "\n".join(s.text for s in sentences)
 
     def _is_user(self, name: str) -> bool:
@@ -354,11 +449,18 @@ class _Holders:
 
     def _carried(self, sentence: Sentence) -> str | None:
         """Anuvrtti: the last person or thing named before the reference, in this line or the lines before it."""
-        index = next((i for i, s in enumerate(self.sentences) if s.id == sentence.id), len(self.sentences))
-        for earlier in reversed(self.sentences[:index + 1]):
+        index = next(
+            (i for i, s in enumerate(self.sentences) if s.id == sentence.id), len(self.sentences)
+        )
+        for earlier in reversed(self.sentences[: index + 1]):
             named = [n for n in self.mentioned if span_of(earlier.text, n)]
-            named += [e.name for e in self.store.entities_named_in(self.space, earlier.text)
-                      if e.id != self.user_id and not made_of(e.name, self.pronouns)]
+            named += [
+                e.name
+                for e in self.store.entities_named_in(self.space, earlier.text)
+                if e.id != self.user_id and not made_of(e.name, self.pronouns)
+            ]
             if named:
-                return max(named, key=lambda n: (span_of(earlier.text, n) or (0, 0))[0])  # the last one named
+                return max(
+                    named, key=lambda n: (span_of(earlier.text, n) or (0, 0))[0]
+                )  # the last one named
         return None

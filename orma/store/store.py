@@ -79,7 +79,10 @@ class Store:
         ids = list(ids)
         if not ids:
             return []
-        rows = {r["id"]: r for r in self._rows(f"SELECT * FROM {table} WHERE id IN ({_placeholders(ids)})", ids)}
+        rows = {
+            r["id"]: r
+            for r in self._rows(f"SELECT * FROM {table} WHERE id IN ({_placeholders(ids)})", ids)
+        }
         return [from_row(cls, rows[i]) for i in ids if i in rows]
 
     # --- Embeddings and index search -------------------------------------------------
@@ -105,7 +108,9 @@ class Store:
 
     # --- Episodes (kept records) -------------------------------------------------------
 
-    def add_episode(self, space, role, text, outcome, novelty, vec, now=None, source="chat", speaker="") -> int:
+    def add_episode(
+        self, space, role, text, outcome, novelty, vec, now=None, source="chat", speaker=""
+    ) -> int:
         with self.tx() as c:
             episode_id = c.execute(
                 "INSERT INTO episodes (space, role, text, outcome, novelty, created_at, source, speaker) "
@@ -139,7 +144,9 @@ class Store:
 
     def mark_consolidated(self, ids, now: float) -> None:
         with self.tx() as c:
-            c.executemany("UPDATE episodes SET consolidated_at = ? WHERE id = ?", [(now, i) for i in ids])
+            c.executemany(
+                "UPDATE episodes SET consolidated_at = ? WHERE id = ?", [(now, i) for i in ids]
+            )
 
     def record_sleep_failure(self, ids, error: str, max_attempts: int, now: float) -> None:
         """Counts a failed sleep attempt; episodes that keep failing are retired so sleep cannot loop."""
@@ -156,8 +163,11 @@ class Store:
 
     def episodes_without_sentences(self, space: str) -> list[Episode]:
         """Records kept before sentences existed (a version 1 database)."""
-        rows = self._rows("SELECT * FROM episodes e WHERE space = ? AND NOT EXISTS "
-                          "(SELECT 1 FROM sentences s WHERE s.episode_id = e.id) ORDER BY created_at, id", (space,))
+        rows = self._rows(
+            "SELECT * FROM episodes e WHERE space = ? AND NOT EXISTS "
+            "(SELECT 1 FROM sentences s WHERE s.episode_id = e.id) ORDER BY created_at, id",
+            (space,),
+        )
         return [from_row(Episode, r) for r in rows]
 
     # --- Sentences ---------------------------------------------------------------------
@@ -165,12 +175,19 @@ class Store:
     def add_sentences(self, space: str, episode: Episode, texts: list[str], vecs) -> list[int]:
         ids = []
         with self.tx() as c:
-            for position, (text, vec) in enumerate(zip(texts, vecs)):
+            for position, (text, vec) in enumerate(zip(texts, vecs, strict=False)):
                 sentence_id = c.execute(
                     "INSERT INTO sentences (space, episode_id, position, role, speaker, text, created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (space, episode.id, position, episode.role, episode.speaker or episode.role, text,
-                     episode.created_at),
+                    (
+                        space,
+                        episode.id,
+                        position,
+                        episode.role,
+                        episode.speaker or episode.role,
+                        text,
+                        episode.created_at,
+                    ),
                 ).lastrowid
                 index.vec_put(c, "sentences", sentence_id, space, vec)
                 index.text_put(c, "sentences", sentence_id, space, text)
@@ -185,16 +202,35 @@ class Store:
         ids = list(episode_ids)
         if not ids:
             return []
-        rows = self._rows(f"SELECT * FROM sentences WHERE episode_id IN ({_placeholders(ids)}) "
-                          "ORDER BY created_at, episode_id, position", ids)
+        rows = self._rows(
+            f"SELECT * FROM sentences WHERE episode_id IN ({_placeholders(ids)}) "
+            "ORDER BY created_at, episode_id, position",
+            ids,
+        )
         return [from_row(Sentence, r) for r in rows]
+
+    def sentence_vectors(self, sentence_ids: list[int]) -> dict[int, np.ndarray]:
+        """Fetches embedding vectors for the given sentence IDs from vec_sentences."""
+        ids = list(sentence_ids)
+        if not ids:
+            return {}
+        rows = self._rows(
+            f"SELECT rowid, embedding FROM vec_sentences WHERE rowid IN ({_placeholders(ids)})", ids
+        )
+        return {
+            int(r["rowid"]): np.frombuffer(r["embedding"], dtype=np.float32)
+            for r in rows
+            if r["embedding"]
+        }
 
     # --- Sleep lease -------------------------------------------------------------------
 
     def acquire_sleep_lease(self, space: str, holder: str, ttl: float, now: float) -> bool:
         """Takes (or renews) the space's sleep lease unless another holder's is still valid."""
         with self.tx() as c:
-            row = c.execute("SELECT holder, expires_at FROM sleep_leases WHERE space = ?", (space,)).fetchone()
+            row = c.execute(
+                "SELECT holder, expires_at FROM sleep_leases WHERE space = ?", (space,)
+            ).fetchone()
             if row is not None and row["holder"] != holder and row["expires_at"] > now:
                 return False
             c.execute(
@@ -234,7 +270,11 @@ class Store:
         vec = self.embed(USER_ENTITY)  # inference stays outside the lock
         with self.lock:
             rows = self._rows(sql, (space, USER_ENTITY))
-            return rows[0]["id"] if rows else self.add_entity(space, USER_ENTITY, "person", vec=vec, now=now)
+            return (
+                rows[0]["id"]
+                if rows
+                else self.add_entity(space, USER_ENTITY, "person", vec=vec, now=now)
+            )
 
     def add_entity(self, space: str, name: str, type_: str, vec=None, now=None) -> int:
         vec = self.embed(name) if vec is None else vec
@@ -261,17 +301,24 @@ class Store:
     def add_alias(self, space: str, alias: str, entity_id: int) -> None:
         """Another name for an entity (stored lowercased); the first entity to claim an alias keeps it."""
         with self.tx() as c:
-            c.execute("INSERT OR IGNORE INTO entity_aliases (space, alias, entity_id) VALUES (?, ?, ?)",
-                      (space, alias.strip().lower(), entity_id))
+            c.execute(
+                "INSERT OR IGNORE INTO entity_aliases (space, alias, entity_id) VALUES (?, ?, ?)",
+                (space, alias.strip().lower(), entity_id),
+            )
 
     def aliases(self, entity_id: int) -> list[str]:
-        return [r["alias"] for r in self._rows(
-            "SELECT alias FROM entity_aliases WHERE entity_id = ? ORDER BY alias", (entity_id,))]
+        return [
+            r["alias"]
+            for r in self._rows(
+                "SELECT alias FROM entity_aliases WHERE entity_id = ? ORDER BY alias", (entity_id,)
+            )
+        ]
 
     def find_entity(self, space: str, name: str) -> Entity | None:
         aliased = self._rows(
             "SELECT e.* FROM entity_aliases a JOIN entities e ON e.id = a.entity_id WHERE a.space = ? AND a.alias = ?",
-            (space, name.strip().lower()))
+            (space, name.strip().lower()),
+        )
         if aliased:
             return from_row(Entity, aliased[0])
         rows = self._rows(
@@ -287,7 +334,11 @@ class Store:
 
     def entities_named_in(self, space: str, text: str, k: int = 8) -> list[Entity]:
         """Known entities whose whole name occurs in text."""
-        hits = [hit.id for hit in self.text_search("entities", space, text, k) if hit.row_coverage >= 1.0]
+        hits = [
+            hit.id
+            for hit in self.text_search("entities", space, text, k)
+            if hit.row_coverage >= 1.0
+        ]
         return self._by_ids(Entity, "entities", hits)
 
     # --- Attributes --------------------------------------------------------------------
@@ -295,7 +346,9 @@ class Store:
     def add_attribute(self, space: str, name: str, vec=None) -> int:
         vec = self.embed(name.replace("_", " ")) if vec is None else vec
         with self.tx() as c:
-            attribute_id = c.execute("INSERT INTO attributes (space, name) VALUES (?, ?)", (space, name)).lastrowid
+            attribute_id = c.execute(
+                "INSERT INTO attributes (space, name) VALUES (?, ?)", (space, name)
+            ).lastrowid
             index.vec_put(c, "attributes", attribute_id, space, vec)
         return attribute_id
 
@@ -315,9 +368,19 @@ class Store:
 
     # --- States ------------------------------------------------------------------------
 
-    def add_state(self, space: str, subject_id: int, attribute_id: int, value: str, valid_from: float,
-                  sentence_id: int, said_at: float, stated: bool = False, valid_to: float | None = None,
-                  vec=None) -> int:
+    def add_state(
+        self,
+        space: str,
+        subject_id: int,
+        attribute_id: int,
+        value: str,
+        valid_from: float,
+        sentence_id: int,
+        said_at: float,
+        stated: bool = False,
+        valid_to: float | None = None,
+        vec=None,
+    ) -> int:
         """A state stated by sentence_id (said at said_at); current unless valid_to is given. Pass a precomputed
         vec of its text to keep inference out of the caller's transaction."""
         ent = self.entity(subject_id)
@@ -330,8 +393,18 @@ class Store:
             state_id = c.execute(
                 "INSERT INTO states (space, subject_id, attribute_id, value, valid_from, valid_from_stated, valid_to, "
                 "sentence_id, evidence, evidence_times) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (space, subject_id, attribute_id, value, valid_from, int(stated), valid_to, sentence_id,
-                 json.dumps([sentence_id]), json.dumps([said_at])),
+                (
+                    space,
+                    subject_id,
+                    attribute_id,
+                    value,
+                    valid_from,
+                    int(stated),
+                    valid_to,
+                    sentence_id,
+                    json.dumps([sentence_id]),
+                    json.dumps([said_at]),
+                ),
             ).lastrowid
             if valid_to is None:  # past states stay out of the search indexes
                 index.vec_put(c, "states", state_id, space, vec)
@@ -342,7 +415,10 @@ class Store:
         ids = list(ids)
         if not ids:
             return []
-        rows = {r["id"]: r for r in self._rows(_STATE_SELECT + f" WHERE st.id IN ({_placeholders(ids)})", ids)}
+        rows = {
+            r["id"]: r
+            for r in self._rows(_STATE_SELECT + f" WHERE st.id IN ({_placeholders(ids)})", ids)
+        }
         return [State.from_row(rows[i]) for i in ids if i in rows]
 
     def current_states(self, space: str, subject_id=None, attribute_id=None) -> list[State]:
@@ -364,37 +440,59 @@ class Store:
         if attribute_id is not None:
             sql += " AND st.attribute_id = ?"
             params.append(attribute_id)
-        return [State.from_row(r) for r in self._rows(sql + " ORDER BY st.valid_from, st.id", params)]
+        return [
+            State.from_row(r) for r in self._rows(sql + " ORDER BY st.valid_from, st.id", params)
+        ]
 
     def states_citing(self, sentence_ids) -> list[State]:
         """States (current or past) first stated by any of the given sentences."""
         ids = list(sentence_ids)
         if not ids:
             return []
-        return [State.from_row(r) for r in
-                self._rows(_STATE_SELECT + f" WHERE st.sentence_id IN ({_placeholders(ids)}) ORDER BY st.id", ids)]
+        return [
+            State.from_row(r)
+            for r in self._rows(
+                _STATE_SELECT + f" WHERE st.sentence_id IN ({_placeholders(ids)}) ORDER BY st.id",
+                ids,
+            )
+        ]
 
     def reinforce_state(self, state_id: int, sentence_id: int, said_at: float) -> None:
         """Another sentence states the same value: one more use of this memory."""
         with self.tx() as c:
-            row = c.execute("SELECT evidence, evidence_times FROM states WHERE id = ?", (state_id,)).fetchone()
+            row = c.execute(
+                "SELECT evidence, evidence_times FROM states WHERE id = ?", (state_id,)
+            ).fetchone()
             evidence, times = json.loads(row["evidence"]), json.loads(row["evidence_times"])
             if sentence_id not in evidence:
-                c.execute("UPDATE states SET evidence = ?, evidence_times = ? WHERE id = ?",
-                          (json.dumps(evidence + [sentence_id]), json.dumps(times + [said_at]), state_id))
+                c.execute(
+                    "UPDATE states SET evidence = ?, evidence_times = ? WHERE id = ?",
+                    (json.dumps(evidence + [sentence_id]), json.dumps(times + [said_at]), state_id),
+                )
 
     def close_state(self, state_id: int, valid_to: float, ended_by: int | None = None) -> None:
         """Ends a state: it stays in the timeline but leaves the search indexes."""
         with self.tx() as c:
-            c.execute("UPDATE states SET valid_to = ?, ended_by = ? WHERE id = ? AND valid_to IS NULL",
-                      (valid_to, ended_by, state_id))
+            c.execute(
+                "UPDATE states SET valid_to = ?, ended_by = ? WHERE id = ? AND valid_to IS NULL",
+                (valid_to, ended_by, state_id),
+            )
             index.vec_drop(c, "states", state_id)
             index.text_drop(c, "states", state_id)
 
     # --- Events ------------------------------------------------------------------------
 
-    def add_event(self, space: str, gist: str, occurred_at: float, occurred_stated: bool, participant_ids,
-                  sentence_id: int, vec=None, now=None) -> int:
+    def add_event(
+        self,
+        space: str,
+        gist: str,
+        occurred_at: float,
+        occurred_stated: bool,
+        participant_ids,
+        sentence_id: int,
+        vec=None,
+        now=None,
+    ) -> int:
         """Inserts a dated event, stated by sentence_id, linked to its participant entities."""
         vec = self.embed(gist) if vec is None else vec
         with self.tx() as c:
@@ -403,8 +501,10 @@ class Store:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (space, gist, occurred_at, int(occurred_stated), _now(now), sentence_id),
             ).lastrowid
-            c.executemany("INSERT OR IGNORE INTO event_participants (event_id, entity_id) VALUES (?, ?)",
-                          [(event_id, entity_id) for entity_id in participant_ids])
+            c.executemany(
+                "INSERT OR IGNORE INTO event_participants (event_id, entity_id) VALUES (?, ?)",
+                [(event_id, entity_id) for entity_id in participant_ids],
+            )
             index.vec_put(c, "events", event_id, space, vec)
             index.text_put(c, "events", event_id, space, gist)
         return event_id
@@ -422,8 +522,13 @@ class Store:
         return [from_row(Event, r) for r in rows]
 
     def event_participants(self, event_id: int) -> list[int]:
-        return [r[0] for r in self._rows(
-            "SELECT entity_id FROM event_participants WHERE event_id = ? ORDER BY entity_id", (event_id,))]
+        return [
+            r[0]
+            for r in self._rows(
+                "SELECT entity_id FROM event_participants WHERE event_id = ? ORDER BY entity_id",
+                (event_id,),
+            )
+        ]
 
     # --- Rebuilding --------------------------------------------------------------------
 
@@ -431,24 +536,36 @@ class Store:
         """Forgets everything sleep built in the space (states, events, attributes, entities other than the user,
         aliases) and marks every kept record pending again, so it can be read anew. Records and sentences stay."""
         with self.tx() as c:
-            for kind, table in (("states", "states"), ("events", "events"), ("attributes", "attributes")):
-                for (row_id,) in c.execute(f"SELECT id FROM {table} WHERE space = ?", (space,)).fetchall():
+            for kind, table in (
+                ("states", "states"),
+                ("events", "events"),
+                ("attributes", "attributes"),
+            ):
+                for (row_id,) in c.execute(
+                    f"SELECT id FROM {table} WHERE space = ?", (space,)
+                ).fetchall():
                     index.vec_drop(c, kind, row_id)
                     if kind != "attributes":
                         index.text_drop(c, kind, row_id)
-            c.execute("DELETE FROM event_participants WHERE event_id IN (SELECT id FROM events WHERE space = ?)",
-                      (space,))
+            c.execute(
+                "DELETE FROM event_participants WHERE event_id IN (SELECT id FROM events WHERE space = ?)",
+                (space,),
+            )
             c.execute("DELETE FROM events WHERE space = ?", (space,))
             c.execute("DELETE FROM states WHERE space = ?", (space,))
             c.execute("DELETE FROM attributes WHERE space = ?", (space,))
             c.execute("DELETE FROM entity_aliases WHERE space = ?", (space,))
-            for (row_id,) in c.execute("SELECT id FROM entities WHERE space = ? AND name != ?",
-                                       (space, USER_ENTITY)).fetchall():
+            for (row_id,) in c.execute(
+                "SELECT id FROM entities WHERE space = ? AND name != ?", (space, USER_ENTITY)
+            ).fetchall():
                 index.vec_drop(c, "entities", row_id)
                 index.text_drop(c, "entities", row_id)
             c.execute("DELETE FROM entities WHERE space = ? AND name != ?", (space, USER_ENTITY))
-            c.execute("UPDATE episodes SET consolidated_at = NULL, sleep_attempts = 0, sleep_error = NULL "
-                      "WHERE space = ?", (space,))
+            c.execute(
+                "UPDATE episodes SET consolidated_at = NULL, sleep_attempts = 0, sleep_error = NULL "
+                "WHERE space = ?",
+                (space,),
+            )
 
     # --- Introspection & Connectome Export ----------------------------------------------
 
@@ -458,8 +575,8 @@ class Store:
         with self.lock:
             # Check if this space has any data; if unknown/empty, do not mutate DB
             has_data = self._rows(
-                "SELECT 1 FROM entities WHERE space = ? UNION ALL SELECT 1 FROM episodes WHERE space = ? LIMIT 1",
-                (space, space),
+                "SELECT 1 FROM entities WHERE space = ? UNION ALL SELECT 1 FROM episodes WHERE space = ? UNION ALL SELECT 1 FROM loci WHERE space = ? LIMIT 1",
+                (space, space, space),
             )
             if not has_data:
                 return {
@@ -532,6 +649,26 @@ class Store:
                 (space,),
             )
 
+            # 5. Method of Loci checkpoints (Palace Rooms)
+            loci_rows = self._rows(
+                """
+                SELECT id, ordinal, label, gist, occurred_at, created_at
+                FROM loci
+                WHERE space = ?
+                ORDER BY ordinal, id
+                """,
+                (space,),
+            )
+            locus_states_rows = self._rows(
+                """
+                SELECT ls.locus_id, ls.state_id
+                FROM locus_states ls
+                JOIN loci l ON l.id = ls.locus_id
+                WHERE l.space = ?
+                """,
+                (space,),
+            )
+
         nodes = []
         links = []
         node_ids = set()
@@ -540,21 +677,23 @@ class Store:
         for r in entity_rows:
             e_id = f"entity_{r['id']}"
             is_user = r["name"].lower() == "user"
-            nodes.append({
-                "id": e_id,
-                "label": r["name"],
-                "type": "entity",
-                "subtype": r["type"],
-                "val": max(8, min(26, 8 + r["mention_count"] * 2)),
-                "color": "#b026ff" if is_user else "#00e5ff",
-                "details": {
-                    "kind": "User Identity" if is_user else f"Entity ({r['type']})",
-                    "name": r["name"],
-                    "category": r["type"],
-                    "mention_count": r["mention_count"],
-                    "last_seen": r["last_seen"],
-                },
-            })
+            nodes.append(
+                {
+                    "id": e_id,
+                    "label": r["name"],
+                    "type": "entity",
+                    "subtype": r["type"],
+                    "val": max(8, min(26, 8 + r["mention_count"] * 2)),
+                    "color": "#b026ff" if is_user else "#00e5ff",
+                    "details": {
+                        "kind": "User Identity" if is_user else f"Entity ({r['type']})",
+                        "name": r["name"],
+                        "category": r["type"],
+                        "mention_count": r["mention_count"],
+                        "last_seen": r["last_seen"],
+                    },
+                }
+            )
             node_ids.add(e_id)
 
         # Track supersession mapping: (subject_id, attribute_id) -> list of states in order
@@ -598,118 +737,185 @@ class Store:
                 color = "#475569"
                 badge = "Superseded History"
 
-            nodes.append({
-                "id": s_id,
-                "label": f"{st['subject']}.{st['attribute']}: {val_text}",
-                "type": "state",
-                "status": status,
-                "subject": st["subject"],
-                "attribute": st["attribute"],
-                "value": val_text,
-                "val": 8 if is_active else 4,
-                "color": color,
-                "details": {
-                    "kind": badge,
+            nodes.append(
+                {
+                    "id": s_id,
+                    "label": f"{st['subject']}.{st['attribute']}: {val_text}",
+                    "type": "state",
+                    "status": status,
                     "subject": st["subject"],
                     "attribute": st["attribute"],
                     "value": val_text,
-                    "status": status,
-                    "sentence_id": st["sentence_id"],
-                    "citation": st["sentence_text"] or "",
-                    "valid_from": st["valid_from"],
-                    "valid_to": st["valid_to"],
-                },
-            })
+                    "val": 8 if is_active else 4,
+                    "color": color,
+                    "details": {
+                        "kind": badge,
+                        "subject": st["subject"],
+                        "attribute": st["attribute"],
+                        "value": val_text,
+                        "status": status,
+                        "sentence_id": st["sentence_id"],
+                        "citation": st["sentence_text"] or "",
+                        "valid_from": st["valid_from"],
+                        "valid_to": st["valid_to"],
+                    },
+                }
+            )
             node_ids.add(s_id)
 
             # Link: Entity -> State
             e_id = f"entity_{st['subject_id']}"
             if e_id in node_ids:
-                links.append({
-                    "source": e_id,
-                    "target": s_id,
-                    "label": st["attribute"],
-                    "color": color,
-                    "particles": 2 if is_active else 0,
-                    "value": 1.5 if is_active else 0.5,
-                })
+                links.append(
+                    {
+                        "source": e_id,
+                        "target": s_id,
+                        "label": st["attribute"],
+                        "color": color,
+                        "particles": 2 if is_active else 0,
+                        "value": 1.5 if is_active else 0.5,
+                    }
+                )
 
             # If state value mentions another entity, link state -> entity
             clean_val = val_text.strip().lower()
             for other_name, other_id in name_to_id.items():
-                if other_id != st["subject_id"] and (other_name == clean_val or other_name in clean_val):
+                if other_id != st["subject_id"] and (
+                    other_name == clean_val or other_name in clean_val
+                ):
                     target_e = f"entity_{other_id}"
                     if target_e in node_ids:
-                        links.append({
-                            "source": s_id,
-                            "target": target_e,
-                            "label": "references",
-                            "color": "#38bdf888",
-                            "particles": 1 if is_active else 0,
-                            "value": 1.0,
-                        })
+                        links.append(
+                            {
+                                "source": s_id,
+                                "target": target_e,
+                                "label": "references",
+                                "color": "#38bdf888",
+                                "particles": 1 if is_active else 0,
+                                "value": 1.0,
+                            }
+                        )
                         break
 
         # Connect superseded states to their superseding state
-        for key, timeline in state_timeline.items():
+        for timeline in state_timeline.values():
             if len(timeline) > 1:
                 for i in range(len(timeline) - 1):
                     prior = timeline[i]
                     later = timeline[i + 1]
-                    links.append({
-                        "source": f"state_{prior['id']}",
-                        "target": f"state_{later['id']}",
-                        "label": "superseded_by",
-                        "color": "#ef444466",
-                        "particles": 0,
-                        "dashed": True,
-                        "value": 0.8,
-                    })
+                    links.append(
+                        {
+                            "source": f"state_{prior['id']}",
+                            "target": f"state_{later['id']}",
+                            "label": "superseded_by",
+                            "color": "#ef444466",
+                            "particles": 0,
+                            "dashed": True,
+                            "value": 0.8,
+                        }
+                    )
 
         # Add Event nodes and links
         for ev in event_rows:
             ev_id = f"event_{ev['id']}"
-            nodes.append({
-                "id": ev_id,
-                "label": ev["gist"],
-                "type": "event",
-                "val": 7,
-                "color": "#ff007f",
-                "details": {
-                    "kind": "Dated Event",
-                    "gist": ev["gist"],
-                    "occurred_at": ev["occurred_at"],
-                    "sentence_id": ev["sentence_id"],
-                    "citation": ev["sentence_text"] or "",
-                    "created_at": ev["created_at"],
-                },
-            })
+            nodes.append(
+                {
+                    "id": ev_id,
+                    "label": ev["gist"],
+                    "type": "event",
+                    "val": 7,
+                    "color": "#ff007f",
+                    "details": {
+                        "kind": "Dated Event",
+                        "gist": ev["gist"],
+                        "occurred_at": ev["occurred_at"],
+                        "sentence_id": ev["sentence_id"],
+                        "citation": ev["sentence_text"] or "",
+                        "created_at": ev["created_at"],
+                    },
+                }
+            )
             node_ids.add(ev_id)
 
             for participant_id in event_parts.get(ev["id"], []):
                 e_id = f"entity_{participant_id}"
                 if e_id in node_ids:
-                    links.append({
-                        "source": e_id,
-                        "target": ev_id,
-                        "label": "participated_in",
-                        "color": "#ec489988",
+                    links.append(
+                        {
+                            "source": e_id,
+                            "target": ev_id,
+                            "label": "participated_in",
+                            "color": "#ec489988",
+                            "particles": 1,
+                            "value": 1.2,
+                        }
+                    )
+
+        # Add Method of Loci Palace Room nodes
+        for lc in loci_rows:
+            l_id = f"locus_{lc['id']}"
+            nodes.append(
+                {
+                    "id": l_id,
+                    "label": f"Room {lc['ordinal']}: {lc['label']}",
+                    "type": "locus",
+                    "ordinal": lc["ordinal"],
+                    "val": 14,
+                    "color": "#f59e0b",
+                    "details": {
+                        "kind": f"Palace Room {lc['ordinal']}",
+                        "label": lc["label"],
+                        "gist": lc["gist"],
+                        "occurred_at": lc["occurred_at"],
+                        "created_at": lc["created_at"],
+                    },
+                }
+            )
+            node_ids.add(l_id)
+
+        # Palace walk sequential trajectory links: Room 1 -> Room 2 -> ... -> Room N
+        for i in range(len(loci_rows) - 1):
+            links.append(
+                {
+                    "source": f"locus_{loci_rows[i]['id']}",
+                    "target": f"locus_{loci_rows[i + 1]['id']}",
+                    "label": "palace_walk",
+                    "color": "#f59e0b99",
+                    "particles": 2,
+                    "value": 2.0,
+                }
+            )
+
+        # Palace anchor links connecting rooms to anchored canonical states
+        for ls in locus_states_rows:
+            l_id = f"locus_{ls['locus_id']}"
+            s_id = f"state_{ls['state_id']}"
+            if l_id in node_ids and s_id in node_ids:
+                links.append(
+                    {
+                        "source": l_id,
+                        "target": s_id,
+                        "label": "anchors",
+                        "color": "#f59e0b55",
                         "particles": 1,
-                        "value": 1.2,
-                    })
+                        "value": 1.0,
+                    }
+                )
 
         # Assemble Hippocampus buffer
         hippocampus = []
         for ep in episode_rows:
-            hippocampus.append({
-                "id": ep["id"],
-                "role": ep["role"],
-                "text": ep["text"],
-                "created_at": ep["created_at"],
-                "consolidated": ep["consolidated_at"] is not None,
-                "source": ep["source"],
-                "speaker": ep["speaker"],
-            })
+            hippocampus.append(
+                {
+                    "id": ep["id"],
+                    "role": ep["role"],
+                    "text": ep["text"],
+                    "created_at": ep["created_at"],
+                    "consolidated": ep["consolidated_at"] is not None,
+                    "source": ep["source"],
+                    "speaker": ep["speaker"],
+                }
+            )
 
         stats = {
             "total_nodes": len(nodes),
@@ -720,6 +926,7 @@ class Store:
             "conditional_rules": sum(1 for n in nodes if n.get("status") == "conditional"),
             "superseded_states": sum(1 for n in nodes if n.get("status") == "superseded"),
             "events": len(event_rows),
+            "loci": len(loci_rows),
             "hippocampal_episodes": len(hippocampus),
             "pending_episodes": sum(1 for h in hippocampus if not h["consolidated"]),
         }

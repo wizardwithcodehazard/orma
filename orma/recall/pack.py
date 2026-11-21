@@ -15,10 +15,12 @@ SECTIONS = {
     "events": "Events",
 }
 
-FRAMING = ("What you remember about the person you are talking to, from earlier conversations, notes and "
-           "documents. Answer directly using these facts and statements without asking the user to re-confirm details "
-           "already provided here; do not mention this list. A line marked [outdated] was true when "
-           "it was said and has changed since.")
+FRAMING = (
+    "What you remember about the person you are talking to, from earlier conversations, notes and "
+    "documents. Answer directly using these facts and statements without asking the user to re-confirm details "
+    "already provided here; do not mention this list. A line marked [outdated] was true when "
+    "it was said and has changed since."
+)
 
 
 @dataclass
@@ -47,7 +49,19 @@ def is_inhibitory(item: MemoryItem) -> bool:
     t = item.text.lower()
     if item.section != "states":
         return False
-    return any(m in t for m in (" · forbidden_", " · forbidden ", " · avoid_", " · avoid ", " · anti_pattern", " · anti pattern", " · negative_", " · negative "))
+    return any(
+        m in t
+        for m in (
+            " · forbidden_",
+            " · forbidden ",
+            " · avoid_",
+            " · avoid ",
+            " · anti_pattern",
+            " · anti pattern",
+            " · negative_",
+            " · negative ",
+        )
+    )
 
 
 def format_sutra(item: MemoryItem) -> str:
@@ -86,8 +100,10 @@ def render(items: list[MemoryItem], today: str = "", sutra: bool = False) -> str
             lines.extend(format_sutra(i) for i in sorted(inhibitory, key=lambda i: (i.order, i.id)))
 
         for section in ("states", "events", "passages"):
-            chosen = sorted((i for i in items if i.section == section and not is_inhibitory(i)),
-                            key=lambda i: (i.order, i.id))
+            chosen = sorted(
+                (i for i in items if i.section == section and not is_inhibitory(i)),
+                key=lambda i: (i.order, i.id),
+            )
             lines.extend(format_sutra(item) for item in chosen)
         return "\n".join(lines)
 
@@ -97,7 +113,10 @@ def render(items: list[MemoryItem], today: str = "", sutra: bool = False) -> str
         lines.extend(f"- {item.text}" for item in sorted(inhibitory, key=lambda i: (i.order, i.id)))
 
     for section, title in SECTIONS.items():
-        chosen = sorted((i for i in items if i.section == section and not is_inhibitory(i)), key=lambda i: (i.order, i.id))
+        chosen = sorted(
+            (i for i in items if i.section == section and not is_inhibitory(i)),
+            key=lambda i: (i.order, i.id),
+        )
         if chosen:
             lines.append(f"{title}:")
             lines.extend(f"- {item.text}" for item in chosen)
@@ -122,10 +141,19 @@ def _priority_key(item: MemoryItem):
     return (rank, item.order, item.id)
 
 
-def pack(candidates: list[MemoryItem], turns: list[dict], budget: int, chars_per_token: float, min_recent: int,
-         today: str = "", state_cap: int | None = None, sutra: bool = False) -> Packed:
+def pack(
+    candidates: list[MemoryItem],
+    turns: list[dict],
+    budget: int,
+    chars_per_token: float,
+    min_recent: int,
+    today: str = "",
+    state_cap: int | None = None,
+    sutra: bool = False,
+) -> Packed:
     """Candidates packed in strict priority order (inhibitory > states > events > passages)
     under token budget via greedy Occam's razor allocation."""
+
     def cost(text: str) -> int:
         return count_tokens(text, chars_per_token)
 
@@ -143,7 +171,11 @@ def pack(candidates: list[MemoryItem], turns: list[dict], budget: int, chars_per
     for item in sorted_candidates:
         line_repr = format_sutra(item) + "\n" if sutra else f"- {item.text}\n"
         item_cost = cost(line_repr)
-        if item.section == "states" and state_cap is not None and state_tokens + item_cost > state_cap:
+        if (
+            item.section == "states"
+            and state_cap is not None
+            and state_tokens + item_cost > state_cap
+        ):
             continue
         if current_cost + item_cost <= available_for_items:
             used.append(item)

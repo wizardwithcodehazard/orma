@@ -23,8 +23,8 @@ def test_parse_extraction_prohibited():
                 "about": "user",
                 "attribute": "editor",
                 "value": "neovim",
-            }
-        ]
+            },
+        ],
     }
     extracted = parse_extraction(data)
     assert len(extracted.states) == 2
@@ -47,7 +47,13 @@ def test_consolidator_prefixes_forbidden(tmp_path):
         enc_res = memory.add("Never use semicolon in powershell", space=space, role="user")
         s1 = store.episode_sentences([enc_res[0].episode_id])[0]
 
-        item1 = ExtractedState(s=s1.id, about="user", attribute="powershell_chain", value="never use semicolon", prohibited=True)
+        item1 = ExtractedState(
+            s=s1.id,
+            about="user",
+            attribute="powershell_chain",
+            value="never use semicolon",
+            prohibited=True,
+        )
         report = ConsolidationReport()
         consolidator._state(space, user_id, item1, s1, report)
 
@@ -62,7 +68,13 @@ def test_consolidator_prefixes_forbidden(tmp_path):
         assert "forbidden powershell chain" in states[0].text
 
         # Test idempotency: if already has forbidden_, don't double prefix
-        item2 = ExtractedState(s=s1.id, about="user", attribute="forbidden_powershell_chain", value="never use semicolon", prohibited=True)
+        item2 = ExtractedState(
+            s=s1.id,
+            about="user",
+            attribute="forbidden_powershell_chain",
+            value="never use semicolon",
+            prohibited=True,
+        )
         consolidator._state(space, user_id, item2, s1, report)
         double_attr = store.find_attribute(space, "forbidden_forbidden_powershell_chain")
         assert double_attr is None
@@ -71,8 +83,12 @@ def test_consolidator_prefixes_forbidden(tmp_path):
 
 
 def test_inhibitory_pack_and_sutra_hoisting():
-    item_forbid = MemoryItem("states", 1, "user · forbidden_terminal_syntax: never chain commands with semicolon")
-    item_forbid_space = MemoryItem("states", 4, "user · forbidden terminal syntax: never chain commands with semicolon")
+    item_forbid = MemoryItem(
+        "states", 1, "user · forbidden_terminal_syntax: never chain commands with semicolon"
+    )
+    item_forbid_space = MemoryItem(
+        "states", 4, "user · forbidden terminal syntax: never chain commands with semicolon"
+    )
     item_normal = MemoryItem("states", 2, "user · editor: neovim")
     item_log = MemoryItem("passages", 3, "2026-10-25 user: push code to origin main")
 
@@ -101,7 +117,10 @@ def test_inhibitory_pack_and_sutra_hoisting():
     # Non-sutra rendering: forbidden items appear under Forbidden / Anti-patterns header
     rendered_standard = render([item_normal, item_forbid], sutra=False)
     assert "Forbidden / Anti-patterns:" in rendered_standard
-    assert "- user · forbidden_terminal_syntax: never chain commands with semicolon" in rendered_standard
+    assert (
+        "- user · forbidden_terminal_syntax: never chain commands with semicolon"
+        in rendered_standard
+    )
     assert "Now true:" in rendered_standard
 
 
@@ -118,49 +137,53 @@ async def test_mcp_forbid_and_anti_pattern(tmp_path):
         assert "orma_remember" in names
 
         # 2. Test orma_forbid tool call
-        forbid_resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "orma_forbid",
-                "arguments": {
-                    "rule": "Never chain commands using semicolons on Windows PowerShell; use separate lines or &&."
-                }
+        forbid_resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "orma_forbid",
+                    "arguments": {
+                        "rule": "Never chain commands using semicolons on Windows PowerShell; use separate lines or &&."
+                    },
+                },
             }
-        })
+        )
         content = forbid_resp["result"]["content"][0]["text"]
         assert "Successfully registered inhibitory constraint" in content
         assert "[FORBIDDEN: Never chain commands using semicolons" in content
 
         # 3. Test orma_remember with kind='anti_pattern'
-        rem_resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "orma_remember",
-                "arguments": {
-                    "text": "Never run rm -rf on production server",
-                    "kind": "anti_pattern"
-                }
+        rem_resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "orma_remember",
+                    "arguments": {
+                        "text": "Never run rm -rf on production server",
+                        "kind": "anti_pattern",
+                    },
+                },
             }
-        })
+        )
         rem_content = rem_resp["result"]["content"][0]["text"]
         assert "Successfully remembered (anti-pattern guardrail)" in rem_content
 
         # 4. Recall check
-        recall_resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {
-                "name": "orma_recall",
-                "arguments": {
-                    "query": "How should I chain commands in powershell?"
-                }
+        recall_resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "orma_recall",
+                    "arguments": {"query": "How should I chain commands in powershell?"},
+                },
             }
-        })
+        )
         recall_text = recall_resp["result"]["content"][0]["text"]
         assert "semicolon" in recall_text.lower()
     finally:
@@ -176,7 +199,9 @@ def test_fast_path_inhibitory_prefix(tmp_path):
         assert len(res) == 1
         facts = memory.facts(space="test", include_closed=True)
         assert len(facts) >= 1
-        forbidden_facts = [f for f in facts if "forbidden" in memory.store.attribute(f.attribute_id).name]
+        forbidden_facts = [
+            f for f in facts if "forbidden" in memory.store.attribute(f.attribute_id).name
+        ]
         assert len(forbidden_facts) >= 1
         assert "Never suggest AWS" in forbidden_facts[0].value
     finally:
@@ -194,12 +219,18 @@ def test_embedding_intent_anchor_event_promotion(tmp_path):
         consolidator = Consolidator(store, config)
         space = "test_promo"
 
-        enc_res = memory.add("Never deploy onto bare metal, always use cloud", space=space, role="user")
+        enc_res = memory.add(
+            "Never deploy onto bare metal, always use cloud", space=space, role="user"
+        )
         s1 = store.episode_sentences([enc_res[0].episode_id])[0]
 
         # Model misclassified this policy directive as an event
         extraction = Extraction(
-            events=[ExtractedEvent(s=s1.id, what="recommended avoiding bare metal and using cloud", who=["user"])]
+            events=[
+                ExtractedEvent(
+                    s=s1.id, what="recommended avoiding bare metal and using cloud", who=["user"]
+                )
+            ]
         )
         report = consolidator.apply(space, extraction, [s1])
         # Intent anchor should have promoted it to an inhibitory state!
@@ -224,14 +255,34 @@ def test_conditional_anchor_fallback_preserves_baseline(tmp_path):
         # 1. Baseline habit
         enc1 = memory.add("I drink black coffee every morning.", space=space, role="user")
         s1 = store.episode_sentences([enc1[0].episode_id])[0]
-        ext1 = Extraction(states=[ExtractedState(s=s1.id, about="user", attribute="morning_drink", value="black coffee")])
+        ext1 = Extraction(
+            states=[
+                ExtractedState(
+                    s=s1.id, about="user", attribute="morning_drink", value="black coffee"
+                )
+            ]
+        )
         consolidator.apply(space, ext1, [s1])
         assert [f.value for f in memory.facts(space=space)] == ["black coffee"]
 
         # 2. Conditional preference where 3B model failed to populate condition=""
-        enc2 = memory.add("Whenever I have a sore throat or cold, I switch to warm ginger tea with raw honey.", space=space, role="user")
+        enc2 = memory.add(
+            "Whenever I have a sore throat or cold, I switch to warm ginger tea with raw honey.",
+            space=space,
+            role="user",
+        )
         s2 = store.episode_sentences([enc2[0].episode_id])[0]
-        ext2 = Extraction(states=[ExtractedState(s=s2.id, about="user", attribute="morning_drink", value="warm ginger tea", condition="")])
+        ext2 = Extraction(
+            states=[
+                ExtractedState(
+                    s=s2.id,
+                    about="user",
+                    attribute="morning_drink",
+                    value="warm ginger tea",
+                    condition="",
+                )
+            ]
+        )
         consolidator.apply(space, ext2, [s2])
 
         # Both states should be current because the sentence has conditional framing via embedding projection!
@@ -258,7 +309,17 @@ def test_meta_question_false_prohibited_rejected(tmp_path):
         s1 = store.episode_sentences([enc[0].episode_id])[0]
 
         # Simulating 3B model hallucinating prohibited=True on a meta question
-        ext = Extraction(states=[ExtractedState(s=s1.id, about="user", attribute="user_asked_about", value="data scientist on our team", prohibited=True)])
+        ext = Extraction(
+            states=[
+                ExtractedState(
+                    s=s1.id,
+                    about="user",
+                    attribute="user_asked_about",
+                    value="data scientist on our team",
+                    prohibited=True,
+                )
+            ]
+        )
         consolidator.apply(space, ext, [s1])
 
         facts = memory.facts(space=space)

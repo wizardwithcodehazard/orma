@@ -30,7 +30,7 @@ def span_of(text: str, name: str) -> tuple[int, int] | None:
     if not needle:
         return None
     for i in range(len(haystack) - len(needle) + 1):
-        if haystack[i:i + len(needle)] == needle:
+        if haystack[i : i + len(needle)] == needle:
             return i, i + len(needle)
     return None
 
@@ -49,9 +49,11 @@ def phrases(text: str) -> list[str]:
 
 def _collapse_code(text: str) -> str:
     """A fenced code block becomes one marker line; its text stays in the record, not in the sentences."""
+
     def marker(match: re.Match) -> str:
         lines = len(match.group(2).strip("\n").splitlines())
         return f"\n[code block{': ' + match.group(1) if match.group(1) else ''}, {lines} lines]\n"
+
     return _FENCE.sub(marker, text)
 
 

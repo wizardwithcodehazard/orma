@@ -33,15 +33,15 @@ TOOLS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "What to search for (e.g. 'project architecture', 'database configuration', 'user preferences')."
+                    "description": "What to search for (e.g. 'project architecture', 'database configuration', 'user preferences').",
                 },
                 "space": {
                     "type": "string",
-                    "description": "Optional isolated memory space (defaults to 'default')."
-                }
+                    "description": "Optional isolated memory space (defaults to 'default').",
+                },
             },
-            "required": ["query"]
-        }
+            "required": ["query"],
+        },
     },
     {
         "name": "orma_remember",
@@ -51,27 +51,27 @@ TOOLS = [
             "properties": {
                 "text": {
                     "type": "string",
-                    "description": "The fact, requirement, decision, or note to record."
+                    "description": "The fact, requirement, decision, or note to record.",
                 },
                 "kind": {
                     "type": "string",
                     "enum": ["fact", "anti_pattern"],
                     "default": "fact",
-                    "description": "Set to 'anti_pattern' if this is a mistake, prohibited syntax, or negative rule to avoid."
+                    "description": "Set to 'anti_pattern' if this is a mistake, prohibited syntax, or negative rule to avoid.",
                 },
                 "role": {
                     "type": "string",
                     "enum": ["note", "user", "assistant", "document"],
                     "default": "note",
-                    "description": "The provenance role of this memory."
+                    "description": "The provenance role of this memory.",
                 },
                 "space": {
                     "type": "string",
-                    "description": "Optional isolated memory space (defaults to 'default')."
-                }
+                    "description": "Optional isolated memory space (defaults to 'default').",
+                },
             },
-            "required": ["text"]
-        }
+            "required": ["text"],
+        },
     },
     {
         "name": "orma_forbid",
@@ -81,15 +81,15 @@ TOOLS = [
             "properties": {
                 "rule": {
                     "type": "string",
-                    "description": "The forbidden mistake or action to never take (e.g. 'Never use semicolon in Windows terminal commands')."
+                    "description": "The forbidden mistake or action to never take (e.g. 'Never use semicolon in Windows terminal commands').",
                 },
                 "space": {
                     "type": "string",
-                    "description": "Optional isolated memory space (defaults to 'default')."
-                }
+                    "description": "Optional isolated memory space (defaults to 'default').",
+                },
             },
-            "required": ["rule"]
-        }
+            "required": ["rule"],
+        },
     },
     {
         "name": "orma_facts",
@@ -99,15 +99,15 @@ TOOLS = [
             "properties": {
                 "space": {
                     "type": "string",
-                    "description": "Optional isolated memory space (defaults to 'default')."
+                    "description": "Optional isolated memory space (defaults to 'default').",
                 },
                 "include_history": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Whether to also include closed / outdated past facts."
-                }
-            }
-        }
+                    "description": "Whether to also include closed / outdated past facts.",
+                },
+            },
+        },
     },
     {
         "name": "orma_forget",
@@ -117,21 +117,23 @@ TOOLS = [
             "properties": {
                 "state_id": {
                     "type": "integer",
-                    "description": "The ID of the state to forget/close."
+                    "description": "The ID of the state to forget/close.",
                 },
                 "space": {
                     "type": "string",
-                    "description": "Optional isolated memory space (defaults to 'default')."
-                }
+                    "description": "Optional isolated memory space (defaults to 'default').",
+                },
             },
-            "required": ["state_id"]
-        }
-    }
+            "required": ["state_id"],
+        },
+    },
 ]
 
 
 class MCPServer:
-    def __init__(self, memory: Memory, default_space: str = "default", sleep_poll_seconds: float = 60.0):
+    def __init__(
+        self, memory: Memory, default_space: str = "default", sleep_poll_seconds: float = 60.0
+    ):
         self.memory = memory
         self.default_space = default_space
         self.scheduler = SleepScheduler(memory, sleep_poll_seconds) if sleep_poll_seconds else None
@@ -169,7 +171,7 @@ class MCPServer:
                     err_resp = {
                         "jsonrpc": "2.0",
                         "id": req_id,
-                        "error": {"code": -32603, "message": f"Internal error: {e}"}
+                        "error": {"code": -32603, "message": f"Internal error: {e}"},
                     }
                     sys.stdout.write(json.dumps(err_resp) + "\n")
                     sys.stdout.flush()
@@ -192,58 +194,38 @@ class MCPServer:
         if method == "initialize":
             client_version = req.get("params", {}).get("protocolVersion")
             negotiated_version = (
-                client_version if client_version in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
+                client_version
+                if client_version in SUPPORTED_PROTOCOL_VERSIONS
+                else PROTOCOL_VERSION
             )
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
                     "protocolVersion": negotiated_version,
-                    "capabilities": {
-                        "tools": {"listChanged": False}
-                    },
-                    "serverInfo": {
-                        "name": "orma",
-                        "version": __version__
-                    }
-                }
+                    "capabilities": {"tools": {"listChanged": False}},
+                    "serverInfo": {"name": "orma", "version": __version__},
+                },
             }
 
         elif method == "tools/list":
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "tools": TOOLS
-                }
-            }
+            return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": TOOLS}}
 
         elif method == "tools/call":
             params = req.get("params", {})
             name = params.get("name")
             args = params.get("arguments", {})
             result = await self.execute_tool(name, args)
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": result
-            }
+            return {"jsonrpc": "2.0", "id": msg_id, "result": result}
 
         elif method == "ping":
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {}
-            }
+            return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
 
         else:
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
-                "error": {
-                    "code": -32601,
-                    "message": f"Method not found: {method}"
-                }
+                "error": {"code": -32601, "message": f"Method not found: {method}"},
             }
 
     async def execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -252,11 +234,17 @@ class MCPServer:
             if name == "orma_recall":
                 query = args.get("query", "")
                 result = await anyio.to_thread.run_sync(
-                    functools.partial(self.memory.build_context, [{"role": "user", "content": query}], space=space)
+                    functools.partial(
+                        self.memory.build_context, [{"role": "user", "content": query}], space=space
+                    )
                 )
-                system_prompt = next((m["content"] for m in result if m.get("role") == "system"), "")
+                system_prompt = next(
+                    (m["content"] for m in result if m.get("role") == "system"), ""
+                )
                 return {
-                    "content": [{"type": "text", "text": system_prompt or "No relevant memories found."}]
+                    "content": [
+                        {"type": "text", "text": system_prompt or "No relevant memories found."}
+                    ]
                 }
 
             elif name == "orma_remember":
@@ -270,32 +258,51 @@ class MCPServer:
                 if not results:
                     return {
                         "isError": True,
-                        "content": [{"type": "text", "text": "Failed to record memory."}]
+                        "content": [{"type": "text", "text": "Failed to record memory."}],
                     }
                 ep_ids = [str(r.episode_id) for r in results]
                 total_sentences = sum(r.sentences for r in results)
                 tag = " (anti-pattern guardrail)" if kind == "anti_pattern" else ""
                 return {
-                    "content": [{"type": "text", "text": f"Successfully remembered{tag}: {text} (episodes: {', '.join(ep_ids)}, sentences: {total_sentences})"}]
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Successfully remembered{tag}: {text} (episodes: {', '.join(ep_ids)}, sentences: {total_sentences})",
+                        }
+                    ]
                 }
 
             elif name == "orma_forbid":
                 rule = args.get("rule", "")
                 record_text = f"FORBIDDEN RULE: {rule}"
-                results = await anyio.to_thread.run_sync(self.memory.add, record_text, space, "note")
+                results = await anyio.to_thread.run_sync(
+                    self.memory.add, record_text, space, "note"
+                )
                 if not results:
                     return {
                         "isError": True,
-                        "content": [{"type": "text", "text": f"Failed to register inhibitory constraint: [FORBIDDEN: {rule}]"}]
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Failed to register inhibitory constraint: [FORBIDDEN: {rule}]",
+                            }
+                        ],
                     }
                 return {
-                    "content": [{"type": "text", "text": f"Successfully registered inhibitory constraint: [FORBIDDEN: {rule}]"}]
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Successfully registered inhibitory constraint: [FORBIDDEN: {rule}]",
+                        }
+                    ]
                 }
 
             elif name == "orma_facts":
                 include_history = bool(args.get("include_history", False))
                 facts = await anyio.to_thread.run_sync(
-                    functools.partial(self.memory.facts, space=space, include_closed=include_history)
+                    functools.partial(
+                        self.memory.facts, space=space, include_closed=include_history
+                    )
                 )
                 lines = [f"Active facts for space '{space}':"]
                 for f in facts:
@@ -303,32 +310,31 @@ class MCPServer:
                     lines.append(f"- ID {f.id}: {f.value}{status}")
                 if len(lines) == 1:
                     lines.append("(No facts recorded yet)")
-                return {
-                    "content": [{"type": "text", "text": "\n".join(lines)}]
-                }
+                return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
             elif name == "orma_forget":
                 sid = args.get("state_id")
                 if sid is None:
-                    return {"isError": True, "content": [{"type": "text", "text": "state_id is required"}]}
+                    return {
+                        "isError": True,
+                        "content": [{"type": "text", "text": "state_id is required"}],
+                    }
                 state_id = int(sid)
                 ok = await anyio.to_thread.run_sync(
                     functools.partial(self.memory.forget, state_id, space=space)
                 )
-                return {
-                    "content": [{"type": "text", "text": f"Fact {state_id} ended: {ok}"}]
-                }
+                return {"content": [{"type": "text", "text": f"Fact {state_id} ended: {ok}"}]}
 
             else:
                 return {
                     "isError": True,
-                    "content": [{"type": "text", "text": f"Unknown tool: {name}"}]
+                    "content": [{"type": "text", "text": f"Unknown tool: {name}"}],
                 }
         except Exception as e:
             logger.exception("Error executing tool %s", name)
             return {
                 "isError": True,
-                "content": [{"type": "text", "text": f"Tool execution failed: {e!s}"}]
+                "content": [{"type": "text", "text": f"Tool execution failed: {e!s}"}],
             }
 
 

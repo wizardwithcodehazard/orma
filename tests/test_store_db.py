@@ -99,9 +99,11 @@ def test_index_functions_reject_unknown_kind(conn):
 
 def test_a_version_1_database_gains_record_sources(tmp_path):
     c = connect(tmp_path / "old.db")
-    c.execute("CREATE TABLE episodes (id INTEGER PRIMARY KEY, space TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT "
-              "NULL, outcome TEXT, novelty REAL, seen_count INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL, "
-              "consolidated_at REAL, sleep_attempts INTEGER NOT NULL DEFAULT 0, sleep_error TEXT)")
+    c.execute(
+        "CREATE TABLE episodes (id INTEGER PRIMARY KEY, space TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT "
+        "NULL, outcome TEXT, novelty REAL, seen_count INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL, "
+        "consolidated_at REAL, sleep_attempts INTEGER NOT NULL DEFAULT 0, sleep_error TEXT)"
+    )
     c.execute("INSERT INTO episodes (space, role, text, created_at) VALUES ('s', 'user', 'hi', 1)")
     init_schema(c, 4)
     row = c.execute("SELECT source, speaker FROM episodes").fetchone()

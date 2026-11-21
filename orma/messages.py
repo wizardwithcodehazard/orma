@@ -7,6 +7,8 @@ def message_text(message: dict) -> str:
         return content
     if isinstance(content, list):
         return "\n".join(
-            part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
         )
     return ""

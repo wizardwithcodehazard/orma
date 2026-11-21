@@ -33,7 +33,8 @@
         conditional: { color: 0xc084fc, shape: 6, size: 0.10 },
         event: { color: 0x7f95ff, shape: 3, size: 0.11 },
         superseded: { color: 0xc9a27e, shape: 4, size: 0.16 },
-        active: { color: 0xe8b84a, shape: 0, size: 0.085 }
+        active: { color: 0xe8b84a, shape: 0, size: 0.085 },
+        locus: { color: 0xf59e0b, shape: 1, size: 0.20 }
     };
     const COL = {
         clear: 0x07080b,
@@ -54,6 +55,7 @@
     function kindOf(n) {
         if (isUserNode(n)) return 'user';
         if (n.status === 'inhibitory') return 'inhibitory';
+        if (n.type === 'locus') return 'locus';
         if (n.type === 'entity') return 'entity';
         if (n.status === 'conditional') return 'conditional';
         if (n.type === 'event') return 'event';
@@ -658,6 +660,18 @@ void main() {
             n.side = s;
             n.hippo = cortexPoint(s, ux / l, uy / l, uz / l, 0.9);
         });
+
+        // loci: topological memory palace rooms arching over the hippocampus
+        const loci = allNodes.filter(n => n.type === 'locus');
+        if (loci.length) {
+            loci.sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0));
+            loci.forEach((l, idx) => {
+                const t = (idx + 0.5) / loci.length;
+                const side = idx % 2 === 0 ? 1 : -1;
+                l.side = side;
+                l.hippo = new V3(side * (0.85 + 0.5 * Math.sin(t * Math.PI)), 0.95 + 0.75 * Math.sin(t * Math.PI), -1.1 + 2.2 * t);
+            });
+        }
         allNodes.forEach(n => { if (!n.hippo) n.hippo = new V3(0, 0, 0); });
     }
 
@@ -691,6 +705,17 @@ void main() {
                 c.planet = new V3(pPos.x + d.x * sr, pPos.y + d.y * sr * 0.8, pPos.z + d.z * sr);
             });
         });
+
+        // loci: outer orbital palace ring
+        const loci = allNodes.filter(n => n.type === 'locus');
+        if (loci.length) {
+            loci.sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0));
+            const R_loci = Rr + 1.2;
+            loci.forEach((l, idx) => {
+                const angle = (idx / loci.length) * TAU;
+                l.planet = new V3(Math.cos(angle) * R_loci, 0.4 * Math.sin(angle * 2), Math.sin(angle) * R_loci);
+            });
+        }
         allNodes.forEach(n => { if (!n.planet) n.planet = new V3(0, 0, 0); });
     }
     const targetOf = n => layoutMode === 'hippocampus' ? n.hippo : n.planet;
@@ -737,6 +762,7 @@ void main() {
             case 'active': return n.status === 'active' && n.type === 'state';
             case 'event': return n.type === 'event';
             case 'superseded': return n.status === 'superseded';
+            case 'locus': return n.type === 'locus';
             default: return true;
         }
     }
@@ -1056,8 +1082,8 @@ void main() {
     }
 
     /* ---------------------------------------------------------------- tooltip */
-    const REGION_OF = { user: 'core', entity: 'hippocampus', inhibitory: 'amygdala', superseded: 'neocortex', active: 'hippocampus', event: 'hippocampus', conditional: 'hippocampus' };
-    const SYSTEM_OF = { user: 'self', entity: 'semantic · concept cell', inhibitory: 'aversive · inhibitory', superseded: 'decayed trace', active: 'semantic · engram', event: 'episodic', conditional: 'context-gated' };
+    const REGION_OF = { user: 'core', entity: 'hippocampus', inhibitory: 'amygdala', superseded: 'neocortex', active: 'hippocampus', event: 'hippocampus', conditional: 'hippocampus', locus: 'fornix arch' };
+    const SYSTEM_OF = { user: 'self', entity: 'semantic · concept cell', inhibitory: 'aversive · inhibitory', superseded: 'decayed trace', active: 'semantic · engram', event: 'episodic', conditional: 'context-gated', locus: 'method of loci · palace room' };
     const tooltip = $('node-tooltip');
     function showTooltip(n, x, y) {
         const head = n.status === 'inhibitory' ? `Forbidden · ${n.attribute || 'rule'}` : `${n.label}`;
@@ -1084,8 +1110,8 @@ void main() {
         const kind = n.kind;
         inspector.dataset.kind = kind;
         const b = $('insp-badge');
-        b.className = 'badge ' + (n.status === 'inhibitory' ? 'inhibitory' : n.type === 'entity' ? 'entity' : n.type === 'event' ? 'event' : n.status === 'superseded' ? 'superseded' : 'active');
-        b.textContent = kind === 'user' ? 'You · core' : n.status === 'inhibitory' ? 'Forbidden rule' : n.type === 'entity' ? 'Entity'
+        b.className = 'badge ' + (n.status === 'inhibitory' ? 'inhibitory' : n.type === 'locus' ? 'locus' : n.type === 'entity' ? 'entity' : n.type === 'event' ? 'event' : n.status === 'superseded' ? 'superseded' : 'active');
+        b.textContent = kind === 'user' ? 'You · core' : n.type === 'locus' ? (n.details?.kind || 'Palace room') : n.status === 'inhibitory' ? 'Forbidden rule' : n.type === 'entity' ? 'Entity'
             : n.type === 'event' ? 'Episodic event' : n.status === 'superseded' ? 'Superseded' : n.status === 'conditional' ? 'Conditional' : 'Active truth';
         $('insp-region').textContent = `${SYSTEM_OF[kind] || ''} — ${REGION_OF[kind] || ''}`;
 
@@ -1135,7 +1161,8 @@ void main() {
             active: allNodes.filter(n => n.type === 'state' && n.status === 'active').length,
             inhibitory: allNodes.filter(n => n.status === 'inhibitory').length,
             event: allNodes.filter(n => n.type === 'event').length,
-            superseded: allNodes.filter(n => n.status === 'superseded').length
+            superseded: allNodes.filter(n => n.status === 'superseded').length,
+            locus: allNodes.filter(n => n.type === 'locus').length
         };
         Object.entries(c).forEach(([k, v]) => { const el = $(`c-${k}`); if (el) el.textContent = v; });
         $('t-nodes').textContent = c.all;

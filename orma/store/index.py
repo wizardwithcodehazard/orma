@@ -20,7 +20,8 @@ def vec_put(conn: sqlite3.Connection, kind: str, row_id: int, space: str, vec) -
     _check(kind, VECTOR_KINDS)
     conn.execute(f"DELETE FROM vec_{kind} WHERE rowid = ?", (row_id,))
     conn.execute(
-        f"INSERT INTO vec_{kind} (rowid, space, embedding) VALUES (?, ?, ?)", (row_id, space, to_blob(vec))
+        f"INSERT INTO vec_{kind} (rowid, space, embedding) VALUES (?, ?, ?)",
+        (row_id, space, to_blob(vec)),
     )
 
 
@@ -29,7 +30,9 @@ def vec_drop(conn: sqlite3.Connection, kind: str, row_id: int) -> None:
     conn.execute(f"DELETE FROM vec_{kind} WHERE rowid = ?", (row_id,))
 
 
-def vec_search(conn: sqlite3.Connection, kind: str, space: str, vec, k: int) -> list[tuple[int, float]]:
+def vec_search(
+    conn: sqlite3.Connection, kind: str, space: str, vec, k: int
+) -> list[tuple[int, float]]:
     """The k nearest rows in the space as (id, cosine similarity), most similar first."""
     _check(kind, VECTOR_KINDS)
     rows = conn.execute(
@@ -55,8 +58,12 @@ def stems(conn: sqlite3.Connection, texts: list[str]) -> list[set[str]]:
     """The set of index terms of each text, produced by the FTS tables' own tokenizer (porter stemming
     included) via a per-connection TEMP scratch table and its fts5vocab view, so symbolic term
     comparisons agree exactly with what MATCH matched. Only TEMP state is written."""
-    conn.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_scratch USING fts5(text, tokenize = '{FTS_TOKENIZER}')")
-    conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_terms USING fts5vocab(temp, stem_scratch, instance)")
+    conn.execute(
+        f"CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_scratch USING fts5(text, tokenize = '{FTS_TOKENIZER}')"
+    )
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_terms USING fts5vocab(temp, stem_scratch, instance)"
+    )
     conn.execute("DELETE FROM temp.stem_scratch")
     conn.executemany("INSERT INTO temp.stem_scratch (rowid, text) VALUES (?, ?)", enumerate(texts))
     out: list[set[str]] = [set() for _ in texts]
@@ -75,7 +82,9 @@ class TextHit(NamedTuple):
 def text_put(conn: sqlite3.Connection, kind: str, row_id: int, space: str, text: str) -> None:
     _check(kind, TEXT_KINDS)
     conn.execute(f"DELETE FROM fts_{kind} WHERE rowid = ?", (row_id,))
-    conn.execute(f"INSERT INTO fts_{kind} (rowid, text, space) VALUES (?, ?, ?)", (row_id, text, space))
+    conn.execute(
+        f"INSERT INTO fts_{kind} (rowid, text, space) VALUES (?, ?, ?)", (row_id, text, space)
+    )
 
 
 def text_drop(conn: sqlite3.Connection, kind: str, row_id: int) -> None:
@@ -83,7 +92,9 @@ def text_drop(conn: sqlite3.Connection, kind: str, row_id: int) -> None:
     conn.execute(f"DELETE FROM fts_{kind} WHERE rowid = ?", (row_id,))
 
 
-def text_search(conn: sqlite3.Connection, kind: str, space: str, text: str, k: int) -> list[TextHit]:
+def text_search(
+    conn: sqlite3.Connection, kind: str, space: str, text: str, k: int
+) -> list[TextHit]:
     """Best BM25 matches in the space, best first, with their term overlap with the query in both
     directions (BM25 ranks; overlap says how much of the query a hit actually matched)."""
     _check(kind, TEXT_KINDS)
@@ -98,6 +109,11 @@ def text_search(conn: sqlite3.Connection, kind: str, space: str, text: str, k: i
     if not rows:
         return []
     query_terms, *row_terms = stems(conn, [text] + [r[1] for r in rows])
-    return [TextHit(int(r[0]), len(query_terms & t) / len(query_terms) if query_terms else 0.0,
-                    len(query_terms & t) / len(t) if t else 0.0)
-            for r, t in zip(rows, row_terms)]
+    return [
+        TextHit(
+            int(r[0]),
+            len(query_terms & t) / len(query_terms) if query_terms else 0.0,
+            len(query_terms & t) / len(t) if t else 0.0,
+        )
+        for r, t in zip(rows, row_terms, strict=False)
+    ]

@@ -16,7 +16,10 @@ def test_sleep_reads_records_in_batches(store, config, fake_llm):
     llm = fake_llm([NOTHING, NOTHING])
     report = Sleeper(store, config, llm, "m").run("s", now=100.0)
     assert (report.batches, report.episodes, report.failed_batches) == (2, 3, 0)
-    assert store.pending_episodes("s", 10) == [] and llm.json_kwargs[0] == {"schema": JSON_SCHEMA, "temperature": 0.0}
+    assert store.pending_episodes("s", 10) == [] and llm.json_kwargs[0] == {
+        "schema": JSON_SCHEMA,
+        "temperature": 0.0,
+    }
 
 
 def test_lines_are_numbered_and_assistant_turns_are_context(store, config, fake_llm):
@@ -92,11 +95,17 @@ def test_an_oversized_record_is_cut_to_the_budget(store, config, fake_llm):
     assert llm.calls[0][1]["content"].count("[s") < 20
 
 
-def test_context_shows_known_names_aliases_attributes_and_states(store, config, fake_llm, seed_state):
+def test_context_shows_known_names_aliases_attributes_and_states(
+    store, config, fake_llm, seed_state
+):
     seed_state(store, "s", "home_city", "Pune", text="I live in Pune")
     store.add_alias("s", "Sahil", store.user_entity("s"))
     turn(store, config, "Thinking about moving house soon.")
     llm = fake_llm([NOTHING])
     Sleeper(store, config, llm, "m").run("s", now=100.0)
     prompt = llm.calls[0][1]["content"]
-    assert "user (also called: sahil)" in prompt and "home_city" in prompt and "- user · home city: Pune" in prompt
+    assert (
+        "user (also called: sahil)" in prompt
+        and "home_city" in prompt
+        and "- user · home city: Pune" in prompt
+    )

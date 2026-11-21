@@ -110,6 +110,30 @@ CREATE TABLE IF NOT EXISTS event_participants (
 CREATE TABLE IF NOT EXISTS sleep_leases (space TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at REAL NOT NULL);
 
 CREATE TABLE IF NOT EXISTS novelty_stats (space TEXT PRIMARY KEY, scores TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS loci (
+    id INTEGER PRIMARY KEY,
+    space TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    gist TEXT NOT NULL DEFAULT '',
+    vec BLOB,
+    occurred_at REAL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_loci_space_ordinal ON loci(space, ordinal);
+
+CREATE TABLE IF NOT EXISTS locus_states (
+    locus_id INTEGER NOT NULL REFERENCES loci(id),
+    state_id INTEGER NOT NULL REFERENCES states(id),
+    PRIMARY KEY (locus_id, state_id)
+);
+
+CREATE TABLE IF NOT EXISTS locus_episodes (
+    locus_id INTEGER NOT NULL REFERENCES loci(id),
+    episode_id INTEGER NOT NULL REFERENCES episodes(id),
+    PRIMARY KEY (locus_id, episode_id)
+);
 """
 
 # Shared by every FTS table and by index.stems, so symbolic term matching uses the index's own tokenizer.
@@ -146,8 +170,12 @@ def init_schema(conn: sqlite3.Connection, dim: int) -> None:
     if row is None:
         conn.execute("INSERT INTO meta (key, value) VALUES ('embedding_dim', ?)", (str(dim),))
     elif int(row["value"]) != dim:
-        raise ValueError(f"Database was created with embedding_dim={row['value']}, config has {dim}")
-    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
+        raise ValueError(
+            f"Database was created with embedding_dim={row['value']}, config has {dim}"
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", (SCHEMA_VERSION,)
+    )
     for kind in VECTOR_KINDS:
         conn.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_{kind} USING vec0("

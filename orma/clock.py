@@ -94,17 +94,27 @@ def resolve(phrase: str, said_at: float, tz: tzinfo | None, date_order: str = ""
         import dateparser
     except ImportError:
         dateparser = None
-    settings = {"RELATIVE_BASE": local(said_at, tz).replace(tzinfo=None), "PREFER_DATES_FROM": "past",
-                "PREFER_DAY_OF_MONTH": "first", "RETURN_AS_TIMEZONE_AWARE": False}
+    settings = {
+        "RELATIVE_BASE": local(said_at, tz).replace(tzinfo=None),
+        "PREFER_DATES_FROM": "past",
+        "PREFER_DAY_OF_MONTH": "first",
+        "RETURN_AS_TIMEZONE_AWARE": False,
+    }
     if date_order:
         settings["DATE_ORDER"] = date_order
     words = phrase.split()
-    for i in range(len(words)):  # longest suffix first, so "in March 2024" is not cut down to "2024"
+    for i in range(
+        len(words)
+    ):  # longest suffix first, so "in March 2024" is not cut down to "2024"
         suffix = " ".join(words[i:])
-        stamp = parse_time(suffix, None, tz)  # ISO (a bare year stays January 1st, as dateparser would not)
+        stamp = parse_time(
+            suffix, None, tz
+        )  # ISO (a bare year stays January 1st, as dateparser would not)
         if stamp is not None:
             return stamp
-        parsed = dateparser.parse(suffix, languages=["en"], settings=settings) if dateparser else None
+        parsed = (
+            dateparser.parse(suffix, languages=["en"], settings=settings) if dateparser else None
+        )
         if parsed is not None:
             return midnight(parsed.date(), tz)
     return None

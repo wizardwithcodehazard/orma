@@ -45,7 +45,9 @@ class SleepScheduler:
             return []
         done: list[str] = []
         try:
-            pending_spaces = [space for space, pending, _ in self.memory.store.pending_stats() if pending > 0]
+            pending_spaces = [
+                space for space, pending, _ in self.memory.store.pending_stats() if pending > 0
+            ]
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed checking pending stats during flush: %s", exc)
             return done

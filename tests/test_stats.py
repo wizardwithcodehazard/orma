@@ -8,8 +8,15 @@ def test_stats_count_memory_by_kind(config, embedder, seed_state):
     s.close_state(old, 2.0)
     seed_state(s, "s", "home_city", "Bangalore", now=2.0)
     mem.observe("user", "hello there. how are you", space="s")
-    assert mem.stats("s") == {"records": 3, "pending_records": 1, "sentences": 4, "entities": 1,
-                              "current_states": 1, "past_states": 1, "events": 0}
+    assert mem.stats("s") == {
+        "records": 3,
+        "pending_records": 1,
+        "sentences": 4,
+        "entities": 1,
+        "current_states": 1,
+        "past_states": 1,
+        "events": 0,
+    }
     assert mem.stats("other")["records"] == 0
     mem.close()
 

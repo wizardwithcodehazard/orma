@@ -22,12 +22,19 @@ def test_similar_but_different_record_is_kept(store, config):
 
 
 def test_records_are_split_into_indexed_sentences(store, config):
-    result = Encoder(store, config).encode("s", "document", "Leave goes to Priya. The office closes at 7 pm.",
-                                           now=50.0, source="file:handbook.md", speaker="handbook.md")
+    result = Encoder(store, config).encode(
+        "s",
+        "document",
+        "Leave goes to Priya. The office closes at 7 pm.",
+        now=50.0,
+        source="file:handbook.md",
+        speaker="handbook.md",
+    )
     sentences = store.episode_sentences([result.episode_id])
     assert [(s.text, s.role, s.speaker, s.created_at) for s in sentences] == [
         ("Leave goes to Priya.", "document", "handbook.md", 50.0),
-        ("The office closes at 7 pm.", "document", "handbook.md", 50.0)]
+        ("The office closes at 7 pm.", "document", "handbook.md", 50.0),
+    ]
     assert store.episodes([result.episode_id])[0].source == "file:handbook.md"
     assert [hit.id for hit in store.text_search("sentences", "s", "office", 5)] == [sentences[1].id]
 

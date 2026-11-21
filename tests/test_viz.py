@@ -8,6 +8,8 @@ def test_export_connectome(tmp_path):
     mem = Memory(path=tmp_path)
     mem.add("I live in Indiranagar, Bangalore.")
     mem.add("My dentist is Dr. Rao.")
+    mem.checkpoint("Session 1", gist="First meeting in Bangalore")
+    mem.checkpoint("Session 2", gist="Follow up on dentist visit")
 
     # Export connectome from store/memory
     data = mem.export_connectome("default")
@@ -22,6 +24,13 @@ def test_export_connectome(tmp_path):
 
     # Verify hippocampus contains episodes
     assert len(data["hippocampus"]) >= 2
+
+    # Verify loci nodes and palace walk trajectory
+    loci_nodes = [n for n in data["nodes"] if n["type"] == "locus"]
+    assert len(loci_nodes) == 2
+    palace_links = [l for l in data["links"] if l["label"] == "palace_walk"]
+    assert len(palace_links) == 1
+    assert data["stats"]["loci"] == 2
     mem.close()
 
 
@@ -73,4 +82,3 @@ def test_viz_proxy_endpoints(tmp_path):
     assert res_add.json()["status"] == "added"
 
     mem.close()
-

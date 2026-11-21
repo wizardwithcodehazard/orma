@@ -46,8 +46,12 @@ class OrmaConfig:
     date_order: str = ""
 
     # Add: every record is kept in full; its sentences are the unit of recall and of citation in sleep.
-    novelty_duplicate_similarity: float = 0.97  # a record this close to one already kept is counted, not stored
-    novelty_warmup: int = 50  # samples before recall calibrates similarity against the space's own distribution
+    novelty_duplicate_similarity: float = (
+        0.97  # a record this close to one already kept is counted, not stored
+    )
+    novelty_warmup: int = (
+        50  # samples before recall calibrates similarity against the space's own distribution
+    )
     novelty_window: int = 500
     max_sentence_chars: int = 400  # longer sentences are split into pieces of at most this size
     max_tool_chars: int = 4000  # tool output kept per recorded turn by the proxy (head and tail)
@@ -60,19 +64,32 @@ class OrmaConfig:
     # Similarity floor = this percentile of the space's nearest-neighbour similarity distribution: what an
     # arbitrary record reaches by chance (small embedders give unrelated texts ~0.5), so it carries no evidence.
     similarity_floor_percentile: float = 50.0
-    base_level_decay: float = 0.5  # ACT-R d: a memory's strength is the sum of (age_days + 1) ** -d over its uses
-    use_weight: float = 0.3  # how much that strength can move a memory's rank: a bounded boost, never a filter
+    base_level_decay: float = (
+        0.5  # ACT-R d: a memory's strength is the sum of (age_days + 1) ** -d over its uses
+    )
+    use_weight: float = (
+        0.3  # how much that strength can move a memory's rank: a bounded boost, never a filter
+    )
     hawkes_alpha: float = 0.4  # amplitude of self-exciting temporal burst
     hawkes_half_life_seconds: float = 1800.0  # 30-min conversational excitation half-life
     ebbinghaus_stability_days: float = 2.0  # base memory stability in days
     ebbinghaus_gain: float = 0.5  # stability scaling per spaced rehearsal / citation
     max_passages: int = 12
     max_events: int = 6
-    max_query_states: int = 8  # states of others matched by the query (the user's own states are always shown)
-    activation_min_threshold: float = 0.05  # minimum spreading activation score for associated states
+    max_query_states: int = (
+        8  # states of others matched by the query (the user's own states are always shown)
+    )
+    activation_min_threshold: float = (
+        0.05  # minimum spreading activation score for associated states
+    )
     state_budget_share: float = 0.25  # "Now true" takes at most this share of the budget
     min_recent_turns: int = 2
-    recall_roles: tuple[str, ...] = ("user", "note", "document", "tool")  # whose sentences recall shows
+    recall_roles: tuple[str, ...] = (
+        "user",
+        "note",
+        "document",
+        "tool",
+    )  # whose sentences recall shows
 
     # Sleep (one LLM call per batch, in the background)
     sleep_after_episodes: int = 20
@@ -80,34 +97,96 @@ class OrmaConfig:
     sleep_batch_episodes: int = 12
     sleep_max_attempts: int = 3
     sleep_prompt_tokens: int = 3000
-    context_chars: int = 200  # an assistant turn is shown to sleep as this much context, never as evidence
-    citable_roles: tuple[str, ...] = ("user", "note", "document", "tool")  # whose lines a memory may cite
+    context_chars: int = (
+        200  # an assistant turn is shown to sleep as this much context, never as evidence
+    )
+    citable_roles: tuple[str, ...] = (
+        "user",
+        "note",
+        "document",
+        "tool",
+    )  # whose lines a memory may cite
     sleep_context_states: int = 20
     sleep_context_attributes: int = 30
     sleep_lease_seconds: float = 600.0
     entity_merge_threshold: float = 0.85
     attribute_merge_threshold: float = 0.8
-    policy_intent_margin: float = 0.06  # semantic margin for classifying un-dated directives as policy rules
-    condition_detection_margin: float = 0.05  # semantic margin for detecting conditional/defeasible framing
+    policy_intent_margin: float = (
+        0.06  # semantic margin for classifying un-dated directives as policy rules
+    )
+    condition_detection_margin: float = (
+        0.05  # semantic margin for detecting conditional/defeasible framing
+    )
     # The two closed word classes the holder check needs, English by default (replace both for another language):
     # words by which a speaker means themself, and words that refer back to someone already named.
-    first_person_words: tuple[str, ...] = ("i", "me", "my", "mine", "myself", "we", "us", "our", "ours", "ourselves")
-    third_person_words: tuple[str, ...] = ("she", "her", "hers", "herself", "he", "him", "his", "himself", "they",
-                                           "them", "their", "theirs", "it", "its", "itself")
+    first_person_words: tuple[str, ...] = (
+        "i",
+        "me",
+        "my",
+        "mine",
+        "myself",
+        "we",
+        "us",
+        "our",
+        "ours",
+        "ourselves",
+    )
+    third_person_words: tuple[str, ...] = (
+        "she",
+        "her",
+        "hers",
+        "herself",
+        "he",
+        "him",
+        "his",
+        "himself",
+        "they",
+        "them",
+        "their",
+        "theirs",
+        "it",
+        "its",
+        "itself",
+    )
 
     # Ablation switches
-    enable_semantic: bool = True  # sleep builds states and events; off = recall over kept sentences only (baseline)
+    enable_semantic: bool = (
+        True  # sleep builds states and events; off = recall over kept sentences only (baseline)
+    )
     enable_novelty_gate: bool = True
     enable_similarity_weighting: bool = True
-    enable_base_level: bool = True  # rank by recency and frequency of use (ACT-R); off = by match alone
+    enable_base_level: bool = (
+        True  # rank by recency and frequency of use (ACT-R); off = by match alone
+    )
     enable_hawkes: bool = True  # temporal self-exciting burst intensity for conversational momentum
     enable_ebbinghaus: bool = True  # spaced repetition memory stability scaling
-    enable_spreading_activation: bool = True  # ACT-R associative spreading activation with Fan Effect
-    enable_defeasible_logic: bool = True  # distinguish permanent overrides from conditional defeasible exceptions
-    enable_sutra_packing: bool = False  # dense symbolic bracket representation for high token efficiency
-    enable_schema_decoding: bool = True  # constrain extraction to the JSON schema (else plain JSON mode)
-    enable_grounding: bool = True  # a state's value must be in (or paraphrased by) the line it cites
-    enable_date_phrases: bool = True  # resolve date words ("last Saturday") against when they were said (else ISO only)
+    enable_spreading_activation: bool = (
+        True  # ACT-R associative spreading activation with Fan Effect
+    )
+    enable_defeasible_logic: bool = (
+        True  # distinguish permanent overrides from conditional defeasible exceptions
+    )
+    enable_sutra_packing: bool = (
+        False  # dense symbolic bracket representation for high token efficiency
+    )
+    enable_mmr: bool = True  # Maximal Marginal Relevance context diversification
+    mmr_lambda: float = 0.7  # 1.0 = pure relevance, 0.0 = pure diversity
+    enable_rocchio: bool = True  # Rocchio Pseudo-Relevance Feedback query expansion
+    rocchio_alpha: float = 0.7  # original query weight
+    rocchio_beta: float = 0.3  # pseudo-relevance feedback centroid weight
+    rocchio_top_k: int = 2  # number of top passages used for feedback centroid
+    enable_rerank: bool = True  # Cross-Encoder neural reranking with FlashRank
+    rerank_model: str = "ms-marco-TinyBERT-L-2-v2"  # Fast 3MB ONNX cross-encoder model
+    rerank_top_candidates: int = 30  # candidates retrieved by first pass before reranking
+    enable_schema_decoding: bool = (
+        True  # constrain extraction to the JSON schema (else plain JSON mode)
+    )
+    enable_grounding: bool = (
+        True  # a state's value must be in (or paraphrased by) the line it cites
+    )
+    enable_date_phrases: bool = (
+        True  # resolve date words ("last Saturday") against when they were said (else ISO only)
+    )
 
     @property
     def db_path(self) -> Path:

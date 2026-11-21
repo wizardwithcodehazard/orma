@@ -9,6 +9,7 @@ CANDIDATE_UPSTREAMS = [
     ("http://localhost:11434/v1", "llama3.2:3b"),
 ]
 
+
 def find_live_upstream():
     for url, model in CANDIDATE_UPSTREAMS:
         try:
@@ -21,7 +22,11 @@ def find_live_upstream():
             # Try a lightweight chat ping
             r = httpx.post(
                 f"{url}/chat/completions",
-                json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                },
                 timeout=2.0,
             )
             if r.status_code == 200:
@@ -58,17 +63,13 @@ def test_live_chat_and_sleep_consolidation(live_server, tmp_path):
     assert len(facts) >= 1
 
     # 4. Prompt context injection
-    context = mem.build_context([
-        {"role": "user", "content": "Where do I live?"}
-    ])
+    context = mem.build_context([{"role": "user", "content": "Where do I live?"}])
     assert len(context) > 1
     sys_prompt = context[0]["content"]
     assert "## Memory" in sys_prompt
 
     # 5. Live chat response through Memory SDK
-    reply = mem.chat([
-        {"role": "user", "content": "Where do I live?"}
-    ])
+    reply = mem.chat([{"role": "user", "content": "Where do I live?"}])
     assert isinstance(reply, str)
     assert len(reply) > 0
     # The model should be able to answer Pune based on the injected context

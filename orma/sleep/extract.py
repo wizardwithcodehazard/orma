@@ -15,41 +15,68 @@ from orma.llm import LLMError
 
 SCHEMA = {
     "user_name": "the name the user calls themself (e.g. 'I am Alice', 'Call me Bob'); leave empty \"\" if the line mentions someone else",
-    "states": [{
-        "s": "number of the line that states it",
-        "about": "\"user\" ONLY for the speaker's own facts; for any other person or thing mentioned (friend, colleague, relative, tool), their exact name (e.g. \"Bob\", \"Priya\")",
-        "attribute": "short snake_case name; reuse a KNOWN ATTRIBUTE when one fits",
-        "value": "the value, in the line's words",
-        "ended": "true when the line says this stopped being true (value = what stopped)",
-        "since": "the line's own words for when it started or ended ('last month', '2019'), else empty",
-        "condition": "situational rule or exception under which this holds (e.g. 'sore throat', 'weekends'), else empty",
-        "prohibited": "true if this declares an anti-pattern, forbidden mistake, or rule to avoid; else false",
-    }],
-    "events": [{
-        "s": "number of the line that tells it",
-        "what": "what happened, at most 15 words",
-        "when": "the line's own words for when ('last Saturday', '3 May'), else empty",
-        "who": ["names of the people or things involved; \"user\" for the person"],
-    }],
+    "states": [
+        {
+            "s": "number of the line that states it",
+            "about": '"user" ONLY for the speaker\'s own facts; for any other person or thing mentioned (friend, colleague, relative, tool), their exact name (e.g. "Bob", "Priya")',
+            "attribute": "short snake_case name; reuse a KNOWN ATTRIBUTE when one fits",
+            "value": "the value, in the line's words",
+            "ended": "true when the line says this stopped being true (value = what stopped)",
+            "since": "the line's own words for when it started or ended ('last month', '2019'), else empty",
+            "condition": "situational rule or exception under which this holds (e.g. 'sore throat', 'weekends'), else empty",
+            "prohibited": "true if this declares an anti-pattern, forbidden mistake, or rule to avoid; else false",
+        }
+    ],
+    "events": [
+        {
+            "s": "number of the line that tells it",
+            "what": "what happened, at most 15 words",
+            "when": "the line's own words for when ('last Saturday', '3 May'), else empty",
+            "who": ['names of the people or things involved; "user" for the person'],
+        }
+    ],
 }
 
 _STRING = {"type": "string"}
 
 
 def _array_of(properties: dict, required: list[str] | None = None) -> dict:
-    return {"type": "array", "items": {"type": "object", "properties": properties,
-                                       "required": list(properties) if required is None else required, "additionalProperties": False}}
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties) if required is None else required,
+            "additionalProperties": False,
+        },
+    }
 
 
 JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "user_name": _STRING,
-        "states": _array_of({"s": {"type": "integer"}, "about": _STRING, "attribute": _STRING, "value": _STRING,
-                             "ended": {"type": "boolean"}, "since": _STRING, "condition": _STRING, "prohibited": {"type": "boolean"}},
-                            required=["s", "about", "attribute", "value", "ended", "since"]),
-        "events": _array_of({"s": {"type": "integer"}, "what": _STRING, "when": _STRING,
-                             "who": {"type": "array", "items": _STRING}}),
+        "states": _array_of(
+            {
+                "s": {"type": "integer"},
+                "about": _STRING,
+                "attribute": _STRING,
+                "value": _STRING,
+                "ended": {"type": "boolean"},
+                "since": _STRING,
+                "condition": _STRING,
+                "prohibited": {"type": "boolean"},
+            },
+            required=["s", "about", "attribute", "value", "ended", "since"],
+        ),
+        "events": _array_of(
+            {
+                "s": {"type": "integer"},
+                "what": _STRING,
+                "when": _STRING,
+                "who": {"type": "array", "items": _STRING},
+            }
+        ),
     },
     "required": ["user_name", "states", "events"],
     "additionalProperties": False,
@@ -137,10 +164,18 @@ def parse_extraction(data: dict) -> Extraction:
         s, about = _line(item.get("s")), _text(item.get("about"))
         attribute, value = _text(item.get("attribute")), _text(item.get("value"))
         if s is not None and about and attribute and value:
-            out.states.append(ExtractedState(s, about, "_".join(attribute.lower().split()), value,
-                                             _flag(item.get("ended")), _text(item.get("since")),
-                                             _text(item.get("condition")),
-                                             _flag(item.get("prohibited"))))
+            out.states.append(
+                ExtractedState(
+                    s,
+                    about,
+                    "_".join(attribute.lower().split()),
+                    value,
+                    _flag(item.get("ended")),
+                    _text(item.get("since")),
+                    _text(item.get("condition")),
+                    _flag(item.get("prohibited")),
+                )
+            )
     for item in _items(data, "events"):
         s, what = _line(item.get("s")), _text(item.get("what"))
         who = item.get("who")
@@ -159,19 +194,29 @@ def format_line(sentence, tz: tzinfo | None, cite: bool, context_chars: int) -> 
 
 
 def build_messages(lines: list[str], context: ExtractionContext) -> list[dict]:
-    known = (f"KNOWN NAMES: {', '.join(context.names) or '(none)'}\n"
-             f"KNOWN ATTRIBUTES: {', '.join(context.attributes) or '(none)'}\n"
-             "KNOWN STATES:\n" + ("\n".join(f"- {s}" for s in context.states) or "(none)"))
+    known = (
+        f"KNOWN NAMES: {', '.join(context.names) or '(none)'}\n"
+        f"KNOWN ATTRIBUTES: {', '.join(context.attributes) or '(none)'}\n"
+        "KNOWN STATES:\n" + ("\n".join(f"- {s}" for s in context.states) or "(none)")
+    )
     return [
         {"role": "system", "content": INSTRUCTIONS.format(schema=json.dumps(SCHEMA, indent=1))},
         {"role": "user", "content": f"{known}\n\n<lines>\n" + "\n".join(lines) + "\n</lines>"},
     ]
 
 
-def extract(llm, model, lines: list[str], context: ExtractionContext, schema: dict | None = JSON_SCHEMA,
-            temperature: float = 0.0) -> Extraction:
+def extract(
+    llm,
+    model,
+    lines: list[str],
+    context: ExtractionContext,
+    schema: dict | None = JSON_SCHEMA,
+    temperature: float = 0.0,
+) -> Extraction:
     """schema: the JSON Schema to constrain decoding to, or None for plain JSON mode."""
-    data = llm.chat_json(build_messages(lines, context), model=model, schema=schema, temperature=temperature)
+    data = llm.chat_json(
+        build_messages(lines, context), model=model, schema=schema, temperature=temperature
+    )
     if not any(key in data for key in SCHEMA):
         raise LLMError("extraction missing schema keys")
     return parse_extraction(data)

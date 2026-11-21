@@ -18,7 +18,9 @@ def test_zone_names():
 
 
 def test_day_follows_the_users_zone_not_utc():
-    just_after_midnight_ist = datetime(2026, 10, 15, 0, 30, tzinfo=IST).timestamp()  # still the 14th in UTC
+    just_after_midnight_ist = datetime(
+        2026, 10, 15, 0, 30, tzinfo=IST
+    ).timestamp()  # still the 14th in UTC
     assert clock.day(just_after_midnight_ist, IST) == date(2026, 10, 15)
     assert clock.day(just_after_midnight_ist, timezone.utc) == date(2026, 10, 14)
 
@@ -29,20 +31,28 @@ def test_system_zone_works_even_near_1970():
 
 
 def test_naive_iso_is_read_in_the_users_zone():
-    assert clock.parse_time("2026-10-10", None, IST) == datetime(2026, 10, 10, tzinfo=IST).timestamp()
-    assert clock.parse_time("2026-10-10T08:00Z", None, IST) == datetime(2026, 10, 10, 8, tzinfo=timezone.utc).timestamp()
+    assert (
+        clock.parse_time("2026-10-10", None, IST) == datetime(2026, 10, 10, tzinfo=IST).timestamp()
+    )
+    assert (
+        clock.parse_time("2026-10-10T08:00Z", None, IST)
+        == datetime(2026, 10, 10, 8, tzinfo=timezone.utc).timestamp()
+    )
 
 
-@pytest.mark.parametrize("phrase, expected", [
-    ("last Saturday", date(2026, 10, 10)),
-    ("Saturday", date(2026, 10, 10)),
-    ("yesterday", date(2026, 10, 14)),
-    ("3 days ago", date(2026, 10, 12)),
-    ("last month", date(2026, 9, 15)),
-    ("in March 2024", date(2024, 3, 1)),
-    ("since 2019", date(2019, 1, 1)),
-    ("2026-10-09", date(2026, 10, 9)),
-])
+@pytest.mark.parametrize(
+    "phrase, expected",
+    [
+        ("last Saturday", date(2026, 10, 10)),
+        ("Saturday", date(2026, 10, 10)),
+        ("yesterday", date(2026, 10, 14)),
+        ("3 days ago", date(2026, 10, 12)),
+        ("last month", date(2026, 9, 15)),
+        ("in March 2024", date(2024, 3, 1)),
+        ("since 2019", date(2019, 1, 1)),
+        ("2026-10-09", date(2026, 10, 9)),
+    ],
+)
 def test_date_words_resolve_against_when_they_were_said(phrase, expected):
     pytest.importorskip("dateparser")
     assert day_of(clock.resolve(phrase, THU, IST)) == expected

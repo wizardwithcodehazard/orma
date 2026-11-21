@@ -27,6 +27,10 @@ def test_fake_embedder_reflects_word_overlap(embedder):
 
 def test_message_text_handles_strings_and_parts():
     assert message_text({"role": "user", "content": "hi"}) == "hi"
-    parts = [{"type": "text", "text": "a"}, {"type": "image_url", "image_url": {}}, {"type": "text", "text": "b"}]
+    parts = [
+        {"type": "text", "text": "a"},
+        {"type": "image_url", "image_url": {}},
+        {"type": "text", "text": "b"},
+    ]
     assert message_text({"role": "user", "content": parts}) == "a\nb"
     assert message_text({"role": "assistant", "content": None}) == ""

@@ -484,6 +484,10 @@ kbd,
     --c: var(--slate);
 }
 
+.pill[data-f="locus"] {
+    --c: #f59e0b;
+}
+
 .g {
     width: 16px;
     height: 16px;
@@ -706,6 +710,10 @@ kbd,
 
 #inspector[data-kind="superseded"] {
     --accent: var(--slate);
+}
+
+#inspector[data-kind="locus"] {
+    --accent: #f59e0b;
 }
 
 #inspector[data-kind="active"] {

@@ -37,7 +37,9 @@ def state_matches(state: State, spec: dict) -> bool:
     if "any" in spec:
         return any(state_matches(state, alt) for alt in spec["any"])
     text = f"{state.attribute.replace('_', ' ')} {state.value}".lower()
-    return state.subject.lower() in {n.lower() for n in spec["about"]} and all(t.lower() in text for t in spec["terms"])
+    return state.subject.lower() in {n.lower() for n in spec["about"]} and all(
+        t.lower() in text for t in spec["terms"]
+    )
 
 
 def label(spec: dict) -> str:
@@ -60,8 +62,14 @@ def score_memory(store: Store, space: str, expect: dict, tz) -> list[Check]:
     for spec in expect.get("closed", []):
         past = [st for st in history if st.valid_to is not None and state_matches(st, spec)]
         still = [st for st in current if state_matches(st, spec)]
-        checks.append(Check("closed", label(spec), bool(past) and not still,
-                            f"still current: {_show(still)}" if still else _show(past)))
+        checks.append(
+            Check(
+                "closed",
+                label(spec),
+                bool(past) and not still,
+                f"still current: {_show(still)}" if still else _show(past),
+            )
+        )
     for spec in expect.get("absent", []):
         wrong = [st for st in current if state_matches(st, spec)]
         checks.append(Check("absent", label(spec), not wrong, _show(wrong)))
@@ -69,13 +77,24 @@ def score_memory(store: Store, space: str, expect: dict, tz) -> list[Check]:
     for spec in expect.get("events", []):
         found = [e for e in events if all(t.lower() in e.gist.lower() for t in spec["terms"])]
         days = [clock.iso_day(e.occurred_at, tz) for e in found]
-        checks.append(Check("event", f"{' '.join(spec['terms'])} on {spec['date']}",
-                            any(day.startswith(spec["date"]) for day in days),
-                            ", ".join(days) if found else "no such event"))
+        checks.append(
+            Check(
+                "event",
+                f"{' '.join(spec['terms'])} on {spec['date']}",
+                any(day.startswith(spec["date"]) for day in days),
+                ", ".join(days) if found else "no such event",
+            )
+        )
     for name in expect.get("user_aliases", []):
         entity = store.find_entity(space, name)
-        checks.append(Check("alias", f"{name} is the user", entity is not None and entity.name == USER_ENTITY,
-                            "unknown" if entity is None else f"resolves to {entity.name}"))
+        checks.append(
+            Check(
+                "alias",
+                f"{name} is the user",
+                entity is not None and entity.name == USER_ENTITY,
+                "unknown" if entity is None else f"resolves to {entity.name}",
+            )
+        )
     return checks
 
 
@@ -94,5 +113,6 @@ def _says(text: str, phrase: str) -> bool:
 def answer_passes(answer: str, must: list[list[str]], must_not: list[list[str]]) -> bool:
     """Every must group has an alternative in the answer and no must_not group does."""
     text = " ".join(answer.lower().split())
-    return (all(any(_says(text, alt) for alt in group) for group in must)
-            and not any(any(_says(text, alt) for alt in group) for group in must_not))
+    return all(any(_says(text, alt) for alt in group) for group in must) and not any(
+        any(_says(text, alt) for alt in group) for group in must_not
+    )

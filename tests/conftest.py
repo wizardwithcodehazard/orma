@@ -88,14 +88,26 @@ def noisy_store(config):
 def _seed_state(store, space, attribute, value, subject="user", text=None, now=1.0, valid_to=None):
     """A state backed by a real record and sentence, as sleep would leave it."""
     text = text or f"{subject} {attribute.replace('_', ' ')} {value}"
-    episode_id = store.add_episode(space, "user", text, None, 1.0, store.embed(text), now=now, speaker="user")
-    (sentence_id,) = store.add_sentences(space, store.episodes([episode_id])[0], [text], [store.embed(text)])
-    subject_id = store.user_entity(space) if subject == "user" else (
-        getattr(store.find_entity(space, subject), "id", None) or store.add_entity(space, subject, "thing"))
+    episode_id = store.add_episode(
+        space, "user", text, None, 1.0, store.embed(text), now=now, speaker="user"
+    )
+    (sentence_id,) = store.add_sentences(
+        space, store.episodes([episode_id])[0], [text], [store.embed(text)]
+    )
+    subject_id = (
+        store.user_entity(space)
+        if subject == "user"
+        else (
+            getattr(store.find_entity(space, subject), "id", None)
+            or store.add_entity(space, subject, "thing")
+        )
+    )
     found = store.find_attribute(space, attribute)
     attribute_id = found.id if found else store.add_attribute(space, attribute)
     store.mark_consolidated([episode_id], now)  # as sleep leaves it
-    return store.add_state(space, subject_id, attribute_id, value, now, sentence_id, now, valid_to=valid_to)
+    return store.add_state(
+        space, subject_id, attribute_id, value, now, sentence_id, now, valid_to=valid_to
+    )
 
 
 @pytest.fixture

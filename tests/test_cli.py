@@ -10,7 +10,9 @@ runner = CliRunner()
 
 @pytest.fixture
 def seeded(config, embedder, monkeypatch, seed_state):
-    monkeypatch.setattr(cli, "_memory", lambda upstream=None, model=None: Memory(config=config, embedder=embedder))
+    monkeypatch.setattr(
+        cli, "_memory", lambda upstream=None, model=None: Memory(config=config, embedder=embedder)
+    )
     mem = Memory(config=config, embedder=embedder)
     state_id = seed_state(mem.store, "default", "home_city", "Pune", text="I live in Pune")
     mem.close()
@@ -19,7 +21,17 @@ def seeded(config, embedder, monkeypatch, seed_state):
 
 def test_help_lists_commands():
     out = runner.invoke(cli.app, ["--help"]).output
-    for command in ("add", "search", "proxy", "sleep", "rebuild", "facts", "recall", "forget", "stats"):
+    for command in (
+        "add",
+        "search",
+        "proxy",
+        "sleep",
+        "rebuild",
+        "facts",
+        "recall",
+        "forget",
+        "stats",
+    ):
         assert command in out
 
 
@@ -34,13 +46,20 @@ def test_facts_show_the_sentence_and_forget_ends_the_state(seeded):
 
 
 def test_add_text_and_file_then_search(seeded, tmp_path):
-    assert "Kept 1 of 1 records" in runner.invoke(cli.app, ["add", "My dentist is Dr. Rao in Kothrud."]).output
+    assert (
+        "Kept 1 of 1 records"
+        in runner.invoke(cli.app, ["add", "My dentist is Dr. Rao in Kothrud."]).output
+    )
     notes = tmp_path / "trip.md"
-    notes.write_text("Packing list for Manali: jacket, boots.\n\nTrain leaves at 6 am.", encoding="utf-8")
+    notes.write_text(
+        "Packing list for Manali: jacket, boots.\n\nTrain leaves at 6 am.", encoding="utf-8"
+    )
     assert "Kept 1 of 1 records" in runner.invoke(cli.app, ["add", str(notes)]).output
     out = runner.invoke(cli.app, ["search", "dentist"]).output
     assert "Things said:" in out and "My dentist is Dr. Rao in Kothrud." in out
-    assert "trip.md: Train leaves at 6 am." in runner.invoke(cli.app, ["search", "train time"]).output
+    assert (
+        "trip.md: Train leaves at 6 am." in runner.invoke(cli.app, ["search", "train time"]).output
+    )
 
 
 def test_recall_prints_the_memory_block(seeded):
@@ -89,4 +108,3 @@ def test_proxy_open_and_up_command(seeded, monkeypatch):
     res = runner.invoke(cli.app, ["up"])
     assert res.exit_code == 0
     assert "Web UI available at: http://127.0.0.1:8080/#/" in res.output
-

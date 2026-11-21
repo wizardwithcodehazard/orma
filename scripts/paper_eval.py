@@ -92,7 +92,9 @@ def is_fuzzy_match(retrieved_text: str, gold_text: str) -> bool:
     return False
 
 
-def evaluate_locomo_ir(mem, conv_data: dict, evidence_index: dict) -> list[dict]:
+def evaluate_locomo_ir(
+    mem, conv_data: dict, evidence_index: dict, use_palace: bool = False
+) -> list[dict]:
     """Evaluates Orma on the official LoCoMo QA questions for one conversation."""
     qa_list = conv_data.get("qa", [])
     k_values = [1, 5, 10, 20]
@@ -115,7 +117,19 @@ def evaluate_locomo_ir(mem, conv_data: dict, evidence_index: dict) -> list[dict]
         # Ranked list of retrieved texts (passages first, then states)
         ranked_passages = [s.text for s, _score in search_res.passages]
         state_passages = [st.value for st in search_res.states]
-        all_ranked = ranked_passages + state_passages
+
+        if use_palace:
+            walk_res = mem.walk_palace(question, radius=1)
+            palace_passages = [s.text for s in walk_res.sentences]
+            combined: list[str] = []
+            seen: set[str] = set()
+            for p in ranked_passages[:5] + palace_passages + ranked_passages[5:]:
+                if p not in seen:
+                    seen.add(p)
+                    combined.append(p)
+            all_ranked = combined + state_passages
+        else:
+            all_ranked = ranked_passages + state_passages
 
         # Full context text (what Orma injects into the system prompt)
         ctx = mem.build_context([{"role": "user", "content": question}])
@@ -150,16 +164,28 @@ def evaluate_locomo_ir(mem, conv_data: dict, evidence_index: dict) -> list[dict]
         ans_exact = is_exact_match(full_sys_text, gold_answer) if gold_answer.strip() else False
         ans_fuzzy = is_fuzzy_match(full_sys_text, gold_answer) if gold_answer.strip() else False
 
-        query_results.append({
-            "category": cat,
-            "category_name": CATEGORY_NAMES.get(cat, f"Category {cat}"),
-            "exact_rr": (1.0 / exact_first_hit) if exact_first_hit is not None else 0.0,
-            "fuzzy_rr": (1.0 / fuzzy_first_hit) if fuzzy_first_hit is not None else 0.0,
-            **{f"exact_r{k}": 1.0 if (exact_first_hit is not None and exact_first_hit <= k) else 0.0 for k in k_values},
-            **{f"fuzzy_r{k}": 1.0 if (fuzzy_first_hit is not None and fuzzy_first_hit <= k) else 0.0 for k in k_values},
-            "ans_exact": 1.0 if ans_exact else 0.0,
-            "ans_fuzzy": 1.0 if ans_fuzzy else 0.0,
-        })
+        query_results.append(
+            {
+                "category": cat,
+                "category_name": CATEGORY_NAMES.get(cat, f"Category {cat}"),
+                "exact_rr": (1.0 / exact_first_hit) if exact_first_hit is not None else 0.0,
+                "fuzzy_rr": (1.0 / fuzzy_first_hit) if fuzzy_first_hit is not None else 0.0,
+                **{
+                    f"exact_r{k}": 1.0
+                    if (exact_first_hit is not None and exact_first_hit <= k)
+                    else 0.0
+                    for k in k_values
+                },
+                **{
+                    f"fuzzy_r{k}": 1.0
+                    if (fuzzy_first_hit is not None and fuzzy_first_hit <= k)
+                    else 0.0
+                    for k in k_values
+                },
+                "ans_exact": 1.0 if ans_exact else 0.0,
+                "ans_fuzzy": 1.0 if ans_fuzzy else 0.0,
+            }
+        )
 
     return query_results
 
@@ -215,7 +241,9 @@ def evaluate_latency_and_compression(mem, conv_data: dict) -> dict:
     }
 
 
-def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str, enable_sleep: bool = True) -> int:
+def ingest_dialogues(
+    mem, conv_data: dict, upstream_url: str, model_name: str, enable_sleep: bool = True
+) -> int:
     """Ingests official LoCoMo multi-session conversation turns into Orma."""
     conv_obj = conv_data.get("conversation", {})
     if not isinstance(conv_obj, dict):
@@ -232,8 +260,9 @@ def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str, e
     s_nums.sort()
 
     total_turns = 0
-    for _, skey in s_nums:
+    for s_idx, skey in s_nums:
         s_date = conv_obj.get(f"{skey}_date_time", "")
+        mem.checkpoint(label=f"Session {s_idx}", gist=f"Session {s_idx} dialogue {s_date}")
         for turn in conv_obj.get(skey, []):
             spk = turn.get("speaker", "")
             role = "user" if spk == spk_a else "assistant"
@@ -249,7 +278,9 @@ def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str, e
         t0 = time.time()
         report = mem.sleep()
         elapsed = time.time() - t0
-        print(f"  Sleep consolidation finished in {elapsed:.1f}s (batches: {report.batches}, failed: {report.failed_batches})")
+        print(
+            f"  Sleep consolidation finished in {elapsed:.1f}s (batches: {report.batches}, failed: {report.failed_batches})"
+        )
 
         if report.failed_batches > 0:
             try:
@@ -260,7 +291,9 @@ def ingest_dialogues(mem, conv_data: dict, upstream_url: str, model_name: str, e
                 print(f"  [Sleep Note]: {err_msg[:120]}")
             except Exception:  # noqa: BLE001, S110
                 pass
-            print("  (Note: Orma automatically falls back to raw hybrid search over all indexed turns.)")
+            print(
+                "  (Note: Orma automatically falls back to raw hybrid search over all indexed turns.)"
+            )
     else:
         print("  Running in Pure Episodic Memory Mode (Zero-LLM baseline).")
 
@@ -274,14 +307,21 @@ def run_benchmark(
     model_name: str = "qwen2.5:3b",
     conversations: int = 10,
     multilingual: bool = False,
+    no_llm: bool = False,
+    use_palace: bool = False,
 ):
     from orma import Memory, OrmaConfig
     from orma.llm import LLMClient
 
-    if not Path(dataset_path).exists():
-        print("Downloading official LoCoMo dataset from Snap Research...")
-        url = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json"
-        subprocess.run(["curl", "-L", "-o", dataset_path, url], check=True)
+    ds_p = Path(dataset_path)
+    if not ds_p.exists():
+        parent_p = Path("..") / dataset_path
+        if parent_p.exists():
+            dataset_path = str(parent_p)
+        else:
+            print("Downloading official LoCoMo dataset from Snap Research...")
+            url = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json"
+            subprocess.run(["curl", "-L", "-o", dataset_path, url], check=True)
 
     with open(dataset_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
@@ -293,16 +333,25 @@ def run_benchmark(
     all_raw_tokens = []
 
     # Check if upstream LLM endpoint is live
-    enable_sleep = True
-    base_check_url = upstream_url.rstrip("/v1").rstrip("/") + "/"
-    try:
-        import urllib.request
-        resp = urllib.request.urlopen(base_check_url, timeout=2.0)
-        print(f"  [LLM Engine]: Upstream {upstream_url} is active (status {resp.status}).")
-    except Exception as e:  # noqa: BLE001
+    if no_llm:
         enable_sleep = False
-        print(f"  [LLM Engine]: Upstream {upstream_url} is offline ({e}).")
+        print("  [LLM Engine]: Disabled via --no-llm flag.")
         print("  --> Operating in Pure Episodic Memory Mode (Zero-LLM Baseline).")
+    else:
+        enable_sleep = True
+        base_check_url = upstream_url.rstrip("/v1").rstrip("/") + "/"
+        try:
+            import urllib.request
+
+            resp = urllib.request.urlopen(base_check_url, timeout=2.0)
+            print(f"  [LLM Engine]: Upstream {upstream_url} is active (status {resp.status}).")
+        except Exception as e:  # noqa: BLE001
+            enable_sleep = False
+            print(f"  [LLM Engine]: Upstream {upstream_url} is offline ({e}).")
+            print("  --> Operating in Pure Episodic Memory Mode (Zero-LLM Baseline).")
+
+    if use_palace:
+        print("  [Memory Palace]: Method of Loci Palace Walk is ENABLED for topological recall.")
 
     for idx in range(num_convs):
         conv = dataset[idx]
@@ -313,7 +362,9 @@ def run_benchmark(
 
         # Fresh isolated memory per conversation in tempdir
         temp_dir = Path(tempfile.gettempdir()) / f"orma_locomo_{cid}_{int(time.time())}_{idx}"
-        config = OrmaConfig(data_dir=temp_dir, multilingual=multilingual, max_passages=20, sleep_batch_episodes=60)
+        config = OrmaConfig(
+            data_dir=temp_dir, multilingual=multilingual, max_passages=20, sleep_batch_episodes=60
+        )
         llm = LLMClient(upstream_url, model=model_name, timeout=600.0) if enable_sleep else None
         mem = Memory(config=config, upstream=upstream_url, model=model_name, llm=llm)
 
@@ -322,7 +373,7 @@ def run_benchmark(
 
         # 1. Information Retrieval Evaluation
         print("  Evaluating Evidence & Answer Retrieval...")
-        q_results = evaluate_locomo_ir(mem, conv, evidence_index)
+        q_results = evaluate_locomo_ir(mem, conv, evidence_index, use_palace=use_palace)
         all_queries.extend(q_results)
 
         # 2. Latency & Compression Evaluation
@@ -338,18 +389,32 @@ def run_benchmark(
     k_vals = [1, 5, 10, 20]
 
     # Overall Metrics
-    exact_mrr = round(statistics.mean([q["exact_rr"] for q in all_queries]) * 100, 2) if all_queries else 0
-    fuzzy_mrr = round(statistics.mean([q["fuzzy_rr"] for q in all_queries]) * 100, 2) if all_queries else 0
+    exact_mrr = (
+        round(statistics.mean([q["exact_rr"] for q in all_queries]) * 100, 2) if all_queries else 0
+    )
+    fuzzy_mrr = (
+        round(statistics.mean([q["fuzzy_rr"] for q in all_queries]) * 100, 2) if all_queries else 0
+    )
 
-    exact_recall = {k: round(statistics.mean([q[f"exact_r{k}"] for q in all_queries]) * 100, 2) for k in k_vals}
-    fuzzy_recall = {k: round(statistics.mean([q[f"fuzzy_r{k}"] for q in all_queries]) * 100, 2) for k in k_vals}
+    exact_recall = {
+        k: round(statistics.mean([q[f"exact_r{k}"] for q in all_queries]) * 100, 2) for k in k_vals
+    }
+    fuzzy_recall = {
+        k: round(statistics.mean([q[f"fuzzy_r{k}"] for q in all_queries]) * 100, 2) for k in k_vals
+    }
 
-    exact_ans_recall = round(statistics.mean([q["ans_exact"] for q in all_queries]) * 100, 2) if all_queries else 0
-    fuzzy_ans_recall = round(statistics.mean([q["ans_fuzzy"] for q in all_queries]) * 100, 2) if all_queries else 0
+    exact_ans_recall = (
+        round(statistics.mean([q["ans_exact"] for q in all_queries]) * 100, 2) if all_queries else 0
+    )
+    fuzzy_ans_recall = (
+        round(statistics.mean([q["ans_fuzzy"] for q in all_queries]) * 100, 2) if all_queries else 0
+    )
 
     # System Performance Metrics
     p50_lat = round(statistics.median(all_latencies), 2) if all_latencies else 0
-    p95_lat = round(sorted(all_latencies)[int(len(all_latencies) * 0.95)], 2) if all_latencies else 0
+    p95_lat = (
+        round(sorted(all_latencies)[int(len(all_latencies) * 0.95)], 2) if all_latencies else 0
+    )
     mean_ctx = round(statistics.mean(all_context_tokens)) if all_context_tokens else 0
     mean_raw = round(statistics.mean(all_raw_tokens)) if all_raw_tokens else 0
     compression = round((1 - mean_ctx / max(1, mean_raw)) * 100, 1) if mean_raw else 0
@@ -373,8 +438,12 @@ def run_benchmark(
             "fuzzy_ans_recall": round(statistics.mean([q["ans_fuzzy"] for q in cat_q]) * 100, 2),
         }
 
-    is_full_eval = (num_convs == len(dataset))
-    eval_scope = "FULL DATASET EVALUATION" if is_full_eval else f"PILOT EVALUATION ({num_convs} OF {len(dataset)} CONVERSATIONS)"
+    is_full_eval = num_convs == len(dataset)
+    eval_scope = (
+        "FULL DATASET EVALUATION"
+        if is_full_eval
+        else f"PILOT EVALUATION ({num_convs} OF {len(dataset)} CONVERSATIONS)"
+    )
 
     final_report = {
         "benchmark": "Official Snap Research LoCoMo Benchmark",
@@ -422,15 +491,27 @@ def run_benchmark(
     print("-" * 76)
     print("  EVIDENCE RETRIEVAL PERFORMANCE (DUAL DISCLOSURE):")
     print(f"  - Exact MRR:                   {exact_mrr}%  | Fuzzy MRR:        {fuzzy_mrr}%")
-    print(f"  - Exact Recall@1:              {exact_recall[1]}%  | Fuzzy Recall@1:   {fuzzy_recall[1]}%")
-    print(f"  - Exact Recall@5:              {exact_recall[5]}%  | Fuzzy Recall@5:   {fuzzy_recall[5]}%")
-    print(f"  - Exact Recall@10:             {exact_recall[10]}%  | Fuzzy Recall@10:  {fuzzy_recall[10]}%")
-    print(f"  - Exact Recall@20:             {exact_recall[20]}%  | Fuzzy Recall@20:  {fuzzy_recall[20]}%")
-    print(f"  - Exact Answer-in-Context:     {exact_ans_recall}%  | Fuzzy Answer-in-Context: {fuzzy_ans_recall}%")
+    print(
+        f"  - Exact Recall@1:              {exact_recall[1]}%  | Fuzzy Recall@1:   {fuzzy_recall[1]}%"
+    )
+    print(
+        f"  - Exact Recall@5:              {exact_recall[5]}%  | Fuzzy Recall@5:   {fuzzy_recall[5]}%"
+    )
+    print(
+        f"  - Exact Recall@10:             {exact_recall[10]}%  | Fuzzy Recall@10:  {fuzzy_recall[10]}%"
+    )
+    print(
+        f"  - Exact Recall@20:             {exact_recall[20]}%  | Fuzzy Recall@20:  {fuzzy_recall[20]}%"
+    )
+    print(
+        f"  - Exact Answer-in-Context:     {exact_ans_recall}%  | Fuzzy Answer-in-Context: {fuzzy_ans_recall}%"
+    )
     print("-" * 76)
     print("  CATEGORY-WISE BREAKDOWN (ACROSS ALL CONVERSATIONS):")
     for cat_name, m in categories_eval.items():
-        print(f"  * {cat_name:24} (N={m['count']:3d}): Exact R@10={m['exact_r10']:5.2f}% (Fuzzy={m['fuzzy_r10']:5.2f}%) | Exact Ans={m['exact_ans_recall']:5.2f}%")
+        print(
+            f"  * {cat_name:24} (N={m['count']:3d}): Exact R@10={m['exact_r10']:5.2f}% (Fuzzy={m['fuzzy_r10']:5.2f}%) | Exact Ans={m['exact_ans_recall']:5.2f}%"
+        )
     print("-" * 76)
     print("  SYSTEM EFFICIENCY & LATENCY:")
     print(f"  - Retrieval Latency p50:       {p50_lat} ms")
@@ -445,10 +526,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Official LoCoMo Benchmark for Orma")
     parser.add_argument("--dataset", default="locomo10.json", help="Path to official locomo10.json")
     parser.add_argument("--output", default="official_locomo_report.json", help="Output JSON path")
-    parser.add_argument("--upstream", default="http://127.0.0.1:11434/v1", help="Ollama / vLLM endpoint")
+    parser.add_argument(
+        "--upstream", default="http://127.0.0.1:11434/v1", help="Ollama / vLLM endpoint"
+    )
     parser.add_argument("--model", default="qwen2.5:3b", help="Model name")
-    parser.add_argument("--conversations", type=int, default=10, help="Number of conversations to benchmark (1-10)")
-    parser.add_argument("--multilingual", action="store_true", help="Enable multilingual embeddings")
+    parser.add_argument(
+        "--conversations", type=int, default=10, help="Number of conversations to benchmark (1-10)"
+    )
+    parser.add_argument(
+        "--multilingual", action="store_true", help="Enable multilingual embeddings"
+    )
+    parser.add_argument(
+        "--no-llm", action="store_true", help="Run in pure retrieval mode (zero LLM, no sleep)"
+    )
+    parser.add_argument(
+        "--use-palace",
+        action="store_true",
+        help="Enable Method of Loci Memory Palace topological walk",
+    )
     args = parser.parse_args()
 
     run_benchmark(
@@ -458,4 +553,6 @@ if __name__ == "__main__":
         model_name=args.model,
         conversations=args.conversations,
         multilingual=args.multilingual,
+        no_llm=args.no_llm,
+        use_palace=args.use_palace,
     )

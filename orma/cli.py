@@ -71,8 +71,10 @@ def _get_active_proxy_url(host: str = "127.0.0.1", port: int = 8080) -> str | No
 def add(
     content: str = typer.Argument(..., help="A file path, or the text itself."),
     space: str = typer.Option("default", help="Memory space."),
-    role: str | None = typer.Option(None, help="note (your own words) or document (default: document for a "
-                                               "file, note for text)."),
+    role: str | None = typer.Option(
+        None,
+        help="note (your own words) or document (default: document for a file, note for text).",
+    ),
 ):
     """Add a note or a text file to memory; it is searchable at once and consolidated at the next sleep."""
     if not content or not content.strip():
@@ -86,13 +88,15 @@ def add(
             results = memory.add_file(path, space, role=role or "document")
         else:
             results = memory.add(content, space, role=role or "note")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Add failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
     kept = [r for r in results if r.stored]
-    typer.echo(f"Kept {len(kept)} of {len(results)} records ({sum(r.sentences for r in kept)} sentences).")
+    typer.echo(
+        f"Kept {len(kept)} of {len(results)} records ({sum(r.sentences for r in kept)} sentences)."
+    )
 
 
 @app.command()
@@ -109,9 +113,9 @@ def search(
     try:
         found = memory.search(query, space)
         tz = clock.zone(memory.config.timezone)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Search failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
     if found.states:
@@ -121,7 +125,11 @@ def search(
     if found.passages:
         typer.echo("Things said:")
         for sentence, score in found.passages:
-            note = f"  [outdated: now {found.outdated[sentence.id].text}]" if sentence.id in found.outdated else ""
+            note = (
+                f"  [outdated: now {found.outdated[sentence.id].text}]"
+                if sentence.id in found.outdated
+                else ""
+            )
             typer.echo(f"  {score:.3f}  {sentence.label(tz)}{note}")
     if found.events:
         typer.echo("Events:")
@@ -131,17 +139,29 @@ def search(
 
 @app.command()
 def proxy(
-    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    upstream: str = typer.Option(
+        DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."
+    ),
     host: str = typer.Option("127.0.0.1", help="Interface to listen on."),
     port: int = typer.Option(8080, help="Port to listen on."),
-    model: str | None = typer.Option(None, help="Model for sleep consolidation (default: the model clients request)."),
+    model: str | None = typer.Option(
+        None, help="Model for sleep consolidation (default: the model clients request)."
+    ),
     sleep_upstream: str | None = typer.Option(
-        None, help="Base URL of the runtime for sleep consolidation (default: --upstream), e.g. a second server "
-                   "with a stronger model."),
+        None,
+        help="Base URL of the runtime for sleep consolidation (default: --upstream), e.g. a second server "
+        "with a stronger model.",
+    ),
     space: str = typer.Option("default", help="Memory space for requests that name none."),
-    sleep_poll: float = typer.Option(30.0, help="Seconds between background sleep checks; 0 disables."),
-    open_browser: bool = typer.Option(False, "--open", "-o", help="Open the Web UI in your browser automatically."),
-    multilingual: bool = typer.Option(False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."),
+    sleep_poll: float = typer.Option(
+        30.0, help="Seconds between background sleep checks; 0 disables."
+    ),
+    open_browser: bool = typer.Option(
+        False, "--open", "-o", help="Open the Web UI in your browser automatically."
+    ),
+    multilingual: bool = typer.Option(
+        False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."
+    ),
 ):
     """Run the memory proxy; point any OpenAI-compatible client at http://HOST:PORT/v1."""
     import threading
@@ -168,7 +188,9 @@ def proxy(
         memory.config.__post_init__()
     sleeps_on = f", sleep -> {sleep_upstream}" if sleep_upstream else ""
     ui_url = f"http://{host}:{target_port}/#/"
-    typer.echo(f"orma proxy on http://{host}:{target_port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})")
+    typer.echo(
+        f"orma proxy on http://{host}:{target_port}/v1 -> {upstream}{sleeps_on} (memory: {memory.config.db_path})"
+    )
     typer.echo(f"Web UI available at: {ui_url}")
 
     if open_browser:
@@ -185,14 +207,20 @@ def proxy(
 
 @app.command()
 def up(
-    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    upstream: str = typer.Option(
+        DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."
+    ),
     host: str = typer.Option("127.0.0.1", help="Interface to listen on."),
     port: int = typer.Option(8080, help="Port to listen on."),
     model: str | None = typer.Option(None, help="Model for sleep consolidation."),
     sleep_upstream: str | None = typer.Option(None, help="Base URL for sleep consolidation."),
     space: str = typer.Option("default", help="Memory space."),
-    sleep_poll: float = typer.Option(30.0, help="Seconds between background sleep checks; 0 disables."),
-    multilingual: bool = typer.Option(False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."),
+    sleep_poll: float = typer.Option(
+        30.0, help="Seconds between background sleep checks; 0 disables."
+    ),
+    multilingual: bool = typer.Option(
+        False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."
+    ),
 ):
     """Start the Orma proxy and open the Web UI in your browser immediately."""
     proxy(
@@ -210,14 +238,20 @@ def up(
 
 @app.command()
 def viz(
-    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    upstream: str = typer.Option(
+        DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."
+    ),
     host: str = typer.Option("127.0.0.1", help="Interface to listen on."),
     port: int = typer.Option(8080, help="Port to listen on."),
     model: str | None = typer.Option(None, help="Model for sleep consolidation."),
     sleep_upstream: str | None = typer.Option(None, help="Base URL for sleep consolidation."),
     space: str = typer.Option("default", help="Memory space to visualize."),
-    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the 3D Connectome in your browser."),
-    multilingual: bool = typer.Option(False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."),
+    open_browser: bool = typer.Option(
+        True, "--open/--no-open", help="Open the 3D Connectome in your browser."
+    ),
+    multilingual: bool = typer.Option(
+        False, "--multilingual", "-m", help="Use multilingual embeddings (Marathi, Hindi, etc.)."
+    ),
 ):
     """Launch the interactive 3D Cognitive Connectome visualizer."""
     import threading
@@ -265,14 +299,18 @@ def viz(
 
 
 def _report(report) -> str:
-    return (f"Consolidated {report.episodes} records in {report.batches} batches "
-            f"({report.failed_batches} failed): {report.consolidation}")
+    return (
+        f"Consolidated {report.episodes} records in {report.batches} batches "
+        f"({report.failed_batches} failed): {report.consolidation}"
+    )
 
 
 @app.command()
 def sleep(
     model: str | None = typer.Option(None, help="Model to consolidate with, e.g. llama3.2:3b."),
-    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    upstream: str = typer.Option(
+        DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."
+    ),
     space: str = typer.Option("default", help="Memory space."),
     host: str = typer.Option("127.0.0.1", help="Interface to look for running Orma proxy."),
     port: int = typer.Option(8080, help="Port of active Orma proxy."),
@@ -291,13 +329,17 @@ def sleep(
             with urllib.request.urlopen(req, timeout=300.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
-                    typer.echo(f"Consolidated via active Orma proxy on port {port}: "
-                               f"+{data.get('states_added', 0)} states, "
-                               f"+{data.get('events_added', 0)} events "
-                               f"({data.get('episodes_read', 0)} episodes read).")
+                    typer.echo(
+                        f"Consolidated via active Orma proxy on port {port}: "
+                        f"+{data.get('states_added', 0)} states, "
+                        f"+{data.get('events_added', 0)} events "
+                        f"({data.get('episodes_read', 0)} episodes read)."
+                    )
                     return
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            typer.echo(f"Proxy sleep delegation failed ({exc}), falling back to direct consolidation...")
+            typer.echo(
+                f"Proxy sleep delegation failed ({exc}), falling back to direct consolidation..."
+            )
 
     # Fallback / Standalone path: requires model specification
     target_model = model or os.environ.get("ORMA_MODEL")
@@ -312,17 +354,21 @@ def sleep(
     try:
         report = memory.sleep(space)
         typer.echo(_report(report))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Sleep consolidation failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
 
 
 @app.command()
 def rebuild(
-    model: str | None = typer.Option(None, help="Model to read everything with, e.g. a stronger one than chat uses."),
-    upstream: str = typer.Option(DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."),
+    model: str | None = typer.Option(
+        None, help="Model to read everything with, e.g. a stronger one than chat uses."
+    ),
+    upstream: str = typer.Option(
+        DEFAULT_UPSTREAM, help="OpenAI-compatible base URL of your local runtime."
+    ),
     space: str = typer.Option("default", help="Memory space."),
 ):
     """Forget all states and events and read every kept record again (records themselves are never lost)."""
@@ -336,9 +382,9 @@ def rebuild(
     try:
         report = memory.rebuild(space)
         typer.echo(_report(report))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Rebuild failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
 
@@ -347,20 +393,24 @@ def rebuild(
 def facts(
     entity: str | None = typer.Argument(None, help="Only states of this entity, e.g. user."),
     space: str = typer.Option("default", help="Memory space."),
-    history: bool = typer.Option(False, "--history", help="Include states that are no longer true."),
+    history: bool = typer.Option(
+        False, "--history", help="Include states that are no longer true."
+    ),
 ):
     """List remembered states, each with the sentence that stated it."""
     memory = _memory()
     try:
         tz = clock.zone(memory.config.timezone)
         for state in memory.facts(entity, space, include_closed=history):
-            note = "" if state.valid_to is None else f"  (until {clock.iso_day(state.valid_to, tz)})"
+            note = (
+                "" if state.valid_to is None else f"  (until {clock.iso_day(state.valid_to, tz)})"
+            )
             typer.echo(f"[{state.id}] {state.text}{note}")
             for sentence in memory.store.sentences([state.sentence_id]):
                 typer.echo(f"      {sentence.label(tz)}")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Error fetching facts: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
 
@@ -379,9 +429,9 @@ def recall(
     memory = _memory()
     try:
         context = memory.build_context([{"role": "user", "content": query}], space, budget)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Recall failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
     typer.echo(context[0]["content"] if context[0]["role"] == "system" else "(nothing recalled)")
@@ -396,9 +446,9 @@ def forget(
     memory = _memory()
     try:
         forgotten = memory.forget(state_id, space)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Forget failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
     typer.echo("Forgotten." if forgotten else "No current state with that id in this space.")
@@ -411,9 +461,9 @@ def stats(space: str = typer.Option("default", help="Memory space.")):
     memory = _memory()
     try:
         data = {"db": str(memory.config.db_path), "space": space, **memory.stats(space)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Stats failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
     typer.echo(json.dumps(data, indent=2))
@@ -422,17 +472,20 @@ def stats(space: str = typer.Option("default", help="Memory space.")):
 @app.command()
 def mcp(
     space: str = typer.Option("default", help="Default memory space for the MCP session."),
-    upstream: str | None = typer.Option(None, help="Upstream LLM for background sleep consolidation."),
+    upstream: str | None = typer.Option(
+        None, help="Upstream LLM for background sleep consolidation."
+    ),
     model: str | None = typer.Option(None, help="Model name for background sleep consolidation."),
 ):
     """Run Orma as a standard Model Context Protocol (MCP) server over stdio for coding assistants."""
     from orma.serve.mcp import run_mcp_server
+
     memory = _memory(upstream=upstream, model=model)
     try:
         run_mcp_server(memory, default_space=space)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"MCP server failed: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     finally:
         memory.close()
 

@@ -45,8 +45,10 @@ def test_state_matching_is_lenient_on_wording_and_strict_on_holder():
 
 
 def test_finds_looks_in_top_passages_and_states():
-    result = SearchResult(states=[FakeState("user", "home_city", "Pune")],
-                          passages=[(FakeSentence("My landlord is Mr. Iyer."), 1.0)])
+    result = SearchResult(
+        states=[FakeState("user", "home_city", "Pune")],
+        passages=[(FakeSentence("My landlord is Mr. Iyer."), 1.0)],
+    )
     assert finds(result, ["iyer"]) == (True, "My landlord is Mr. Iyer.")
     assert finds(result, ["pune"])[0] and not finds(result, ["mumbai"])[0]
 
@@ -59,8 +61,9 @@ def test_answers_match_whole_words():
 
 
 def test_overrides_are_typed_by_the_config():
-    assert overrides(["enable_semantic=false", "budget_tokens=2000", "use_weight=0.5", "timezone=UTC"]) == {
-        "enable_semantic": False, "budget_tokens": 2000, "use_weight": 0.5, "timezone": "UTC"}
+    assert overrides(
+        ["enable_semantic=false", "budget_tokens=2000", "use_weight=0.5", "timezone=UTC"]
+    ) == {"enable_semantic": False, "budget_tokens": 2000, "use_weight": 0.5, "timezone": "UTC"}
     with pytest.raises(SystemExit):
         overrides(["no_such_field=1"])
 
@@ -68,26 +71,69 @@ def test_overrides_are_typed_by_the_config():
 def test_a_case_runs_end_to_end_with_fakes(tmp_path, fake_llm, embedder):
     case = {
         "id": "sister",
-        "sessions": [{"at": "2026-10-05T18:00:00", "turns": [
-            "My sister Asha lives in Delhi.",
-            {"role": "document", "speaker": "notes.md", "text": "Asha is allergic to peanuts."}]}],
-        "expect": {"current": [{"about": ["asha"], "terms": ["delhi"]}],
-                   "absent": [{"about": ["user"], "terms": ["delhi"]}],
-                   "user_aliases": ["Sahil"]},
+        "sessions": [
+            {
+                "at": "2026-10-05T18:00:00",
+                "turns": [
+                    "My sister Asha lives in Delhi.",
+                    {
+                        "role": "document",
+                        "speaker": "notes.md",
+                        "text": "Asha is allergic to peanuts.",
+                    },
+                ],
+            }
+        ],
+        "expect": {
+            "current": [{"about": ["asha"], "terms": ["delhi"]}],
+            "absent": [{"about": ["user"], "terms": ["delhi"]}],
+            "user_aliases": ["Sahil"],
+        },
         "finds": [{"q": "cookies for my sister", "terms": ["peanuts"]}],
         "questions": [{"q": "Cookie ideas for my sister?", "must": [["peanut-free"]]}],
     }
-    extraction = {"states": [{"s": 1, "about": "Asha", "attribute": "home_city", "value": "Delhi", "ended": False,
-                              "since": ""}], "events": []}
+    extraction = {
+        "states": [
+            {
+                "s": 1,
+                "about": "Asha",
+                "attribute": "home_city",
+                "value": "Delhi",
+                "ended": False,
+                "since": "",
+            }
+        ],
+        "events": [],
+    }
     llm = fake_llm([extraction], chat_reply="Bake peanut-free oat cookies.")
     lines = []
-    score, answers = run_case(case, "UTC", {"embedding_dim": embedder.dim}, llm, "m", embedder, samples=2,
-                              baseline=True, workdir=tmp_path, log=lines.append)
+    score, answers = run_case(
+        case,
+        "UTC",
+        {"embedding_dim": embedder.dim},
+        llm,
+        "m",
+        embedder,
+        samples=2,
+        baseline=True,
+        workdir=tmp_path,
+        log=lines.append,
+    )
     by_kind = {c.kind: c.passed for c in score.checks}
-    assert by_kind == {"current": True, "absent": True, "alias": False, "finds": True, "question": True}
-    assert [a["memory"] for a in answers] == [True, True, False] and all(a["passed"] for a in answers)
+    assert by_kind == {
+        "current": True,
+        "absent": True,
+        "alias": False,
+        "finds": True,
+        "question": True,
+    }
+    assert [a["memory"] for a in answers] == [True, True, False] and all(
+        a["passed"] for a in answers
+    )
     assert "FAIL alias" in "\n".join(lines)
-    assert "Asha is allergic to peanuts" in json.dumps(llm.calls[-2])  # the document reached the model
+    assert "Asha is allergic to peanuts" in json.dumps(
+        llm.calls[-2]
+    )  # the document reached the model
 
     summary = summarize([score], answers)
     assert summary["states_found"] == (1, 1) and summary["retrieval"] == (1, 1)
