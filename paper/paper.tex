@@ -1,315 +1,606 @@
-\documentclass[10pt,twocolumn]{article}
+% ============================================================
+%  Orma: Remembering Without Thinking
+%  arXiv-ready, single-file LaTeX source (pdfLaTeX).
+%  Compile:  pdflatex orma.tex  (run twice)
+%  The bibliography is embedded, so no .bib / BibTeX run is needed.
+% ============================================================
+\documentclass[11pt]{article}
 
-\usepackage[margin=0.75in]{geometry}
-\usepackage{amsmath,amssymb,amsfonts}
-\usepackage{booktabs}
+% ---------- Page geometry (arXiv: >= 1in margins, single-spaced, 10--14pt) ----------
+\usepackage[letterpaper,margin=1in]{geometry}
+
+% ---------- Fonts & typography ----------
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \usepackage{microtype}
-\usepackage{graphicx}
-\usepackage{hyperref}
-\usepackage{url}
-\usepackage{cite}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
-\usepackage{caption}
-\usepackage{subcaption}
+
+% ---------- Math, tables, lists ----------
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array,tabularx}
 \usepackage{enumitem}
-\usepackage{tabularx}
+\setlist{nosep,leftmargin=*,itemsep=2pt}
 
-\hypersetup{
-    colorlinks=true,
-    linkcolor=blue,
-    citecolor=blue,
-    urlcolor=blue
-}
+% ---------- Graphics ----------
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,decorations.pathreplacing}
+\usepackage[font=small,labelfont=bf,skip=6pt]{caption}
+\usepackage{subcaption}
 
-\title{\textbf{Orma: Remembering Without Thinking} \\
-\large Episode-First Cognitive Memory for Local Language Models via Topological Loci and Metric Retrieval}
+% ---------- References & links ----------
+\usepackage{cite}
+\usepackage{url}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,citecolor=blue!55!black,urlcolor=blue!55!black,
+            pdftitle={Orma: Remembering Without Thinking},pdfauthor={Sahil Rane}]{hyperref}
 
-\author{
-    \textbf{Sahil} \\
-    Independent Research \\
-    \texttt{wizardwithcodehazard@gmail.com}
-}
+% ---------- Colours (print-safe, distinct in greyscale) ----------
+\definecolor{amber}{RGB}{217,119,6}
+\definecolor{tealdeep}{RGB}{13,148,136}
+\definecolor{bluedeep}{RGB}{37,99,235}
 
+% ---------- Float placement ----------
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.8}
+\setlength{\textfloatsep}{14pt plus 2pt minus 4pt}
+
+% ---------- Shortcuts ----------
+\newcommand{\orma}{\mbox{Orma}}
+\newcommand{\vq}{\vec{q}}
+\newcommand{\vp}{\vec{p}}
+
+\title{\textbf{Orma: Remembering Without Thinking}\\[6pt]
+\large Episode-First Cognitive Memory for Local Language Models\\
+via Topological Loci and Metric Retrieval}
+
+\author{Sahil Rane\\
+University of Mumbai\\
+\small\texttt{sahilrane249@gmail.com}\\
+\small\url{https://sahilrane.pages.dev}}
 \date{\today}
 
 \begin{document}
-
 \maketitle
 
+% =====================================================================
 \begin{abstract}
-Current long-term agent memory frameworks (e.g., Mem0, Cognee, LangMem) assume an infinite cloud budget, relying on synchronous frontier model calls (GPT-4o) and multi-container graph databases during conversational chat turns. When deployed locally with small open-weight language models (3B to 8B parameters) on consumer laptops, this cloud-centric paradigm collapses: chat loops freeze for 5--15 seconds, small models hallucinate inverted graph relations, and historical facts suffer accidental amnesia via destructive prompting. 
-
-In this work, we present \textbf{Orma}, an episode-first cognitive memory engine designed specifically for local language models on commodity hardware. Orma operates on a fundamental design axiom: \textit{zero LLM calls during retrieval}. Live conversational recall runs entirely in local C and Python using an ensemble of cognitive neuroscience, Paninian formal grammar, and metric-space information retrieval. We introduce: (1) a computational \textbf{Method of Loci} anchoring conversations to topological palace room checkpoints; (2) Paninian \textbf{anuv\d{r}tti} pronoun carry-over preventing third-person attribution bleed; (3) dense declarative \textbf{Sutra} packing achieving 40\% token compression; and (4) a 4-stage deterministic mathematical retrieval pipeline sequencing Rocchio pseudo-relevance feedback, Personalized PageRank power iterations on bipartite graphs, an ONNX TinyBERT CPU cross-encoder, and Maximal Marginal Relevance (MMR).
-
-We evaluate Orma on the complete official Snap Research LoCoMo benchmark across all 10 long-term multi-session conversations (1,536 queries). In pure Zero-LLM Mode, Orma achieves 28.17\% Fuzzy MRR, 46.94\% Recall@20, and a 98.4\% token reduction (414 tokens) at 63.8\,ms p50 latency on an everyday CPU. In With-LLM Mode using local asynchronous sleep consolidation (Qwen-2.5-3B), Orma reaches 31.71\% Answer-in-Context recall, 41.49\% Multi-Hop Recall@10, and 36.86\% Single-Hop Factual Answer recall at 56.2\,ms p50 latency. Orma is fully open-source and distributed as a zero-dependency local library.
+Long-term memory frameworks for LLM agents (e.g., Mem0, Zep, Cognee, LangMem) typically assume cloud-scale resources: frontier models, an LLM call on every memory operation, and graph databases.
+On commodity laptops running 3B--8B open-weight models, these assumptions cause multi-second stalls, inverted or malformed graph triples, and destructive state updates.
+We present \orma, an episode-first memory engine for local language models built around a single rule: \emph{no LLM calls during retrieval}.
+\orma{} (i)~organises conversations with a computational Method of Loci whose checkpoints are linked by sequential ``walk'' trajectories;
+(ii)~modulates candidate scores with ACT-R power-law recency, Hawkes-style burst intensity and Ebbinghaus-style retention;
+(iii)~uses pronoun carry-over heuristics and declarative bracket encoding to compress the injected context; and
+(iv)~retrieves through a deterministic four-stage pipeline of Rocchio feedback, Personalized PageRank, an ONNX TinyBERT cross-encoder and Maximal Marginal Relevance.
+Extraction of states and events is deferred to an asynchronous background ``sleep'' worker.
+On all 1,536 evaluated queries of LoCoMo, zero-LLM \orma{} reaches 28.17\% fuzzy MRR and 46.94\% fuzzy Recall@20 with 414 context tokens (a 98.4\% reduction relative to full context) at 63.8\,ms median latency on a laptop CPU.
+With sleep consolidation by Qwen-2.5-3B, Answer-in-Context recall rises from 27.21\% to 31.71\% at 56.2\,ms median latency.
+\orma{} is open-source under the Apache-2.0 license.
 \end{abstract}
 
+\noindent\textbf{Keywords:} agent memory, local language models, retrieval, Method of Loci, long-term conversation, LoCoMo
+
+% =====================================================================
 \section{Introduction}
+\label{sec:intro}
 
-The rapid proliferation of highly capable small language models (SLMs), such as Llama-3.2 (3B) and Qwen-2.5 (3B--7B), has made private, on-device intelligence viable on consumer-grade hardware \cite{qwen2024qwen25}. However, enabling long-term persistence across weeks and months of conversational interaction remains an open challenge. 
-
-Most established agent memory frameworks (e.g., Mem0, Cognee, LangMem) were architected under an \textit{infinite cloud compute assumption}:
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{The Chat Freeze Problem:} Calling an LLM synchronously on every user turn freezes the interactive chat loop for 5 to 15 seconds on consumer machines.
-    \item \textbf{Hallucinated Knowledge Graphs:} Small 3B models lack the parametric capacity for rigid entity-relation triple extraction, frequently emitting malformed JSON, hallucinated relations, or inverted subject-object edges.
-    \item \textbf{Accidental Amnesia:} Prompting small models with destructive \texttt{UPDATE} or \texttt{DELETE} instructions causes irreversible data loss whenever situational exceptions occur.
-    \item \textbf{The Negative Instruction Paradox:} Autoregressive attention inherently activates on mentioned tokens; instructing a small model \textit{``never suggest X''} increases attention on X and causes repeating error loops.
-    \item \textbf{Context Window Blowout:} Dumping 25,000 raw conversational tokens into a 3B model melts its attention span and degrades generation throughput to an unusable crawl.
+Open-weight small language models (SLMs) such as Qwen-2.5 (3B/7B) and Llama-3.2 (3B) now run privately on personal laptops~\cite{qwen2024qwen25}.
+Giving such models memory that persists across weeks or months of conversation, however, remains difficult.
+Most published agent-memory systems were designed for unbounded cloud infrastructure, and a sharp gap separates their benchmark claims from the realities of edge deployment.
+We identify five recurring obstacles:
+\begin{enumerate}
+    \item \textbf{The synchronous freeze.} Calling an LLM on every turn to extract entities or update state introduces seconds of latency on a consumer CPU or GPU.
+    \item \textbf{Knowledge-graph hallucination.} 3B-class models often fail to emit valid JSON graph schemas and frequently invert subject--object relations or invent associations.
+    \item \textbf{Accidental amnesia.} Asking a model to \texttt{DELETE} or \texttt{UPDATE} stored facts causes irreversible loss whenever a situational exception occurs.
+    \item \textbf{The negative-attention trap.} Autoregressive attention is drawn to mentioned tokens: telling a small model \emph{``never suggest semicolons in PowerShell''} can increase the chance that it emits semicolons.
+    \item \textbf{Context-window exhaustion.} Placing tens of thousands of raw tokens in a 3B model's prompt degrades both accuracy~\cite{liu2024lost} and generation throughput.
 \end{enumerate}
+
+Human recall does not require a deep generative pass to remember where one parked or what one's sister is called; it is associative, episodic, and anchored in spatial and temporal context.
+Motivated by this, we built \orma{} (from Malayalam \emph{orma}, ``memory'' or ``recollection''), whose design rule is:
+
+\begin{center}
+\fbox{\parbox{0.9\linewidth}{\centering
+\textbf{The \orma{} axiom.}\\[2pt]
+\emph{Episodes are the memory. States are only an index of what is true right now. Retrieval must run with zero LLM generation calls in constant, sub-100\,ms time.}}}
+\end{center}
+
+\noindent
+Live recall therefore runs entirely on the CPU, using Python with embedded SQLite, hybrid vector--lexical search, graph diffusion and cognitive activation dynamics, while all LLM-based work is moved to an asynchronous, non-blocking consolidation path.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+    \item An \emph{episode-first} memory design with a strict separation between a zero-LLM synchronous retrieval path and an offline consolidation path (Section~\ref{sec:arch}).
+    \item A computational \emph{Method of Loci} that turns conversation streams into topological checkpoints with sequential walk edges, combined with ACT-R, Hawkes and Ebbinghaus activation dynamics (Sections~\ref{sec:loci}--\ref{sec:activation}).
+    \item Formal handling of five concrete failure modes of naive memory systems: supersession, attribution bleed, defeasible exceptions, negative priming and relative time (Section~\ref{sec:failures}).
+    \item A deterministic four-stage retrieval pipeline (Rocchio $\rightarrow$ Personalized PageRank $\rightarrow$ TinyBERT cross-encoder $\rightarrow$ MMR) that runs on a laptop CPU (Section~\ref{sec:pipeline}).
+    \item A full evaluation on LoCoMo (1,536 queries) with exact and fuzzy metrics, per-category analysis, and an open-source implementation (Section~\ref{sec:eval}).
+\end{enumerate}
+
+% =====================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{LLM agent memory.}
+MemGPT~\cite{packer2023memgpt} manages a tiered ``virtual context'' using LLM-driven function calls, in analogy with operating-system paging.
+Mem0~\cite{chhikara2025mem0} extracts salient memories with an LLM and updates them through LLM-decided operations; its graph variant stores entity--relation triples.
+Zep and its Graphiti engine~\cite{rasmussen2025zep} maintain a temporal knowledge graph.
+LangMem~\cite{langmem} and Cognee~\cite{cognee} provide open-source memory layers based on vector search and graph retrieval.
+These systems typically issue one or more LLM calls per retrieval and assume strong, often hosted, models.
+\orma{} instead restricts LLM use to background consolidation and keeps the retrieval path model-free apart from small embedding and re-ranking networks.
+
+\paragraph{Classical retrieval.}
+\orma{} deliberately reuses established components: BM25~\cite{robertson2009bm25}, Reciprocal Rank Fusion~\cite{cormack2009rrf}, Rocchio feedback~\cite{rocchio1971relevance}, PageRank~\cite{page1999pagerank}, cross-encoder re-ranking~\cite{nogueira2019passage,jiao2020tinybert} and Maximal Marginal Relevance~\cite{carbonell1998mmr}.
+Its novelty lies in how they are composed over an episodic, loci-structured store and in what is deferred off the critical path.
+
+\paragraph{Cognitive models.}
+The Method of Loci~\cite{yates1966art}, ACT-R base-level learning~\cite{anderson1998actr}, Hawkes self-exciting processes~\cite{hawkes1971spectra} and Ebbinghaus's retention curve~\cite{ebbinghaus1885memory} supply the behavioural principles behind \orma's organisation and activation. We borrow these as computational heuristics, not as claims of biological fidelity.
+
+\paragraph{Benchmark.}
+LoCoMo~\cite{maharana2024locomo} contains very long multi-session dialogues with question--answer annotations and evidence pointers, and is our evaluation benchmark.
+
+% =====================================================================
+\section{Design Principles: The Ensemble Sweet Spot}
+\label{sec:principles}
+
+Human memory relies on biological embodiment, sensorimotor grounding and massively parallel chemical substrates; a laptop is a discrete von~Neumann machine limited by clock cycles, memory bandwidth, caches and matrix-multiplication throughput.
+Literal simulations of cognition in software (multi-tier cognitive ontologies, continuous neurosymbolic loops) tend to be brittle and slow on such hardware, whereas brute-force approaches (very long contexts, heavy graph neural networks) overwhelm consumer machines.
+We therefore combine three ingredients, taking behavioural \emph{principles} from cognition and implementing them with inexpensive, well-understood mathematics:
+
+\begin{enumerate}
+    \item \textbf{Cognitive dynamics.} The Method of Loci~\cite{yates1966art} discretises conversation into topological checkpoints. ACT-R power-law decay~\cite{anderson1998actr}, Hawkes self-exciting bursts~\cite{hawkes1971spectra} and Ebbinghaus-style spaced retention~\cite{ebbinghaus1885memory} shape candidate activation.
+    \item \textbf{Pragmatic linguistic heuristics.} Pronoun carry-over rules prevent third-person attribution bleed, and declarative bracket encoding compresses facts into compact, unambiguous strings.
+    \item \textbf{Metric-space mathematics.} Dense vector search in SQLite (\texttt{sqlite-vec}) and FTS5 BM25 are fused by Reciprocal Rank Fusion~\cite{cormack2009rrf}; re-ranking uses Rocchio feedback~\cite{rocchio1971relevance}, Personalized PageRank~\cite{page1999pagerank}, a CPU cross-encoder~\cite{jiao2020tinybert} and MMR~\cite{carbonell1998mmr}.
+\end{enumerate}
+
+% =====================================================================
+\section{Five Concrete Failure Modes}
+\label{sec:failures}
+
+To motivate the architecture, we describe five scenarios in which naive memory pipelines fail on local models. They are qualitative design drivers; Section~\ref{sec:limits} discusses what is and is not evaluated.
+
+\paragraph{S1: State supersession.}
+\emph{Session~1:} ``I live in Pune with my sister Asha.'' \emph{Session~5:} ``I just relocated to Bangalore for my new job at Zerodha.''
+Naive systems confuse entity bindings, asserting that Asha moved to Bangalore or that the user still lives in Pune.
+\orma{} performs entity-attribute supersession in SQLite: the user's active city becomes Bangalore (\texttt{valid\_to = NULL}), Pune is closed (\texttt{valid\_to = t\_relocate}), and Asha's residence is untouched.
+
+\paragraph{S2: Third-person attribution bleed.}
+\emph{Session~2:} ``My sister Asha has a severe peanut allergy.'' \emph{Session~7:} ``Suggest some high-protein evening snacks for me.''
+A naive model may answer ``Avoid peanut butter toast because of your severe peanut allergy.''
+\orma's pronoun carry-over heuristics bind third-person predicates to the named entity (\texttt{entity: Asha}), so recalling preferences for \texttt{entity: User} does not surface the sister's profile.
+
+\paragraph{S3: Defeasible exceptions.}
+\emph{Baseline:} ``I drink black coffee every morning at 7\,AM.'' \emph{Exception:} ``I have a terrible sore throat today, so I'm drinking warm ginger tea with honey.''
+A system that detects a contradiction on \texttt{(user, morning\_drink)} will permanently overwrite coffee with tea.
+\orma{} stores situational overrides next to the canonical baseline through schema-level condition tags:
+\begin{align*}
+  &[\texttt{user.morning\_drink: black coffee}]\\
+  &[\texttt{user.morning\_drink} \mid \text{sore throat} \rightarrow \texttt{ginger tea}]
+\end{align*}
+
+\paragraph{S4: Autoregressive mistake recurrence.}
+\emph{Directive:} ``Never chain terminal commands with semicolons in PowerShell; use multi-line or \texttt{\&\&}.''
+Injecting this as a passive fact draws attention to the token ``semicolons'', which can cause the model to emit it within a few turns.
+\orma{} hoists inhibitory rules to Tier~0 at the head of the prompt and encodes them as prohibitions, e.g.\ \texttt{[FORBIDDEN: chaining commands with semicolons]}.
+
+\paragraph{S5: Relative temporal anchoring.}
+\emph{Spoken Monday, 12~Oct 2026:} ``My dentist appointment with Dr.~Rao is next Tuesday.'' \emph{Queried 20~Nov:} ``When was my dentist appointment?''
+Raw retrieval returns ``next Tuesday!''.
+\orma{} anchors every episode to its speech timestamp and resolves relative expressions deterministically (here, taking ``next Tuesday'' to mean the Tuesday of the following calendar week) into an ISO date: \texttt{[EVENT: 2026-10-20: dentist appointment]}.
+
+% =====================================================================
+\section{System Architecture}
+\label{sec:arch}
+
+\orma{} is a lightweight Python library backed by embedded SQLite in Write-Ahead Logging (WAL) mode, with \texttt{sqlite-vec}\,\cite{sqlitevec} for vector search and FTS5 for lexical search. Figure~\ref{fig:arch} gives the overview.
 
 \begin{figure}[t]
 \centering
-\fbox{\parbox{0.95\columnwidth}{
-\textbf{The Orma Axiom:} \\
-\textit{Episodes are the memory. States are just an index of what is true right now. Retrieval must execute with zero LLM generation calls in constant sub-100ms time.}
-}}
-\caption{The core architectural bet of Orma: strict separation of instantaneous zero-LLM retrieval from offline, non-blocking background consolidation.}
-\label{fig:axiom}
+\begin{tikzpicture}[
+    node distance=1.4cm,
+    box/.style={rectangle,draw=bluedeep,rounded corners=4pt,fill=blue!5,thick,
+                inner sep=4pt,text width=2.6cm,minimum height=1.5cm,align=center,font=\footnotesize},
+    proc/.style={rectangle,draw=tealdeep,rounded corners=4pt,fill=tealdeep!8,thick,
+                inner sep=4pt,text width=2.6cm,minimum height=1.5cm,align=center,font=\footnotesize},
+    store/.style={rectangle,draw=amber!90!black,rounded corners=4pt,fill=amber!12,thick,
+                inner sep=4pt,text width=2.6cm,minimum height=1.5cm,align=center,font=\footnotesize},
+    sync/.style={-{Stealth[length=2.2mm]},thick,draw=bluedeep},
+    async/.style={-{Stealth[length=2.2mm]},thick,dashed,draw=amber!90!black},
+    lab/.style={font=\scriptsize,align=center,inner sep=1.5pt}
+]
+% top row: synchronous path
+\node[box]  (user)   {\textbf{User turn / query}\\(interactive chat)};
+\node[proc,right=of user]   (recall) {\textbf{Four-stage IR}\\(Rocchio, PPR,\\cross-encoder, MMR)};
+\node[box,right=of recall]  (prompt) {\textbf{Memory block}\\(414--677 tokens)};
+\node[proc,right=of prompt] (llm)    {\textbf{Local SLM}\\(e.g., Qwen-2.5-3B)};
+% bottom row: storage + sleep path
+\node[store,below=2.3cm of recall]  (db)      {\textbf{SQLite (WAL)}\\\texttt{sqlite-vec} + FTS5\\+ entity--loci graph};
+\node[store,right=of db]            (sleep)   {\textbf{Sleep worker}\\(idle 120\,s or\\20 turns)};
+\node[store,right=of sleep]         (extract) {\textbf{SLM extraction}\\(states, events,\\citations)};
+
+% synchronous arrows
+\draw[sync] (user) -- node[lab,above]{query} (recall);
+\draw[sync] (recall) -- node[lab,above]{top hits} (prompt);
+\draw[sync] (prompt) -- (llm);
+\draw[sync] (user.south) |- (db.west);
+\node[lab,above] at ($(user.south)+(1.55,-2.0)$) {append turn\\($<$3\,ms)};
+\draw[sync] (db.north) -- node[lab,right]{hybrid hits} (recall.south);
+
+% asynchronous arrows
+\draw[async] (db) -- node[lab,above]{pending\\turns} (sleep);
+\draw[async] (sleep) -- node[lab,above]{extract} (extract);
+\coordinate (low) at ([yshift=-9mm]sleep.south);
+\draw[async] (extract.south) |- (low) -| (db.south);
+\node[lab,fill=white] at (low) {verified states \& loci};
+
+\begin{scope}[on background layer]
+  \node[draw=blue!35,fill=blue!2,rounded corners=6pt,dashed,
+        fit=(user)(recall)(prompt)(llm),inner sep=7pt,
+        label={[font=\scriptsize\bfseries,text=blue!70!black]above:Synchronous interactive path (zero LLM calls)}] {};
+  \node[draw=amber!55,fill=amber!4,rounded corners=6pt,dashed,
+        fit=(db)(sleep)(extract)(low),inner sep=7pt,
+        label={[font=\scriptsize\bfseries,text=amber!80!black]below:Asynchronous consolidation and persistent storage}] {};
+\end{scope}
+\end{tikzpicture}
+\caption{\orma{} dual-path architecture. Solid arrows: the synchronous path, which performs no LLM generation. Dashed arrows: the non-blocking background sleep consolidation, whose verified output is written back to SQLite.}
+\label{fig:arch}
 \end{figure}
 
-Human cognition does not spawn deep autoregressive inference merely to retrieve where one parked or recall a sister's name. Human memory retrieval is associative, episodic, and topologically grounded in physical and temporal spaces. 
-
-In this paper, we introduce \textbf{Orma} (Dravidian / Malayalam for \textit{``memory''}), a cognitive memory engine that resolves this local crisis. Rather than attempting to force biological wetware directly onto digital silicon or relying on brute-force cloud neural networks, Orma identifies the \textit{ensemble sweet spot} across three intellectual traditions:
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Cognitive Neuroscience:} Computational Method of Loci spatial checkpoints \cite{yates1966art}, ACT-R power-law recency decay \cite{anderson1998actr}, Hawkes temporal point processes \cite{hawkes1971spectra}, and Ebbinghaus spaced stability \cite{ebbinghaus1885memory}.
-    \item \textbf{Paninian Formal Grammar:} Anuv\d{r}tti pronoun carry-over rules from ancient Sanskrit linguistics \cite{kiparsky1979panini} and Sutra declarative bracket compression.
-    \item \textbf{Computational Mathematics:} Dense vector metric spaces (via SQLite with \texttt{sqlite-vec}), exact BM25 inverted indices, Rocchio pseudo-relevance feedback \cite{rocchio1971relevance}, Personalized PageRank on bipartite graphs \cite{page1999pagerank}, CPU ONNX cross-attention reranking \cite{jiao2020tinybert}, and Maximal Marginal Relevance \cite{carbonell1998mmr}.
-\end{enumerate}
-
-Evaluated on the full 10-conversation, 1,536-query Snap Research LoCoMo benchmark \cite{maharana2024locomo}, Orma delivers 46.94\% Recall@20 in 63.8\,ms CPU latency in pure Zero-LLM mode, and 31.71\% Answer-in-Context at 56.2\,ms in With-LLM mode, compressing raw context by 97.4\% to 98.4\%.
-
-\section{Five Real-World Failure Scenarios}
-
-To ground our architectural design, we formalize five concrete failure modes where existing naive memory systems fail on local models:
-
-\subsection{Scenario 1: State Supersession}
-\begin{itemize}[leftmargin=*]
-    \item \textit{Session 1:} ``I live in Pune with my sister Asha.''
-    \item \textit{Session 5:} ``I just relocated to Bangalore for my new job.''
-    \item \textit{Failure:} Models confuse who moved where, stating that Asha moved to Bangalore or asserting the user still lives in Pune.
-    \item \textit{Orma Resolution:} Provable entity-attribute supersession in SQLite: the user's active city is updated to Bangalore (\texttt{valid\_to = NULL}), while Pune is marked superseded (\texttt{valid\_to = t\_relocate}). Asha's residence remains untouched in Pune.
-\end{itemize}
-
-\subsection{Scenario 2: Third-Person Attribution Bleed}
-\begin{itemize}[leftmargin=*]
-    \item \textit{Session 2:} ``My sister Asha has a severe peanut allergy.''
-    \item \textit{Session 7:} ``Suggest some high-protein evening snacks for me.''
-    \item \textit{Failure:} The model falsely attributes the allergy to the user: \textit{``Avoid peanut snacks because of your severe allergy.''}
-    \item \textit{Orma Resolution:} Paninian pronoun inheritance (\textit{anuv\d{r}tti}) locks third-person predicates strictly to named entity IDs (\texttt{entity: Asha}). When recalling personal preferences for \texttt{entity: User}, the sister's profile is isolated.
-\end{itemize}
-
-\subsection{Scenario 3: Non-Monotonic Defeasible Exceptions}
-\begin{itemize}[leftmargin=*]
-    \item \textit{Baseline habit:} ``I drink black coffee every morning at 7 AM.''
-    \item \textit{Temporary exception:} ``I have a terrible sore throat today, so I'm drinking ginger tea with honey.''
-    \item \textit{Failure:} The system detects a contradiction on \texttt{(user, morning\_drink)} and permanently overwrites black coffee with ginger tea.
-    \item \textit{Orma Resolution:} Schema-level condition tagging stores exceptions alongside canonical baselines:
-    \begin{align*}
-        &[\text{user.morning\_drink: black coffee}] \\
-        &[\text{user.morning\_drink} \mid \text{cond: sore throat} \rightarrow \text{ginger tea}]
-    \end{align*}
-\end{itemize}
-
-\subsection{Scenario 4: Autoregressive Mistake Recurrence}
-\begin{itemize}[leftmargin=*]
-    \item \textit{User directive:} ``Never chain terminal commands with semicolons in PowerShell, use multi-line or \texttt{\&\&}.''
-    \item \textit{Failure:} Autoregressive attention activates on the token \textit{``semicolons''}, causing the model to emit semicolons within two turns.
-    \item \textit{Orma Resolution:} Inhibitory rules are hoisted to Tier 0 at the prompt head with negative constraint framing: \texttt{[FORBIDDEN: chaining commands with semicolons]}. Small models achieve 100\% compliance without fine-tuning.
-\end{itemize}
-
-\subsection{Scenario 5: Relative Temporal Anchoring}
-\begin{itemize}[leftmargin=*]
-    \item \textit{Spoken on Oct 12:} ``My dentist appointment is next Tuesday.''
-    \item \textit{Queried on Nov 20:} ``When was my dentist appointment?''
-    \item \textit{Failure:} Raw text retrieval answers: \textit{``Your appointment is next Tuesday!''}
-    \item \textit{Orma Resolution:} Every episode is anchored to its UTC/local speech timestamp. Relative temporal expressions are deterministically computed into ISO dates: \texttt{[EVENT: 2026-10-18: dentist appointment]}.
-\end{itemize}
-
-\section{The Tripartite Ensemble}
-
-\subsection{Cognitive Neuroscience Grounding}
-
-\subsubsection{Computational Method of Loci}
-Ancient orators memorized vast rhetorical treatises by imagining a physical architectural layout and placing items within rooms. Orma implements a computational analogue:
-\begin{equation}
-    \mathcal{L} = \{(\ell_k, \vec{v}_k, \tau_k, \mathcal{S}_k)\}_{k=1}^K
-\end{equation}
-where $\ell_k$ is the room label, $\vec{v}_k$ is the semantic embedding of the room gist, $\tau_k$ is the epoch timestamp, and $\mathcal{S}_k$ represents the subset of states anchored to that checkpoint. A \textit{palace walk} traverses consecutive loci:
-\begin{equation}
-    \text{Walk}(\vec{q}, r) = \bigcup_{k \in \text{Top}(\vec{q} \cdot \vec{v}_k)} \{\ell_{k-r}, \dots, \ell_k, \dots, \ell_{k+r}\}
-\end{equation}
-preserving narrative and temporal continuity across sessions.
-
-\subsubsection{ACT-R Activation Decay}
-Following Anderson's ACT-R cognitive architecture \cite{anderson1998actr}, base-level activation $B_i$ decays according to a power-law function of time elapsed since each access $k$:
-\begin{equation}
-    B_i = \ln \left( \sum_{k=1}^n (t - t_k)^{-d} \right)
-\end{equation}
-where $d = 0.5$ is the empirical cognitive decay parameter.
-
-\subsubsection{Hawkes Temporal Point Process}
-Conversations occur in topical bursts. Following Hawkes \cite{hawkes1971spectra}, event intensity $\lambda(t)$ self-excites upon recent mentions:
-\begin{equation}
-    \lambda(t) = \mu_0 + \sum_{t_k < t} \alpha e^{-\beta (t - t_k)}
-\end{equation}
-with $\beta = \ln(2) / 1800\,\text{s}$ (30-minute topical half-life).
-
-\subsection{Paninian Generative Grammar}
-P\=a\d{n}ini's \textit{A\d{s}\d{t}\=adhy\=ay\=i} introduced the earliest formal rule engine known to linguistics \cite{kiparsky1979panini}. Orma borrows two principles:
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Anuv\d{r}tti (Context Carry-Over):} Elliptical context inheritance: when a subject pronoun appears without an explicit referent, it inherits the active canonical entity of the current discourse segment, prohibiting third-person predicate crossing.
-    \item \textbf{Sutra Encoding:} Declarative bracket representation of structured predicates ($[\text{subject}.\text{attribute}: \text{value}]$) replacing verbose narrative text and yielding a 40\% reduction in prompt token consumption.
-\end{enumerate}
-
-\section{The 4-Stage Mathematical Pipeline}
-
-\begin{figure*}[t]
-\centering
-\fbox{\parbox{0.95\textwidth}{
-\centering
-\textbf{Query $\vec{q}$} $\longrightarrow$ 
-[\textbf{Stage 1:} Rocchio PRF Centroid Shift] $\longrightarrow$ 
-[\textbf{Stage 2:} Personalized PageRank Power Iteration] $\longrightarrow$ 
-[\textbf{Stage 3:} FlashRank CPU Cross-Encoder] $\longrightarrow$ 
-[\textbf{Stage 4:} MMR Diversity] $\longrightarrow$ 
-\textbf{414-Token Context}
-}}
-\caption{The 4-stage deterministic mathematical retrieval pipeline. Zero LLM calls are made during the entire retrieval process.}
-\label{fig:pipeline}
-\end{figure*}
-
-To achieve high precision without generation latency, Orma executes a deterministic 4-stage information retrieval pipeline (Figure~\ref{fig:pipeline}):
-
-\subsection{Stage 1: Rocchio Pseudo-Relevance Feedback}
-Dense vector queries often fail when the user's phrasing diverges from historical verbatim vocabulary. Given first-pass candidate vectors $\mathcal{D}_{\text{top}}$, Orma computes an expanded centroid vector:
-\begin{equation}
-    \vec{q}_{\text{exp}} = \alpha \vec{q}_0 + \frac{\beta}{|\mathcal{D}_{\text{top}}|} \sum_{\vec{d} \in \mathcal{D}_{\text{top}}} \vec{d}
-\end{equation}
-with $\alpha = 0.7, \beta = 0.3, |\mathcal{D}_{\text{top}}| = 2$.
-
-\subsection{Stage 2: Personalized PageRank on Bipartite Graphs}
-We construct a bipartite graph $G = (V_E \cup V_S, E)$ where $V_E$ are entities and $V_S$ are canonical states and loci. Transition probability matrix $M$ is row-normalized. Let $\vec{p}_0$ denote the personalization teleport vector seeded from Stage 1 candidates. Stationary distribution $\vec{p}$ is solved via power iteration:
-\begin{equation}
-    \vec{p}^{(t+1)} = (1 - \gamma) \vec{p}_0 + \gamma \left( M^T \vec{p}^{(t)} + \vec{w}_{\text{dangle}} \right)
-\end{equation}
-with damping factor $\gamma = 0.85$ across $T = 20$ iterations, conserving energy across dangling leaves.
-
-\subsection{Stage 3: FlashRank CPU Cross-Attention}
-Bi-encoders independently project query and document into separate metric embeddings, losing token-to-token cross-attention. Orma utilizes a 3.2\,MB ONNX-quantized TinyBERT cross-encoder (\texttt{ms-marco-TinyBERT-L-2-v2}) running directly on CPU cores \cite{jiao2020tinybert}:
-\begin{equation}
-    s_{\text{cross}}(q, d) = \sigma\left( W \cdot \text{BERT}(q \circ d) \right)
-\end{equation}
-executing in under 3.5 milliseconds per batch.
-
-\subsection{Stage 4: Maximal Marginal Relevance}
-To pack maximum information within a compact token budget $B$, Orma re-ranks candidates using Maximal Marginal Relevance (MMR) \cite{carbonell1998mmr}:
-\begin{equation}
-    d^* = \arg\max_{d \in \mathcal{C} \setminus \mathcal{S}} \left[ \lambda s_{\text{cross}}(q, d) - (1 - \lambda) \max_{s \in \mathcal{S}} \text{Sim}(d, s) \right]
-\end{equation}
-with $\lambda = 0.7$, eliminating semantic repetition.
-
-\section{System Architecture}
-
-Orma is implemented as a lightweight Python library backed by embedded SQLite in Write-Ahead Logging (WAL) mode. 
-
 \subsection{Dual-Path Operation}
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Live Chat Path (Synchronous):} Every turn is appended to the lossless \texttt{episodes} table in under 3\,ms. Retrieval queries execute the 4-stage math pipeline in $\sim 56$\,ms on CPU.
-    \item \textbf{Sleep Consolidation Path (Asynchronous):} When the host machine is idle for 120 seconds or 20 turns accumulate, an asynchronous background worker triggers local model extraction (e.g., Qwen-2.5-3B). The model extracts states and dated events verified against exact line citations before committing to SQLite.
+\begin{itemize}
+    \item \textbf{Live path (synchronous).} Each turn is appended to the lossless \texttt{episodes} table in under 3\,ms. Retrieval executes the four-stage pipeline of Section~\ref{sec:pipeline} on CPU with no LLM call.
+    \item \textbf{Sleep path (asynchronous).} When the host has been idle for 120\,s, or 20 turns have accumulated, a background worker invokes a local model (e.g., Qwen-2.5-3B) to extract states and dated events. Each extraction is verified against exact line citations in the stored episodes before being committed to SQLite; unverifiable extractions are discarded.
 \end{itemize}
+Because episodes are never rewritten, a faulty extraction cannot destroy information, which addresses the accidental-amnesia failure mode.
 
-\subsection{WebGL 3D Connectome Visualizer}
-Orma includes an integrated 3D WebGL connectome visualizer (\texttt{orma viz}). Neurons condense into a neocortical cloud, active states kindle within the hippocampus, inhibitory rules reside within the amygdala, and Method of Loci rooms arch across the Fornix replay pathway.
+\subsection{Topological Method of Loci}
+\label{sec:loci}
+The Method of Loci~\cite{yates1966art} converts linear conversation sessions into spatial ``memory palaces''.
+Conversations are grouped into episodic checkpoints (loci); within a locus, consecutive turns are joined by directed \emph{walk} edges, and consecutive loci are linked in session order.
+When hybrid search activates a turn, the engine follows adjacent walk edges to restore narrative coherence without loading the entire transcript (Figure~\ref{fig:loci}).
 
-\section{Experimental Evaluation}
-
-\begin{table*}[t]
+\begin{figure}[t]
 \centering
-\footnotesize
-\begin{tabularx}{\textwidth}{l p{4.2cm} c r r p{3.8cm} l}
-\toprule
-\textbf{Framework} & \textbf{Retrieval Mechanism} & \textbf{LLM Calls} & \textbf{Latency} & \textbf{Tokens} & \textbf{LoCoMo Accuracy} & \textbf{Grounding} \\
-\midrule
-Full-Context & Raw history stuffing & 0 & 17,120\,ms & $\sim 25,600$ & 40\%--52\% (Degraded) & Raw text dump \\
-LangChain (LangMem) & Vector store top-k & 1--2 & $\sim 1,500$\,ms & $\sim 4,500$ & 70\%--75\% & Vector chunks \\
-MemGPT (Letta) & Virtual paging OS & 2--4 & $\sim 2,200$\,ms & $\sim 3,500$ & $\sim 74\%$ F1 & Tiered context \\
-Cognee & Graph-RAG traversal & 2+ & $\sim 1,950$\,ms & $\sim 4,500$ & 73\%--86\% token red. & Graph + vectors \\
-Mem0 (Base) & Vector + synthesis & 1+ & 1,440\,ms & $\sim 1,764$ & 62\%--68\% & Extracted bullets \\
-Mem0g (Graph) & Graph + vectors & 2+ & 2,600\,ms & $\sim 3,600$ & High multi-hop lag & Triples + vectors \\
-Zep (Graphiti) & Temporal Graph & 1--2 & $\sim 1,800$\,ms & $\sim 2,800$ & 78\%--85\% (Cloud) & Temporal graph \\
-\midrule
-\textbf{Orma (Zero-LLM)} & \textbf{4-Stage Math IR + Loci} & \textbf{0} & \textbf{63.8\,ms} & \textbf{414} & \textbf{28.17\% F-MRR / 46.9\% R20} & \textbf{Lossless SQLite} \\
-\textbf{Orma (With-LLM)} & \textbf{Zero-LLM + Qwen-2.5-3B} & \textbf{0 at recall} & \textbf{56.2\,ms} & \textbf{677} & \textbf{31.7\% Ans-Ctx / 41.5\% Hop} & \textbf{States + Loci} \\
-\bottomrule
-\end{tabularx}
-\caption{Comprehensive competitive landscape on the Snap Research LoCoMo benchmark. Latency is p50 measured on local hardware; tokens represent prompt memory overhead injected per turn.}
-\label{tab:landscape}
-\end{table*}
+\begin{tikzpicture}[
+    turn/.style={circle,draw=black!60,fill=white,thick,minimum size=0.62cm,inner sep=0pt,font=\scriptsize},
+    hit/.style={turn,draw=amber!90!black,fill=amber!45},
+    nb/.style={turn,draw=tealdeep,fill=tealdeep!25},
+    walk/.style={-{Stealth[length=1.8mm]},thick,draw=black!60},
+    hl/.style={-{Stealth[length=1.8mm]},thick,draw=tealdeep},
+    locus/.style={draw=bluedeep!70,fill=blue!3,rounded corners=5pt,thick,dashed}
+]
+\foreach \i in {1,2,3}{
+  \pgfmathsetmacro{\x}{(\i-1)*5.4}
+  \draw[locus] (\x-0.65,-0.9) rectangle (\x+3.95,1.25);
+  \node[font=\scriptsize\bfseries,text=bluedeep] at (\x+1.65,0.92) {Locus $L_\i$ (session \i)};
+  \foreach \j in {1,2,3,4}{
+    \pgfmathsetmacro{\tx}{\x+(\j-1)*1.1}
+    \node[turn] (t\i\j) at (\tx,-0.1) {$t_\j$};
+  }
+  \foreach \j/\k in {1/2,2/3,3/4}{ \draw[walk] (t\i\j) -- (t\i\k); }
+}
+\node[nb] at (t22) {$t_2$};
+\node[hit] at (t23) {$t_3$};
+\node[nb] at (t24) {$t_4$};
+\draw[hl] (t23) to[bend left=50] (t22);
+\draw[hl] (t23) to[bend left=50] (t24);
+\draw[-{Stealth[length=2mm]},thick,dashed,draw=bluedeep!70] (3.95,-0.1) -- (4.75,-0.1);
+\draw[-{Stealth[length=2mm]},thick,dashed,draw=bluedeep!70] (9.35,-0.1) -- (10.15,-0.1);
 
-\subsection{Benchmark Dataset \& Protocol}
-We evaluate Orma on the official Snap Research LoCoMo dataset \cite{maharana2024locomo}. LoCoMo evaluates very long-term conversational memory across 10 long multi-session dialogues containing hundreds of turns across 35 distinct conversation sessions, spanning a total of \textbf{1,536 evaluation queries}.
+\node[draw=tealdeep,rounded corners=3pt,fill=tealdeep!8,thick,font=\footnotesize,inner sep=4pt] (q) at (8.55,-2.3) {query $\vq$};
+\draw[-{Stealth[length=2mm]},thick,draw=amber!90!black] (q.north) -- node[right,font=\scriptsize,xshift=1pt]{hybrid hit} (t23.south);
 
-Following standard information retrieval evaluation protocols, we report dual disclosures:
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Exact Metric Match:} Verbatim string equality between retrieved passages and gold evidence spans.
-    \item \textbf{Fuzzy Metric Match:} Word-level overlap and semantic containment across long conversational excerpts.
-\end{itemize}
+% legend
+\node[hit] at (0.1,-3.3) {};   \node[font=\scriptsize,anchor=west] at (0.35,-3.3) {retrieved hit};
+\node[nb]  at (3.1,-3.3) {};   \node[font=\scriptsize,anchor=west] at (3.35,-3.3) {walk-expanded neighbour};
+\node[turn] at (8.0,-3.3) {};  \node[font=\scriptsize,anchor=west] at (8.25,-3.3) {unvisited turn};
+\end{tikzpicture}
+\caption{Method of Loci topology. Each session is a locus whose turns are chained by walk edges; dashed arrows connect consecutive sessions. A hybrid-search hit (amber) is expanded along adjacent walk edges (teal) so that the retrieved context stays coherent, while unrelated loci are never loaded.}
+\label{fig:loci}
+\end{figure}
 
-\subsection{LoCoMo Benchmark Results}
+\subsection{Cognitive Activation Dynamics}
+\label{sec:activation}
+Candidate relevance is modulated by three cognitively inspired terms:
+\begin{equation}
+  A_i(t) \;=\; \ln\!\Big(\sum_{k=1}^{n_i}(t-t_k)^{-d}\Big)
+  \;+\; \sum_{j}\alpha_{ij}\,e^{-\beta\,(t-t_j)}
+  \;+\; S_i .
+  \label{eq:activation}
+\end{equation}
+The first term is ACT-R base-level activation~\cite{anderson1998actr}: $t_1,\dots,t_{n_i}$ are the past access times of item $i$ and $d=0.5$ is the power-law decay rate.
+The second term is a Hawkes-style self-exciting burst intensity~\cite{hawkes1971spectra}, where earlier events $j$ excite item $i$ with weight $\alpha_{ij}$ and exponential decay rate $\beta$.
+$S_i$ is an Ebbinghaus-style spaced-repetition strength~\cite{ebbinghaus1885memory} that grows with successful re-use.
 
-Table~\ref{tab:landscape} summarizes the competitive landscape. Table~\ref{tab:dual_metrics} provides the detailed dual-disclosure metrics across all 1,536 queries.
+\subsection{Context Assembly}
+\label{sec:context}
+Retrieved material is rendered into a compact memory block organised in tiers (Table~\ref{tab:tiers}), using declarative bracket encoding such as \texttt{[user.city: Bangalore]} instead of prose.
+Placing inhibitory rules first and raw episodes last lets structured facts consume the token budget before verbatim text.
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
-\begin{tabularx}{\columnwidth}{X r r}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
 \toprule
-\textbf{Metric} & \textbf{Zero-LLM} & \textbf{With-LLM (3B)} \\
+\textbf{Tier} & \textbf{Content} & \textbf{Role}\\
 \midrule
-Exact MRR & 21.09\% & 12.52\% \\
-Fuzzy MRR & 28.17\% & 16.68\% \\
-Fuzzy Recall@1 & 23.18\% & 9.77\% \\
-Fuzzy Recall@5 & 32.75\% & 24.35\% \\
-Fuzzy Recall@10 & 37.96\% & 39.32\% \\
-Fuzzy Recall@20 & 46.94\% & 45.90\% \\
-\textbf{Fuzzy Answer-in-Context} & \textbf{27.21\%} & \textbf{31.71\%} \\
-\midrule
-Single-Hop Factual Answer & 20.81\% & 36.86\% \\
-Multi-Hop Fuzzy Recall@10 & 39.72\% & 41.49\% \\
-Temporal Fuzzy Recall@10 & 42.99\% & 40.81\% \\
-\midrule
-Latency p50 (CPU) & 63.82\,ms & 56.18\,ms \\
-Latency p95 (CPU) & 99.40\,ms & 98.24\,ms \\
-Mean Context Tokens & 414 & 677 \\
-Token Compression Ratio & 98.4\% & 97.4\% \\
+0 & Inhibitory rules & Prohibitions placed at the head of the prompt (S4)\\
+1 & Active states & Currently valid attribute--value facts, with condition tags (S1--S3)\\
+2 & Dated events & Time-anchored events with ISO dates (S5)\\
+3 & Raw episodes & Retrieved turns plus walk-edge neighbours\\
 \bottomrule
 \end{tabularx}
-\caption{Dual-disclosure performance metrics evaluated on all 10 conversations (1,536 queries) of the LoCoMo benchmark.}
-\label{tab:dual_metrics}
+\caption{Tiers of the injected memory block.}
+\label{tab:tiers}
 \end{table}
 
-\subsection{Analysis of Category-Wise Dynamics}
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Answer-in-Context Recall (+4.5\% absolute gain):} In With-LLM mode, sleep consolidation extracts structured states and events. Consequently, the concise factual answer is present in 31.71\% of retrieved contexts, jumping to \textbf{36.86\%} on single-hop factual queries.
-    \item \textbf{Multi-Hop Recall (41.49\%):} Personalized PageRank on bipartite graphs enables cross-session hops without LLM decomposition at query time.
-    \item \textbf{The MRR Trade-Off:} In LoCoMo, gold evidence is indexed by raw conversational dialogue turns. When structured states occupy Tier 1 and 2, raw sentences are ranked in Tier 3, lowering exact string MRR (12.52\% vs 21.09\%) while simultaneously increasing true factual Answer-in-Context recall (31.71\% vs 27.21\%).
+\subsection{Implementation Notes}
+\orma{} ships a WebGL 3D connectome visualiser (\texttt{orma viz}) for inspecting the memory store: states, inhibitory rules and loci are rendered as regions of a stylised brain (neocortex, hippocampus, amygdala and fornix-like replay pathways). It is a debugging aid and does not influence retrieval.
+
+% =====================================================================
+\section{The Four-Stage Retrieval Pipeline}
+\label{sec:pipeline}
+
+Figure~\ref{fig:pipeline} summarises retrieval. A first-pass hybrid search produces candidates, which four deterministic stages refine; none involves LLM generation.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    stg/.style={rectangle,draw=blue!70!black,fill=blue!5,thick,rounded corners=3pt,
+                text width=2.3cm,minimum height=3.0cm,inner sep=4pt,align=center,font=\footnotesize},
+    zero/.style={stg,draw=black!50,fill=black!4,dashed},
+    arr/.style={-{Stealth[length=2.2mm]},thick,draw=blue!70!black}
+]
+\node[zero] (s0) {\textbf{Stage 0}\\Hybrid recall\\[2pt]\scriptsize \texttt{sqlite-vec} + BM25, fused by RRF};
+\node[stg,right=0.45cm of s0] (s1) {\textbf{Stage 1}\\Rocchio PRF\\[2pt]\scriptsize query expansion in embedding space};
+\node[stg,right=0.45cm of s1] (s2) {\textbf{Stage 2}\\Personalized PageRank\\[2pt]\scriptsize diffusion over entity--state--locus graph};
+\node[stg,right=0.45cm of s2] (s3) {\textbf{Stage 3}\\Cross-encoder\\[2pt]\scriptsize ONNX TinyBERT re-scoring};
+\node[stg,right=0.45cm of s3] (s4) {\textbf{Stage 4}\\MMR\\[2pt]\scriptsize diversity-aware selection under token budget};
+\foreach \a/\b in {s0/s1,s1/s2,s2/s3,s3/s4}{ \draw[arr] (\a) -- (\b); }
+\draw[arr] ([xshift=-0.7cm]s0.west) -- node[above,font=\scriptsize]{$q$} (s0.west);
+\draw[arr] (s4.east) -- node[above,font=\scriptsize]{block} ([xshift=0.7cm]s4.east);
+\draw[decorate,decoration={brace,mirror,amplitude=4pt}]
+     ([yshift=-2mm]s1.south west) -- ([yshift=-2mm]s4.south east)
+     node[midway,below=7pt,font=\footnotesize]{four deterministic stages, CPU only, zero LLM calls};
+\end{tikzpicture}
+\caption{Retrieval pipeline. Stage~0 (dashed) generates candidates; Stages~1--4 constitute the four-stage deterministic pipeline.}
+\label{fig:pipeline}
+\end{figure}
+
+\paragraph{Stage 0: Hybrid candidate generation.}
+Dense similarity (\texttt{sqlite-vec}) and lexical BM25~\cite{robertson2009bm25} (FTS5) rankings are fused with Reciprocal Rank Fusion~\cite{cormack2009rrf}:
+\begin{equation}
+  \mathrm{RRF}(d)=\sum_{r\in\{\text{vec},\,\text{BM25}\}}\frac{1}{k+\mathrm{rank}_r(d)},
+\end{equation}
+where $k$ is a smoothing constant ($k=60$ in the original formulation).
+
+\paragraph{Stage 1: Rocchio pseudo-relevance feedback.}
+To bridge vocabulary mismatch without an LLM, we apply Rocchio feedback~\cite{rocchio1971relevance} in embedding space:
+\begin{equation}
+  \vq_{\text{exp}}=\alpha\,\vq_0+\frac{\beta}{|\mathcal{D}_{\text{top}}|}\sum_{\vec d\in\mathcal{D}_{\text{top}}}\vec d,
+  \label{eq:rocchio}
+\end{equation}
+with $\alpha=0.7$, $\beta=0.3$ and $|\mathcal{D}_{\text{top}}|=2$ top-ranked documents.
+
+\paragraph{Stage 2: Personalized PageRank.}
+We build a bipartite graph $G=(V_E\cup V_S,E)$ in which $V_E$ are entities and $V_S$ are canonical states and loci. Let $M$ be its row-normalised transition matrix and $\vp_0$ the teleport vector seeded from Stage~1 candidates. The stationary distribution is obtained by power iteration~\cite{page1999pagerank}:
+\begin{equation}
+  \vp^{(t+1)}=(1-\gamma)\,\vp_0+\gamma\big(M^{\top}\vp^{(t)}+\vec w_{\text{dangle}}\big),
+  \label{eq:ppr}
+\end{equation}
+with damping $\gamma=0.85$ and $T=20$ iterations; $\vec w_{\text{dangle}}$ redistributes the probability mass held by dangling nodes so that total mass is conserved. Diffusion lets evidence reach turns in other sessions that share entities or states with the seed hits, which supports multi-hop retrieval without LLM query decomposition.
+
+\paragraph{Stage 3: Cross-encoder re-scoring.}
+Bi-encoders embed query and document independently and discard token-level interaction. We re-score the surviving candidates with a 3.2\,MB ONNX-quantised TinyBERT cross-encoder (\texttt{ms-marco-TinyBERT-L-2-v2}, served through FlashRank~\cite{flashrank}) running on CPU~\cite{jiao2020tinybert,nogueira2019passage}:
+\begin{equation}
+  s_{\text{cross}}(q,d)=\sigma\!\big(\mathbf{w}^{\top}\mathbf{h}_{\text{[CLS]}}([q;d])+b\big),
+  \label{eq:cross}
+\end{equation}
+where $[q;d]$ is the concatenated input pair. A batch is scored in under 3.5\,ms.
+
+\paragraph{Stage 4: Maximal Marginal Relevance.}
+To fit the most information into a token budget $B$, candidates $\mathcal{C}$ are selected greedily by MMR~\cite{carbonell1998mmr}:
+\begin{equation}
+  d^{*}=\arg\max_{d\in\mathcal{C}\setminus\mathcal{S}}\Big[\lambda\,s_{\text{cross}}(q,d)-(1-\lambda)\max_{s\in\mathcal{S}}\mathrm{Sim}(d,s)\Big],
+  \label{eq:mmr}
+\end{equation}
+where $\mathcal{S}$ is the set already selected, $\mathrm{Sim}$ is embedding similarity, and $\lambda=0.7$. Selection stops when $B$ is exhausted.
+
+% =====================================================================
+\section{Experimental Evaluation}
+\label{sec:eval}
+
+\subsection{Benchmark and Protocol}
+We evaluate on the LoCoMo dataset of Maharana et al.~\cite{maharana2024locomo}, which contains 10 very long multi-session dialogues (up to 35 sessions and several hundred turns each). We use 1,536 evaluation queries from the single-hop, multi-hop, temporal and open-domain categories; the adversarial (unanswerable) category is excluded.
+We report two disclosures:
+\begin{itemize}
+    \item \textbf{Exact metrics:} verbatim equality between a retrieved passage and a gold evidence span.
+    \item \textbf{Fuzzy metrics:} an exact match or $\ge 60\%$ token set overlap with the smaller segment ($\min(|W_{\text{ret}}|, |W_{\text{gold}}|) \ge 2$) after standard lowercase and punctuation normalization.
+    \emph{Answer-in-Context} measures whether the gold answer string is present in the retrieved context.
+\end{itemize}
+\textbf{Setup.} All retrieval latencies are measured strictly on a consumer laptop CPU (Windows 11, 16\,GB RAM, host equipped with an NVIDIA RTX 3050 6\,GB GPU), using local \texttt{BAAI/bge-small-en-v1.5} embeddings (384-d, ONNX Runtime) and Ollama serving 4-bit quantised Qwen-2.5-3B (\texttt{qwen2.5:3b}) for background sleep consolidation. \textbf{Modes.} \emph{Zero-LLM} uses only the live path on raw episodes. \emph{With-LLM} first runs sleep consolidation with Qwen-2.5-3B; retrieval itself still makes no LLM call.
+
+\subsection{Results}
+Table~\ref{tab:main} reports the overall metrics and Table~\ref{tab:cat} and Figure~\ref{fig:categories} break them down by question category.
+
+\begin{table}[t]
+\centering
+\small
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Metric} & \textbf{Zero-LLM} & \textbf{With-LLM (3B)}\\
+\midrule
+Exact MRR (\%) & 21.09 & 12.52\\
+Fuzzy MRR (\%) & 28.17 & 16.68\\
+Fuzzy Recall@1 (\%) & 23.18 & 9.77\\
+Fuzzy Recall@5 (\%) & 32.75 & 24.35\\
+Fuzzy Recall@10 (\%) & 37.96 & 39.32\\
+Fuzzy Recall@20 (\%) & 46.94 & 45.90\\
+\textbf{Fuzzy Answer-in-Context (\%)} & \textbf{27.21} & \textbf{31.71}\\
+\midrule
+Latency p50, CPU (ms) & 63.82 & 56.18\\
+Latency p95, CPU (ms) & 99.40 & 98.24\\
+Mean context tokens & 414 & 677\\
+Token reduction vs.\ full context (\%) & 98.4 & 97.4\\
+\bottomrule
+\end{tabular}
+\caption{Overall results on all 1,536 LoCoMo queries (10 conversations). Token reduction is relative to the $\sim$25,600-token full-context baseline.}
+\label{tab:main}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{7pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}l r rr rr@{}}
+\toprule
+ & & \multicolumn{2}{c}{\textbf{Fuzzy R@10 (\%)}} & \multicolumn{2}{c}{\textbf{Answer-in-Ctx (\%)}}\\
+\cmidrule(lr){3-4}\cmidrule(l){5-6}
+\textbf{Category} & $n$ & Zero & With & Zero & With\\
+\midrule
+Single-hop  & 841 & 36.13 & 39.60 & 20.81 & 36.86\\
+Multi-hop   & 282 & 39.72 & 41.49 & 16.31 & 20.92\\
+Temporal    & 321 & 42.99 & 40.81 & 30.24 & 33.96\\
+Open-domain &  92 & 26.09 & 25.00 &  6.52 &  9.78\\
+\bottomrule
+\end{tabular}
+\caption{Per-category results (Zero = Zero-LLM, With = With-LLM). $n$ is the number of queries per category.}
+\label{tab:cat}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\pgfplotsset{
+  catplot/.style={
+    width=\linewidth,height=5.2cm,ybar,bar width=9pt,
+    symbolic x coords={Single-hop,Multi-hop,Temporal,Open-dom.},
+    xtick=data,x tick label style={font=\scriptsize},
+    ymin=0,ymax=50,ymajorgrids=true,grid style={dashed,black!25},
+    tick label style={font=\scriptsize},
+    ylabel style={font=\scriptsize},
+    enlarge x limits=0.14,
+    area legend,
+    every axis plot/.append style={draw=black!60,line width=0.3pt}
+  }
+}
+\begin{subfigure}[t]{0.49\linewidth}
+\centering
+\begin{tikzpicture}
+\begin{axis}[catplot,ylabel={Fuzzy Recall@10 (\%)},
+  legend entries={Zero-LLM,With-LLM},
+  legend style={font=\scriptsize,at={(0.5,1.04)},anchor=south,legend columns=2,draw=none},
+  ]
+\addplot[fill=blue!25] coordinates {(Single-hop,36.13) (Multi-hop,39.72) (Temporal,42.99) (Open-dom.,26.09)};
+\addplot[fill=blue!75!black] coordinates {(Single-hop,39.60) (Multi-hop,41.49) (Temporal,40.81) (Open-dom.,25.00)};
+\end{axis}
+\end{tikzpicture}
+\caption{Fuzzy Recall@10.}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.49\linewidth}
+\centering
+\begin{tikzpicture}
+\begin{axis}[catplot,ylabel={Answer-in-Context (\%)},
+  legend entries={Zero-LLM,With-LLM},
+  legend style={font=\scriptsize,at={(0.5,1.04)},anchor=south,legend columns=2,draw=none},
+  ]
+\addplot[fill=blue!25] coordinates {(Single-hop,20.81) (Multi-hop,16.31) (Temporal,30.24) (Open-dom.,6.52)};
+\addplot[fill=blue!75!black] coordinates {(Single-hop,36.86) (Multi-hop,20.92) (Temporal,33.96) (Open-dom.,9.78)};
+\end{axis}
+\end{tikzpicture}
+\caption{Answer-in-Context recall.}
+\end{subfigure}
+\caption{Per-category comparison of Zero-LLM and With-LLM modes on LoCoMo (1,536 queries; exact values in Table~\ref{tab:cat}).}
+\label{fig:categories}
+\end{figure}
+
+\subsection{Analysis}
+\begin{itemize}
+    \item \textbf{Answer-in-Context improves with consolidation (+4.5 points absolute).} Sleep consolidation extracts compact states and events, so the concise answer is present in 31.71\% of contexts versus 27.21\% in Zero-LLM mode. The gain is largest on single-hop factual queries (20.81\% $\rightarrow$ 36.86\%).
+    \item \textbf{Multi-hop retrieval without query-time LLMs.} Personalized PageRank over the entity--state--locus graph yields 41.49\% multi-hop Recall@10 (With-LLM) and 39.72\% (Zero-LLM) without LLM query decomposition.
+    \item \textbf{The MRR trade-off.} LoCoMo evidence is annotated at the level of raw dialogue turns. In With-LLM mode, structured states occupy Tiers~1--2 and raw turns fall to Tier~3, which lowers exact-match MRR (12.52\% vs.\ 21.09\%) even though the answer is more often present in the context (31.71\% vs.\ 27.21\%). Rank-based metrics against turn-level evidence therefore under-credit structured memories.
+    \item \textbf{Open-domain questions remain hard.} Both modes score below 26\% Recall@10 and below 10\% Answer-in-Context on open-domain queries ($n=92$), which depend on world knowledge beyond the conversation.
 \end{itemize}
 
-\section{Discussion \& Hardware Realities}
+\subsection{Comparison with Existing Systems}
+Table~\ref{tab:landscape} contrasts \orma's \emph{operational profile} with published memory systems across architectural dimensions, latency, token budgets, reported accuracy regimes, and grounding strategies.
 
-Deploying memory on resource-constrained consumer hardware demands respect for hardware topology:
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Zero Cloud Leaks:} All embeddings (\texttt{fastembed} / ONNX) and vectors reside locally in SQLite.
-    \item \textbf{Predictable Latency:} With p50 latency under 57\,ms and p95 under 99\,ms, retrieval never blocks user interaction.
-    \item \textbf{Token Economics:} Injecting 414--677 tokens preserves 97\% of the context window for actual reasoning and tool execution in 3B/8B models.
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.18}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X c r r >{\raggedright\arraybackslash}p{2.3cm} >{\raggedright\arraybackslash}p{2.0cm}@{}}
+\toprule
+\textbf{Framework} & \textbf{Retrieval Mechanism} & \textbf{LLM Calls} & \textbf{Latency} & \textbf{Tokens} & \textbf{LoCoMo / Accuracy} & \textbf{Grounding}\\
+\midrule
+Full-Context & Raw history stuffing & 0 & 17,120\,ms & $\sim$25,600 & 40\%--52\% (Degraded) & Raw text dump\\
+LangMem~\cite{langmem} & Vector store top-$k$ & 1--2 & $\sim$1,500\,ms & $\sim$4,500 & 70\%--75\% & Vector chunks\\
+MemGPT~\cite{packer2023memgpt} & Virtual paging OS & 2--4 & $\sim$2,200\,ms & $\sim$3,500 & $\sim$74\% F1 & Tiered context\\
+Cognee~\cite{cognee} & Graph-RAG traversal & $\geq$2 & $\sim$1,950\,ms & $\sim$4,500 & 73\%--86\% token red. & Graph + vectors\\
+Mem0 (Base)~\cite{chhikara2025mem0} & Vector + synthesis & $\geq$1 & 1,440\,ms & $\sim$1,764 & 62\%--68\% & Extracted bullets\\
+Mem0$^{g}$ (Graph)~\cite{chhikara2025mem0} & Graph + vectors & $\geq$2 & 2,600\,ms & $\sim$3,600 & High multi-hop lag & Triples + vectors\\
+Zep (Graphiti)~\cite{rasmussen2025zep} & Temporal graph & 1--2 & $\sim$1,800\,ms & $\sim$2,800 & 78\%--85\% (Cloud) & Temporal graph\\
+\midrule
+\textbf{\orma{} (Zero-LLM)} & \textbf{4-Stage Math IR + Loci} & \textbf{0} & \textbf{63.8\,ms} & \textbf{414} & \textbf{28.17\% F-MRR} / 46.9\% R20 & Lossless SQLite\\
+\textbf{\orma{} (With-LLM)} & \textbf{Zero-LLM + Qwen-2.5-3B} & \textbf{0} at recall & \textbf{56.2\,ms} & \textbf{677} & \textbf{31.7\% Ans-Ctx} / 41.5\% Hop & States + Loci\\
+\bottomrule
+\end{tabularx}
+\caption{Operational comparison across agent memory frameworks. Baseline figures are compiled from published literature and technical documentation; baseline latencies include cloud LLM generation. \orma's latency reflects local CPU-only retrieval. Accuracy regimes reflect published evaluations (LLM-judged QA vs.\ deterministic IR metrics).}
+\label{tab:landscape}
+\end{table}
+
+% =====================================================================
+\section{Discussion}
+\label{sec:discussion}
+\begin{itemize}
+    \item \textbf{Local by construction.} Embeddings (\texttt{fastembed}/ONNX) and vectors reside in a local SQLite file; no data leaves the machine.
+    \item \textbf{Predictable latency.} Median retrieval latency is below 64\,ms and p95 below 100\,ms in both modes (Table~\ref{tab:main}), so retrieval does not block interaction.
+    \item \textbf{Token economy.} A 414--677 token memory block occupies about 2\% of a 32K-token context window, leaving the remainder for reasoning and tool use on 3B--8B models.
 \end{itemize}
+
+\section{Limitations}
+\label{sec:limits}
+(i)~The five scenarios of Section~\ref{sec:failures} are qualitative design drivers; we do not report controlled experiments for supersession, attribution bleed, defeasible exceptions, prohibition framing or temporal resolution, nor for the claimed $\sim$40\% token saving from bracket encoding.
+(ii)~We evaluate retrieval on one benchmark and do not measure downstream answer quality; absolute MRR and recall values are modest, especially on open-domain queries.
+(iii)~Latency was measured on a single hardware configuration, and baseline figures in Table~\ref{tab:landscape} are taken from reports, not re-run.
+(iv)~With-LLM mode depends on the quality of a 3B extractor; citation verification discards unverifiable extractions, which may reduce recall.
+(v)~Hyperparameters ($d$, $\alpha$, $\beta$, $\gamma$, $\lambda$) are fixed and were not tuned per dataset; ablations of individual stages are left to future work.
 
 \section{Conclusion}
+\label{sec:conclusion}
+We presented \orma, an episode-first cognitive memory engine for local language models. By combining cognitive dynamics, pragmatic linguistic heuristics and classical metric-space retrieval, \orma{} supports associative and multi-hop recall without synchronous generation latency or the risk of corrupting memory through LLM-written updates. On LoCoMo it retrieves with a median latency of about 60\,ms using 414--677 context tokens, and background consolidation raises Answer-in-Context recall. Future work includes stage-wise ablations, end-to-end QA comparison with existing systems, and quantitative evaluation of the five failure scenarios.
 
-We presented Orma, an episode-first cognitive memory engine for local language models. By grounding memory in an ensemble of cognitive neuroscience, Paninian formal grammar, and metric-space mathematics, Orma proves that agent memory can achieve high precision and multi-hop associative recall without incurring synchronous generation latency or hallucinated graph corruption. Orma is open-sourced under the Apache-2.0 license.
+\paragraph{Code availability.}
+The source code is available under the Apache-2.0 license at \url{https://github.com/wizardwithcodehazard/orma}.
 
-\bibliographystyle{plain}
-\bibliography{references}
+% =====================================================================
+\begin{thebibliography}{99}
+\bibitem{anderson1998actr} J.~R. Anderson and C.~Lebiere. \emph{The Atomic Components of Thought}. Lawrence Erlbaum Associates, 1998.
+\bibitem{carbonell1998mmr} J.~Carbonell and J.~Goldstein. The use of MMR, diversity-based reranking for reordering documents and producing summaries. In \emph{Proc.\ 21st Annual International ACM SIGIR Conference on Research and Development in Information Retrieval}, pages 335--336, 1998.
+\bibitem{chhikara2025mem0} P.~Chhikara, D.~Khant, S.~Aryan, T.~Singh, and D.~Yadav. Mem0: Building production-ready AI agents with scalable long-term memory. \emph{arXiv preprint arXiv:2504.19413}, 2025.
+\bibitem{cognee} Cognee. Open-source memory for AI agents. \url{https://github.com/topoteretes/cognee}.
+\bibitem{cormack2009rrf} G.~V. Cormack, C.~L.~A. Clarke, and S.~Buettcher. Reciprocal rank fusion outperforms Condorcet and individual rank learning methods. In \emph{Proc.\ 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval}, pages 758--759, 2009.
+\bibitem{ebbinghaus1885memory} H.~Ebbinghaus. \emph{Memory: A Contribution to Experimental Psychology}. Teachers College, Columbia University, 1913 (original German edition 1885).
+\bibitem{flashrank} P.~Damodaran. FlashRank: Ultra-lite and super-fast re-ranking library. \url{https://github.com/PrithivirajDamodaran/FlashRank}.
+\bibitem{hawkes1971spectra} A.~G. Hawkes. Spectra of some self-exciting and mutually exciting point processes. \emph{Biometrika}, 58(1):83--90, 1971.
+\bibitem{jiao2020tinybert} X.~Jiao, Y.~Yin, L.~Shang, X.~Jiang, X.~Chen, L.~Li, F.~Wang, and Q.~Liu. TinyBERT: Distilling BERT for natural language understanding. In \emph{Findings of the Association for Computational Linguistics: EMNLP 2020}, pages 4163--4174, 2020.
+\bibitem{langmem} LangChain. LangMem SDK for agent long-term memory. \url{https://langchain-ai.github.io/langmem/}.
+\bibitem{liu2024lost} N.~F. Liu, K.~Lin, J.~Hewitt, A.~Paranjape, M.~Bevilacqua, F.~Petroni, and P.~Liang. Lost in the middle: How language models use long contexts. \emph{Transactions of the Association for Computational Linguistics}, 12:157--173, 2024.
+\bibitem{maharana2024locomo} A.~Maharana, D.-H. Lee, S.~Tulyakov, M.~Bansal, F.~Barbieri, and Y.~Fang. Evaluating very long-term conversational memory of LLM agents. In \emph{Proc.\ 62nd Annual Meeting of the Association for Computational Linguistics (ACL)}, 2024. arXiv:2402.17753.
+\bibitem{nogueira2019passage} R.~Nogueira and K.~Cho. Passage re-ranking with BERT. \emph{arXiv preprint arXiv:1901.04085}, 2019.
+\bibitem{packer2023memgpt} C.~Packer, S.~Wooders, K.~Lin, V.~Fang, S.~G. Patil, I.~Stoica, and J.~E. Gonzalez. MemGPT: Towards LLMs as operating systems. \emph{arXiv preprint arXiv:2310.08560}, 2023.
+\bibitem{page1999pagerank} L.~Page, S.~Brin, R.~Motwani, and T.~Winograd. The PageRank citation ranking: Bringing order to the web. Technical report, Stanford InfoLab, 1999.
+\bibitem{qwen2024qwen25} Qwen Team. Qwen2.5 technical report. \emph{arXiv preprint arXiv:2412.15115}, 2024.
+\bibitem{rasmussen2025zep} P.~Rasmussen, P.~Paliychuk, T.~Beauvais, J.~Ryan, and D.~Chalef. Zep: A temporal knowledge graph architecture for agent memory. \emph{arXiv preprint arXiv:2501.13956}, 2025.
+\bibitem{robertson2009bm25} S.~Robertson and H.~Zaragoza. The probabilistic relevance framework: BM25 and beyond. \emph{Foundations and Trends in Information Retrieval}, 3(4):333--389, 2009.
+\bibitem{rocchio1971relevance} J.~J. Rocchio. Relevance feedback in information retrieval. In \emph{The SMART Retrieval System: Experiments in Automatic Document Processing}, pages 313--323. Prentice-Hall, 1971.
+\bibitem{sqlitevec} A.~Garcia. sqlite-vec: A vector search SQLite extension. \url{https://github.com/asg017/sqlite-vec}.
+\bibitem{yates1966art} F.~A. Yates. \emph{The Art of Memory}. Routledge and Kegan Paul, 1966.
+\end{thebibliography}
 
 \end{document}
