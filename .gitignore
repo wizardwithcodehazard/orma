@@ -70,6 +70,12 @@ scratch/
 benchmarks/
 reports/
 !reports/*.json
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.blg
+paper/*.out
+paper/*.log
 *_report.json
 *.json_report
 test_*.json
