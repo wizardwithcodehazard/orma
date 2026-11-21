@@ -1,0 +1,82 @@
+{
+  "benchmark": "Official Snap Research LoCoMo Benchmark",
+  "evaluation_scope": "FULL DATASET EVALUATION",
+  "dataset_source": "https://github.com/snap-research/locomo",
+  "dataset_file": "locomo10.json",
+  "conversations_evaluated": 10,
+  "total_dataset_conversations": 10,
+  "queries_evaluated": 1536,
+  "multilingual_embedding": false,
+  "evaluation_protocol": "Standard Information Retrieval (Dual Exact & Fuzzy Disclosure)",
+  "results": {
+    "evidence_retrieval_exact": {
+      "MRR": 21.09,
+      "Recall@1": 17.97,
+      "Recall@5": 24.67,
+      "Recall@10": 25.85,
+      "Recall@20": 30.99,
+      "Answer_in_Context_Recall": 14.13
+    },
+    "evidence_retrieval_fuzzy": {
+      "MRR": 28.17,
+      "Recall@1": 23.18,
+      "Recall@5": 32.75,
+      "Recall@10": 37.96,
+      "Recall@20": 46.94,
+      "Answer_in_Context_Recall": 27.21
+    },
+    "system_performance": {
+      "retrieval_latency_p50_ms": 63.82,
+      "retrieval_latency_p95_ms": 86.44,
+      "mean_context_tokens": 414,
+      "mean_raw_history_tokens": 25600,
+      "token_compression_ratio_percent": 98.4
+    },
+    "per_category_analysis": {
+      "Multi-Hop Reasoning": {
+        "count": 282,
+        "exact_mrr": 15.44,
+        "fuzzy_mrr": 22.32,
+        "exact_r5": 21.63,
+        "fuzzy_r5": 29.43,
+        "exact_r10": 23.4,
+        "fuzzy_r10": 39.72,
+        "exact_ans_recall": 7.09,
+        "fuzzy_ans_recall": 16.31
+      },
+      "Temporal Reasoning": {
+        "count": 321,
+        "exact_mrr": 25.64,
+        "fuzzy_mrr": 31.74,
+        "exact_r5": 28.66,
+        "fuzzy_r5": 35.83,
+        "exact_r10": 30.53,
+        "fuzzy_r10": 42.99,
+        "exact_ans_recall": 5.61,
+        "fuzzy_ans_recall": 29.28
+      },
+      "Open-Domain Inference": {
+        "count": 92,
+        "exact_mrr": 13.09,
+        "fuzzy_mrr": 15.6,
+        "exact_r5": 18.48,
+        "fuzzy_r5": 20.65,
+        "exact_r10": 19.57,
+        "fuzzy_r10": 26.09,
+        "exact_ans_recall": 4.35,
+        "fuzzy_ans_recall": 7.61
+      },
+      "Single-Hop Factual": {
+        "count": 841,
+        "exact_mrr": 22.12,
+        "fuzzy_mrr": 30.15,
+        "exact_r5": 24.85,
+        "fuzzy_r5": 34.01,
+        "exact_r10": 25.56,
+        "fuzzy_r10": 36.74,
+        "exact_ans_recall": 20.81,
+        "fuzzy_ans_recall": 32.22
+      }
+    }
+  }
+}

@@ -69,6 +69,7 @@ eval/runs/
 scratch/
 benchmarks/
 reports/
+!reports/*.json
 *_report.json
 *.json_report
 test_*.json
