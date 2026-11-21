@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://img.shields.io/badge/tests-226%20passed-brightgreen.svg)](tests/)
-[![Benchmark](https://img.shields.io/badge/LoCoMo-10%20Conversations%20Verified-blueviolet.svg)](reports/full_10_advanced_no_llm_report.json)
+[![Benchmark](https://img.shields.io/badge/LoCoMo-Zero--LLM%20%26%20With--LLM%20Verified-blueviolet.svg)](reports/full_10_with_llm_report.json)
  
 ---
  
@@ -212,21 +212,21 @@ quadrantChart
 | **Mem0g (Graph)** | Vector + Graph traversal | 2+ LLM calls | 2,600 ms | ~3,600 | High multi-hop, 2.6s chat freeze | Entity relation graph + vectors |
 | **Zep (Graphiti)** | Temporal Knowledge Graph | 1–2 LLM calls | ~1,800 ms | ~2,800 | ~78%–85% (Cloud dependent) | Dynamic temporal knowledge graph |
 | **Orma (Zero-LLM Mode)** | **4-Stage Math IR + Method of Loci** | **0 calls** | **63.8 ms** | **414** | **28.17% Fuzzy MRR / 46.94% R@20 / 39.72% Multi-Hop R@10 (Pure IR)** | **Lossless SQLite + Local ONNX** |
-| **Orma (With-LLM Mode)** | **Zero-LLM Recall + Local Sleep Worker** | **0 calls at recall (asynchronous sleep)** | **63.8 ms** | **414** | **Targeting 88%+ Generative QA on Qwen-2.5-3B** | **States, Events & Inhibitory Guard** |
+| **Orma (With-LLM Mode)** | **Zero-LLM Recall + Qwen-2.5-3B Sleep** | **0 calls at recall (asynchronous sleep)** | **56.2 ms** | **677** | **31.71% Answer-in-Context / 41.49% Multi-Hop R@10 / 36.86% Factual Answer** | **States, Events & Inhibitory Guard** |
  
-### 2. Dual-Disclosure Performance Metrics (Full 10 Conversations)
+### 2. Dual-Disclosure Performance Metrics (Full 10 Conversations, 1,536 Queries)
  
-| Metric | Full Context Baseline | Mem0 (Published) | Orma Baseline (Zero-LLM + Palace) | **Orma with 4-Stage Advanced IR** |
+| Metric | Full Context Baseline | Mem0 (Published) | Orma (Zero-LLM Mode) | **Orma (With-LLM: Qwen-2.5-3B)** |
 | :--- | :--- | :--- | :--- | :--- |
-| **Exact MRR** | 5.20% | -- | 20.08% | **21.09%** |
-| **Fuzzy MRR** | 9.80% | -- | 26.51% | **28.17%** |
-| **Fuzzy Recall@1** | 7.10% | -- | 22.01% | **23.18%** |
-| **Fuzzy Recall@5** | 14.50% | -- | 31.05% | **32.75%** |
-| **Fuzzy Recall@10** | 19.30% | -- | 36.13% | **37.96%** |
-| **Fuzzy Recall@20** | 24.80% | -- | 46.88% | **46.94%** |
-| **Fuzzy Answer-in-Context** | 11.20% | -- | 25.72% | **27.21%** |
-| **Retrieval Latency (p50)** | 17,120 ms | 1,440 ms | 21.57 ms | **63.82 ms (CPU ONNX)** |
-| **Prompt Memory Tokens** | ~25,600 | ~1,764 | 414 | **414 (-98.4% reduction)** |
+| **Fuzzy Answer-in-Context** | 11.20% | -- | 27.21% | **31.71% (+4.5% absolute gain)** |
+| **Single-Hop Factual Answer** | -- | -- | 20.81% | **36.86% (+16.0% gain)** |
+| **Multi-Hop Fuzzy Recall@10** | -- | -- | 39.72% | **41.49% (+1.77% gain)** |
+| **Temporal Fuzzy Recall@10** | -- | -- | 42.99% | **40.81%** |
+| **Fuzzy Recall@10** | 19.30% | -- | 37.96% | **39.32%** |
+| **Fuzzy Recall@20** | 24.80% | -- | 46.94% | **45.90%** |
+| **Retrieval Latency (p50)** | 17,120 ms | 1,440 ms | 63.82 ms | **56.18 ms (CPU)** |
+| **Retrieval Latency (p95)** | -- | -- | 99.40 ms | **98.24 ms** |
+| **Prompt Memory Tokens** | ~25,600 | ~1,764 | 414 | **677 (-97.4% reduction)** |
  
 ### 3. Visual Latency & Footprint Comparison
  
@@ -248,10 +248,10 @@ Orma          | #                                     414 tokens
  
 ### 4. Category-Wise Accuracy (1,536 Queries)
  
-* **Multi-Hop Reasoning (N = 282):** Fuzzy Recall@10 = **39.72%** (Cross-session gold dialogue evidence discovered without LLM decomposition).
-* **Temporal Reasoning (N = 321):** Fuzzy Recall@10 = **42.99%** (Chronological order preserved via Method of Loci checkpoint gists).
-* **Single-Hop Factual (N = 841):** Exact Answer-in-Context = **20.81%** (Verbatim answer text surfaced directly in retrieved top passages).
-* **Open-Domain Inference (N = 92):** Fuzzy Recall@10 = **26.09%**.
+* **Multi-Hop Reasoning (N = 282):** Fuzzy Recall@10 = **41.49%** (With-LLM) vs **39.72%** (Zero-LLM) — cross-session gold dialogue evidence discovered without query reformulation.
+* **Single-Hop Factual (N = 841):** Answer-in-Context = **36.86%** (With-LLM) vs **20.81%** (Zero-LLM) — concise canonical facts directly answer factual questions.
+* **Temporal Reasoning (N = 321):** Answer-in-Context = **33.96%** (With-LLM), Fuzzy Recall@10 = **40.81%** — chronological order preserved via Method of Loci checkpoint gists.
+* **Open-Domain Inference (N = 92):** Fuzzy Recall@10 = **25.00%**.
 ### 5. Understanding the Numbers: Pure IR Recall vs. Generative QA Accuracy
  
 When reviewing memory benchmarks, researchers should distinguish between two distinct evaluation tasks:
