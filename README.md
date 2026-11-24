@@ -2,7 +2,9 @@
 <!-- mcp-name: io.github.wizardwithcodehazard/orma -->
  
 > **Orma** *(Dravidian / Malayalam for "memory" or "recollection")* is an episode-first, zero-latency long-term cognitive memory engine built specifically for local, open-weight LLMs (3B to 8B models on everyday consumer 8–16 GB laptops).
- 
+
+<a href="https://www.producthunt.com/products/orma-3?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-orma-3" target="_blank" rel="noopener noreferrer"><img alt="Orma - Cognitive memory for local LLMs with 0 query-time calls | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1329637&amp;theme=light&amp;t=1795547656035"></a>
+
 [![PyPI Version](https://img.shields.io/pypi/v/orma-ai.svg)](https://pypi.org/project/orma-ai/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24421388.svg)](https://doi.org/10.5281/zenodo.24421388)
 [![Paper Preprint](https://img.shields.io/badge/Paper-Preprint%20(PDF)-red.svg)](paper/paper.pdf)
